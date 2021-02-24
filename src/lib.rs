@@ -593,3 +593,74 @@ fn test_permutations_missing_lines() {
         }
     }
 }
+
+#[test]
+fn test_permutations_reverse() {
+    // test all possible six-line files.
+    for &a in &[0, 1, 2] {
+        for &b in &[0, 1, 2] {
+            for &c in &[0, 1, 2] {
+                for &d in &[0, 1, 2] {
+                    for &e in &[0, 1, 2] {
+                        for &f in &[0, 1, 2] {
+                            use std::fs::{self, File};
+                            use std::io::Write;
+                            use std::process::Command;
+                            let mut alef = Vec::new();
+                            let mut bet = Vec::new();
+                            alef.write_all(if a == 0 { b"a\n" } else { b"f\n" }).unwrap();
+                            if a != 2 {
+                                bet.write_all(b"a\n").unwrap();
+                            }
+                            alef.write_all(if b == 0 { b"b\n" } else { b"e\n" }).unwrap();
+                            if b != 2 {
+                                bet.write_all(b"b\n").unwrap();
+                            }
+                            alef.write_all(if c == 0 { b"c\n" } else { b"d\n" }).unwrap();
+                            if c != 2 {
+                                bet.write_all(b"c\n").unwrap();
+                            }
+                            alef.write_all(if d == 0 { b"d\n" } else { b"c\n" }).unwrap();
+                            if d != 2 {
+                                bet.write_all(b"d\n").unwrap();
+                            }
+                            alef.write_all(if e == 0 { b"e\n" } else { b"b\n" }).unwrap();
+                            if e != 2 {
+                                bet.write_all(b"e\n").unwrap();
+                            }
+                            alef.write_all(if f == 0 { b"f\n" } else { b"a\n" }).unwrap();
+                            if f != 2 {
+                                bet.write_all(b"f\n").unwrap();
+                            }
+                            // This test diff is intentionally reversed.
+                            // We want it to turn the alef into bet.
+                            let diff = diff(&alef, "a/alefr", &bet, "target/alefr", 2);
+                            File::create("target/abr.diff")
+                                .unwrap()
+                                .write_all(&diff)
+                                .unwrap();
+                            let mut fa = File::create("target/alefr").unwrap();
+                            fa.write_all(&alef[..]).unwrap();
+                            let mut fb = File::create("target/betr").unwrap();
+                            fb.write_all(&bet[..]).unwrap();
+                            let _ = fa;
+                            let _ = fb;
+                            let output = Command::new("patch")
+                                .arg("-p0")
+                                .stdin(File::open("target/abr.diff").unwrap())
+                                .output()
+                                .unwrap();
+                            if !output.status.success() {
+                                panic!("{:?}", output);
+                            }
+                            //println!("{}", String::from_utf8_lossy(&output.stdout));
+                            //println!("{}", String::from_utf8_lossy(&output.stderr));
+                            let alef = fs::read("target/alefr").unwrap();
+                            assert_eq!(alef, bet);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
