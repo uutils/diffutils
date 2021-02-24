@@ -608,27 +608,33 @@ fn test_permutations_reverse() {
                             use std::process::Command;
                             let mut alef = Vec::new();
                             let mut bet = Vec::new();
-                            alef.write_all(if a == 0 { b"a\n" } else { b"f\n" }).unwrap();
+                            alef.write_all(if a == 0 { b"a\n" } else { b"f\n" })
+                                .unwrap();
                             if a != 2 {
                                 bet.write_all(b"a\n").unwrap();
                             }
-                            alef.write_all(if b == 0 { b"b\n" } else { b"e\n" }).unwrap();
+                            alef.write_all(if b == 0 { b"b\n" } else { b"e\n" })
+                                .unwrap();
                             if b != 2 {
                                 bet.write_all(b"b\n").unwrap();
                             }
-                            alef.write_all(if c == 0 { b"c\n" } else { b"d\n" }).unwrap();
+                            alef.write_all(if c == 0 { b"c\n" } else { b"d\n" })
+                                .unwrap();
                             if c != 2 {
                                 bet.write_all(b"c\n").unwrap();
                             }
-                            alef.write_all(if d == 0 { b"d\n" } else { b"c\n" }).unwrap();
+                            alef.write_all(if d == 0 { b"d\n" } else { b"c\n" })
+                                .unwrap();
                             if d != 2 {
                                 bet.write_all(b"d\n").unwrap();
                             }
-                            alef.write_all(if e == 0 { b"e\n" } else { b"b\n" }).unwrap();
+                            alef.write_all(if e == 0 { b"e\n" } else { b"b\n" })
+                                .unwrap();
                             if e != 2 {
                                 bet.write_all(b"e\n").unwrap();
                             }
-                            alef.write_all(if f == 0 { b"f\n" } else { b"a\n" }).unwrap();
+                            alef.write_all(if f == 0 { b"f\n" } else { b"a\n" })
+                                .unwrap();
                             if f != 2 {
                                 bet.write_all(b"f\n").unwrap();
                             }
