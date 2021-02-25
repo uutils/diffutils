@@ -35,5 +35,7 @@ but it implements a different format.
 +
 +[dependencies]
 +diff = "0.1.10"
+~/unified-diff$ rustup override set nightly
+~/unified-diff$ cargo fuzz run fuzz_patch
 ```
 

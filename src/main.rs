@@ -49,7 +49,7 @@ fn main() {
             &from.to_string_lossy(),
             &to_content,
             &to.to_string_lossy(),
-            3,
+            1,
         ))
         .unwrap();
 }
