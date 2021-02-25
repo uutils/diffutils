@@ -238,13 +238,10 @@ pub fn diff(
         let mut line_number_actual = result.line_number_actual;
         let mut expected_count = 0;
         let mut actual_count = 0;
-        let mut has_expected = false;
-        let mut has_actual = false;
         for line in &result.lines {
             match line {
                 DiffLine::Expected(_) => {
                     expected_count += 1;
-                    has_expected = true;
                 }
                 DiffLine::Context(_) => {
                     expected_count += 1;
@@ -252,7 +249,6 @@ pub fn diff(
                 }
                 DiffLine::Actual(_) => {
                     actual_count += 1;
-                    has_actual = true;
                 }
                 DiffLine::MissingNL => {}
             }
