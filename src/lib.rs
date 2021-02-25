@@ -252,16 +252,102 @@ pub fn diff(
                 DiffLine::MissingNL => {}
             }
         }
+        // Let's imagine this diff file
+        //
+        // --- a/something
+        // +++ b/something
+        // @@ -2,0 +3,1 @@
+        // + x
+        //
+        // In the unified diff format as implemented by GNU diff and patch,
+        // this is an instruction to insert the x *after* the preexisting line 2,
+        // not before. You can demonstrate it this way:
+        //
+        // $ echo -ne '--- a/something\t\n+++ b/something\t\n@@ -2,0 +3,1 @@\n+ x\n' > diff
+        // $ echo -ne 'a\nb\nc\nd\n' > something
+        // $ patch -p1 < diff
+        // patching file something
+        // $ cat something
+        // a
+        // b
+        //  x
+        // c
+        // d
+        //
+        // Notice how the x winds up at line 3, not line 2. This requires contortions to
+        // work with our diffing algorithm, which keeps track of the "intended destination line",
+        // not a line that things are supposed to be placed after. It's changing the first number,
+        // not the second, that actually affects where the x goes.
+        //
+        // # change the first number from 2 to 3, and now the x is on line 4 (it's placed after line 3)
+        // $ echo -ne '--- a/something\t\n+++ b/something\t\n@@ -3,0 +3,1 @@\n+ x\n' > diff
+        // $ echo -ne 'a\nb\nc\nd\n' > something
+        // $ patch -p1 < diff
+        // patching file something
+        // $ cat something
+        // a
+        // b
+        // c
+        //  x
+        // d
+        // # change the third number from 3 to 1000, and it's obvious that it's the first number that's
+        // # actually being read
+        // $ echo -ne '--- a/something\t\n+++ b/something\t\n@@ -2,0 +1000,1 @@\n+ x\n' > diff
+        // $ echo -ne 'a\nb\nc\nd\n' > something
+        // $ patch -p1 < diff
+        // patching file something
+        // $ cat something
+        // a
+        // b
+        //  x
+        // c
+        // d
+        //
+        // Now watch what happens if I add a context line:
+        //
+        // $ echo -ne '--- a/something\t\n+++ b/something\t\n@@ -2,1 +3,2 @@\n+ x\n c\n' > diff
+        // $ echo -ne 'a\nb\nc\nd\n' > something
+        // $ patch -p1 < diff
+        // patching file something
+        // Hunk #1 succeeded at 3 (offset 1 line).
+        //
+        // It technically "succeeded", but this is a warning. We want to produce clean diffs.
+        // Now that I have a context line, I'm supposed to say what line it's actually on, which is the
+        // line that the x will wind up on, and not the line immediately before.
+        //
+        // $ echo -ne '--- a/something\t\n+++ b/something\t\n@@ -3,1 +3,2 @@\n+ x\n c\n' > diff
+        // $ echo -ne 'a\nb\nc\nd\n' > something
+        // $ patch -p1 < diff
+        // patching file something
+        // $ cat something
+        // a
+        // b
+        //  x
+        // c
+        // d
+        //
+        // I made this comment because this stuff is not obvious from GNU's
+        // documentation on the format at all.
         if expected_count == 0 {
             line_number_expected -= 1
         }
         if actual_count == 0 {
             line_number_actual -= 1
         }
+        let exp_ct = if expected_count == 1 {
+            String::new()
+        } else {
+            format!(",{}", expected_count)
+        };
+        let act_ct = if actual_count == 1 {
+            String::new()
+        } else {
+            format!(",{}", actual_count)
+        };
         writeln!(
             output,
-            "@@ -{},{} +{},{} @@",
-            line_number_expected, expected_count, line_number_actual, actual_count
+            "@@ -{}{} +{}{} @@",
+            line_number_expected, exp_ct, line_number_actual, act_ct
         )
         .expect("write to Vec is infallible");
         for line in result.lines {
