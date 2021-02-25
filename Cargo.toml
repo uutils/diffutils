@@ -1,6 +1,6 @@
 [package]
 name = "unified-diff"
-version = "0.1.2"
+version = "0.2.0"
 authors = [
     "Michael Howell <michael@notriddle.com>",
     "The Rust Project Developers"
