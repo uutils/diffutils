@@ -1,6 +1,6 @@
 [package]
 name = "unified-diff"
-version = "0.2.0"
+version = "0.2.1"
 authors = [
     "Michael Howell <michael@notriddle.com>",
     "The Rust Project Developers"
@@ -9,6 +9,7 @@ edition = "2018"
 description = "An implementation of the GNU unified diff format"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/notriddle/rust-unified-diff"
+exclude = [ "fuzz" ]
 
 [[bin]]
 name = "unified-diff"
