@@ -8,7 +8,7 @@ use std::process::Command;
 
 fuzz_target!(|x: (Vec<u8>, Vec<u8>, u8)| {
     let (from, to, context) = x;
-    if let Ok(s) = String::from_utf8(from.clone()) {
+    /*if let Ok(s) = String::from_utf8(from.clone()) {
         if !s.is_ascii() { return }
         if s.find(|x| x < ' ' && x != '\n').is_some() { return }
     } else {
@@ -19,7 +19,7 @@ fuzz_target!(|x: (Vec<u8>, Vec<u8>, u8)| {
         if s.find(|x| x < ' ' && x != '\n').is_some() { return }
     } else {
         return
-    }
+    }*/
     let diff = unified_diff::diff(&from, "a/fuzz.file", &to, "target/fuzz.file", context as usize);
     File::create("target/fuzz.file.original")
         .unwrap()
