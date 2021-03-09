@@ -11,8 +11,5 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/notriddle/rust-unified-diff"
 exclude = [ "fuzz" ]
 
-[[bin]]
-name = "unified-diff"
-
 [dependencies]
 diff = "0.1.10"
