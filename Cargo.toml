@@ -1,15 +1,7 @@
-[package]
-name = "unified-diff"
-version = "0.2.1"
-authors = [
-    "Michael Howell <michael@notriddle.com>",
-    "The Rust Project Developers"
+[workspace]
+members = [
+    "lib/unified-diff",
+    "lib/context-diff",
+    "lib/normal-diff",
+    "bin/diff",
 ]
-edition = "2018"
-description = "An implementation of the GNU unified diff format"
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/notriddle/rust-unified-diff"
-exclude = [ "fuzz" ]
-
-[dependencies]
-diff = "0.1.10"

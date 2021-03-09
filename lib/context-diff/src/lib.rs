@@ -1,27 +1,37 @@
 use std::collections::VecDeque;
 use std::io::Write;
+use std::mem;
 
 #[derive(Debug, PartialEq)]
 pub enum DiffLine {
     Context(Vec<u8>),
-    Expected(Vec<u8>),
-    Actual(Vec<u8>),
-    MissingNL,
+    Change(Vec<u8>),
+    Add(Vec<u8>),
 }
 
 #[derive(Debug, PartialEq)]
 struct Mismatch {
-    pub line_number_expected: u32,
-    pub line_number_actual: u32,
-    pub lines: Vec<DiffLine>,
+    pub line_number_expected: usize,
+    pub line_number_actual: usize,
+    pub expected: Vec<DiffLine>,
+    pub actual: Vec<DiffLine>,
+    pub expected_missing_nl: bool,
+    pub actual_missing_nl: bool,
+    pub expected_all_context: bool,
+    pub actual_all_context: bool,
 }
 
 impl Mismatch {
-    fn new(line_number_expected: u32, line_number_actual: u32) -> Mismatch {
+    fn new(line_number_expected: usize, line_number_actual: usize) -> Mismatch {
         Mismatch {
             line_number_expected,
             line_number_actual,
-            lines: Vec::new(),
+            expected: Vec::new(),
+            actual: Vec::new(),
+            expected_missing_nl: false,
+            actual_missing_nl: false,
+            expected_all_context: false,
+            actual_all_context: false,
         }
     }
 }
@@ -40,8 +50,8 @@ fn make_diff(expected: &[u8], actual: &[u8], context_size: usize) -> Vec<Mismatc
 
     debug_assert_eq!(b"".split(|&c| c == b'\n').count(), 1);
     // ^ means that underflow here is impossible
-    let expected_lines_count = expected_lines.len() as u32 - 1;
-    let actual_lines_count = actual_lines.len() as u32 - 1;
+    let expected_lines_count = expected_lines.len() - 1;
+    let actual_lines_count = actual_lines.len() - 1;
 
     if expected_lines.last() == Some(&&b""[..]) {
         expected_lines.pop();
@@ -51,79 +61,80 @@ fn make_diff(expected: &[u8], actual: &[u8], context_size: usize) -> Vec<Mismatc
         actual_lines.pop();
     }
 
+    // Rust only allows allocations to grow to isize::MAX, and this is bigger than that.
+    let mut expected_lines_change_idx: usize = !0;
+
     for result in diff::slice(&expected_lines, &actual_lines) {
         match result {
             diff::Result::Left(str) => {
-                if lines_since_mismatch >= context_size && lines_since_mismatch > 0 {
+                if lines_since_mismatch > context_size && lines_since_mismatch > 0 {
                     results.push(mismatch);
                     mismatch = Mismatch::new(
-                        line_number_expected - context_queue.len() as u32,
-                        line_number_actual - context_queue.len() as u32,
+                        line_number_expected - context_queue.len(),
+                        line_number_actual - context_queue.len(),
                     );
                 }
 
                 while let Some(line) = context_queue.pop_front() {
-                    mismatch.lines.push(DiffLine::Context(line.to_vec()));
+                    mismatch.expected.push(DiffLine::Context(line.to_vec()));
+                    mismatch.actual.push(DiffLine::Context(line.to_vec()));
                 }
 
-                if mismatch.lines.last() == Some(&DiffLine::MissingNL) {
-                    mismatch.lines.pop();
-                    match mismatch.lines.pop() {
-                        Some(DiffLine::Actual(res)) => {
-                            // We have to make sure that Actual (the + lines)
-                            // always come after Expected (the - lines)
-                            mismatch.lines.push(DiffLine::Expected(str.to_vec()));
-                            if line_number_expected > expected_lines_count {
-                                mismatch.lines.push(DiffLine::MissingNL)
-                            }
-                            mismatch.lines.push(DiffLine::Actual(res));
-                            mismatch.lines.push(DiffLine::MissingNL);
-                        }
-                        _ => unreachable!("unterminated Left and Common lines shouldn't be followed by more Left lines"),
-                    }
-                } else {
-                    mismatch.lines.push(DiffLine::Expected(str.to_vec()));
-                    if line_number_expected > expected_lines_count {
-                        mismatch.lines.push(DiffLine::MissingNL)
-                    }
+                expected_lines_change_idx = mismatch.expected.len();
+                mismatch.expected.push(DiffLine::Add(str.to_vec()));
+                if line_number_expected > expected_lines_count {
+                    mismatch.expected_missing_nl = true;
                 }
                 line_number_expected += 1;
                 lines_since_mismatch = 0;
             }
             diff::Result::Right(str) => {
-                if lines_since_mismatch >= context_size && lines_since_mismatch > 0 {
+                if lines_since_mismatch > context_size && lines_since_mismatch > 0 {
                     results.push(mismatch);
                     mismatch = Mismatch::new(
-                        line_number_expected - context_queue.len() as u32,
-                        line_number_actual - context_queue.len() as u32,
+                        line_number_expected - context_queue.len(),
+                        line_number_actual - context_queue.len(),
                     );
+                    expected_lines_change_idx = !0;
                 }
 
                 while let Some(line) = context_queue.pop_front() {
-                    debug_assert!(mismatch.lines.last() != Some(&DiffLine::MissingNL));
-                    mismatch.lines.push(DiffLine::Context(line.to_vec()));
+                    mismatch.expected.push(DiffLine::Context(line.to_vec()));
+                    mismatch.actual.push(DiffLine::Context(line.to_vec()));
                 }
 
-                mismatch.lines.push(DiffLine::Actual(str.to_vec()));
+                if let Some(DiffLine::Add(content)) =
+                    mismatch.expected.get_mut(expected_lines_change_idx)
+                {
+                    let content = mem::replace(content, Vec::new());
+                    mismatch.expected[expected_lines_change_idx] = DiffLine::Change(content);
+                    expected_lines_change_idx = expected_lines_change_idx.wrapping_sub(1); // if 0, becomes !0
+                    mismatch.actual.push(DiffLine::Change(str.to_vec()));
+                } else {
+                    mismatch.actual.push(DiffLine::Add(str.to_vec()));
+                }
                 if line_number_actual > actual_lines_count {
-                    mismatch.lines.push(DiffLine::MissingNL)
+                    mismatch.actual_missing_nl = true;
                 }
                 line_number_actual += 1;
                 lines_since_mismatch = 0;
             }
             diff::Result::Both(str, _) => {
+                expected_lines_change_idx = !0;
                 // if one of them is missing a newline and the other isn't, then they don't actually match
                 if (line_number_actual > actual_lines_count)
                     && (line_number_expected > expected_lines_count)
                 {
                     if context_queue.len() < context_size {
                         while let Some(line) = context_queue.pop_front() {
-                            debug_assert!(mismatch.lines.last() != Some(&DiffLine::MissingNL));
-                            mismatch.lines.push(DiffLine::Context(line.to_vec()));
+                            mismatch.expected.push(DiffLine::Context(line.to_vec()));
+                            mismatch.actual.push(DiffLine::Context(line.to_vec()));
                         }
                         if lines_since_mismatch < context_size {
-                            mismatch.lines.push(DiffLine::Context(str.to_vec()));
-                            mismatch.lines.push(DiffLine::MissingNL);
+                            mismatch.expected.push(DiffLine::Context(str.to_vec()));
+                            mismatch.actual.push(DiffLine::Context(str.to_vec()));
+                            mismatch.expected_missing_nl = true;
+                            mismatch.actual_missing_nl = true;
                         }
                     }
                     lines_since_mismatch = 0;
@@ -131,33 +142,33 @@ fn make_diff(expected: &[u8], actual: &[u8], context_size: usize) -> Vec<Mismatc
                     if lines_since_mismatch >= context_size && lines_since_mismatch > 0 {
                         results.push(mismatch);
                         mismatch = Mismatch::new(
-                            line_number_expected - context_queue.len() as u32,
-                            line_number_actual - context_queue.len() as u32,
+                            line_number_expected - context_queue.len(),
+                            line_number_actual - context_queue.len(),
                         );
                     }
                     while let Some(line) = context_queue.pop_front() {
-                        debug_assert!(mismatch.lines.last() != Some(&DiffLine::MissingNL));
-                        mismatch.lines.push(DiffLine::Context(line.to_vec()));
+                        mismatch.expected.push(DiffLine::Context(line.to_vec()));
+                        mismatch.actual.push(DiffLine::Context(line.to_vec()));
                     }
-                    mismatch.lines.push(DiffLine::Expected(str.to_vec()));
-                    mismatch.lines.push(DiffLine::Actual(str.to_vec()));
-                    mismatch.lines.push(DiffLine::MissingNL);
+                    mismatch.expected.push(DiffLine::Change(str.to_vec()));
+                    mismatch.actual.push(DiffLine::Change(str.to_vec()));
+                    mismatch.actual_missing_nl = true;
                     lines_since_mismatch = 0;
                 } else if line_number_expected > expected_lines_count {
                     if lines_since_mismatch >= context_size && lines_since_mismatch > 0 {
                         results.push(mismatch);
                         mismatch = Mismatch::new(
-                            line_number_expected - context_queue.len() as u32,
-                            line_number_actual - context_queue.len() as u32,
+                            line_number_expected - context_queue.len(),
+                            line_number_actual - context_queue.len(),
                         );
                     }
                     while let Some(line) = context_queue.pop_front() {
-                        debug_assert!(mismatch.lines.last() != Some(&DiffLine::MissingNL));
-                        mismatch.lines.push(DiffLine::Context(line.to_vec()));
+                        mismatch.expected.push(DiffLine::Context(line.to_vec()));
+                        mismatch.actual.push(DiffLine::Context(line.to_vec()));
                     }
-                    mismatch.lines.push(DiffLine::Expected(str.to_vec()));
-                    mismatch.lines.push(DiffLine::MissingNL);
-                    mismatch.lines.push(DiffLine::Actual(str.to_vec()));
+                    mismatch.expected.push(DiffLine::Change(str.to_vec()));
+                    mismatch.expected_missing_nl = true;
+                    mismatch.actual.push(DiffLine::Change(str.to_vec()));
                     lines_since_mismatch = 0;
                 } else {
                     debug_assert!(context_queue.len() <= context_size);
@@ -165,7 +176,8 @@ fn make_diff(expected: &[u8], actual: &[u8], context_size: usize) -> Vec<Mismatc
                         let _ = context_queue.pop_front();
                     }
                     if lines_since_mismatch < context_size {
-                        mismatch.lines.push(DiffLine::Context(str.to_vec()));
+                        mismatch.expected.push(DiffLine::Context(str.to_vec()));
+                        mismatch.actual.push(DiffLine::Context(str.to_vec()));
                     } else if context_size > 0 {
                         context_queue.push_back(str);
                     }
@@ -181,38 +193,58 @@ fn make_diff(expected: &[u8], actual: &[u8], context_size: usize) -> Vec<Mismatc
     results.remove(0);
 
     if results.len() == 0 && expected_lines_count != actual_lines_count {
-        let mut mismatch = Mismatch::new(expected_lines.len() as u32, actual_lines.len() as u32);
+        let mut mismatch = Mismatch::new(expected_lines.len(), actual_lines.len());
         // empty diff and only expected lines has a missing line at end
-        if expected_lines_count != expected_lines.len() as u32 {
-            mismatch.lines.push(DiffLine::Expected(
+        if expected_lines_count != expected_lines.len() {
+            mismatch.expected.push(DiffLine::Change(
                 expected_lines
                     .pop()
                     .expect("can't be empty; produced by split()")
                     .to_vec(),
             ));
-            mismatch.lines.push(DiffLine::MissingNL);
-            mismatch.lines.push(DiffLine::Actual(
+            mismatch.expected_missing_nl = true;
+            mismatch.actual.push(DiffLine::Change(
                 actual_lines
                     .pop()
                     .expect("can't be empty; produced by split()")
                     .to_vec(),
             ));
             results.push(mismatch);
-        } else if actual_lines_count != actual_lines.len() as u32 {
-            mismatch.lines.push(DiffLine::Expected(
+        } else if actual_lines_count != actual_lines.len() {
+            mismatch.expected.push(DiffLine::Change(
                 expected_lines
                     .pop()
                     .expect("can't be empty; produced by split()")
                     .to_vec(),
             ));
-            mismatch.lines.push(DiffLine::Actual(
+            mismatch.actual.push(DiffLine::Change(
                 actual_lines
                     .pop()
                     .expect("can't be empty; produced by split()")
                     .to_vec(),
             ));
-            mismatch.lines.push(DiffLine::MissingNL);
+            mismatch.actual_missing_nl = true;
             results.push(mismatch);
+        }
+    }
+
+    // hunks with pure context lines get truncated to empty
+    for mismatch in &mut results {
+        if mismatch
+            .expected
+            .iter()
+            .find(|x| !matches!(x, DiffLine::Context(_)))
+            .is_none()
+        {
+            mismatch.expected_all_context = true;
+        }
+        if mismatch
+            .actual
+            .iter()
+            .find(|x| !matches!(x, DiffLine::Context(_)))
+            .is_none()
+        {
+            mismatch.actual_all_context = true;
         }
     }
 
@@ -227,7 +259,7 @@ pub fn diff(
     context_size: usize,
 ) -> Vec<u8> {
     let mut output =
-        format!("--- {}\t\n+++ {}\t\n", expected_filename, actual_filename).into_bytes();
+        format!("*** {}\t\n--- {}\t\n", expected_filename, actual_filename).into_bytes();
     let diff_results = make_diff(expected, actual, context_size);
     if diff_results.len() == 0 {
         return Vec::new();
@@ -235,142 +267,84 @@ pub fn diff(
     for result in diff_results {
         let mut line_number_expected = result.line_number_expected;
         let mut line_number_actual = result.line_number_actual;
-        let mut expected_count = 0;
-        let mut actual_count = 0;
-        for line in &result.lines {
-            match line {
-                DiffLine::Expected(_) => {
-                    expected_count += 1;
-                }
-                DiffLine::Context(_) => {
-                    expected_count += 1;
-                    actual_count += 1;
-                }
-                DiffLine::Actual(_) => {
-                    actual_count += 1;
-                }
-                DiffLine::MissingNL => {}
-            }
-        }
-        // Let's imagine this diff file
-        //
-        // --- a/something
-        // +++ b/something
-        // @@ -2,0 +3,1 @@
-        // + x
-        //
-        // In the unified diff format as implemented by GNU diff and patch,
-        // this is an instruction to insert the x *after* the preexisting line 2,
-        // not before. You can demonstrate it this way:
-        //
-        // $ echo -ne '--- a/something\t\n+++ b/something\t\n@@ -2,0 +3,1 @@\n+ x\n' > diff
-        // $ echo -ne 'a\nb\nc\nd\n' > something
-        // $ patch -p1 < diff
-        // patching file something
-        // $ cat something
-        // a
-        // b
-        //  x
-        // c
-        // d
-        //
-        // Notice how the x winds up at line 3, not line 2. This requires contortions to
-        // work with our diffing algorithm, which keeps track of the "intended destination line",
-        // not a line that things are supposed to be placed after. It's changing the first number,
-        // not the second, that actually affects where the x goes.
-        //
-        // # change the first number from 2 to 3, and now the x is on line 4 (it's placed after line 3)
-        // $ echo -ne '--- a/something\t\n+++ b/something\t\n@@ -3,0 +3,1 @@\n+ x\n' > diff
-        // $ echo -ne 'a\nb\nc\nd\n' > something
-        // $ patch -p1 < diff
-        // patching file something
-        // $ cat something
-        // a
-        // b
-        // c
-        //  x
-        // d
-        // # change the third number from 3 to 1000, and it's obvious that it's the first number that's
-        // # actually being read
-        // $ echo -ne '--- a/something\t\n+++ b/something\t\n@@ -2,0 +1000,1 @@\n+ x\n' > diff
-        // $ echo -ne 'a\nb\nc\nd\n' > something
-        // $ patch -p1 < diff
-        // patching file something
-        // $ cat something
-        // a
-        // b
-        //  x
-        // c
-        // d
-        //
-        // Now watch what happens if I add a context line:
-        //
-        // $ echo -ne '--- a/something\t\n+++ b/something\t\n@@ -2,1 +3,2 @@\n+ x\n c\n' > diff
-        // $ echo -ne 'a\nb\nc\nd\n' > something
-        // $ patch -p1 < diff
-        // patching file something
-        // Hunk #1 succeeded at 3 (offset 1 line).
-        //
-        // It technically "succeeded", but this is a warning. We want to produce clean diffs.
-        // Now that I have a context line, I'm supposed to say what line it's actually on, which is the
-        // line that the x will wind up on, and not the line immediately before.
-        //
-        // $ echo -ne '--- a/something\t\n+++ b/something\t\n@@ -3,1 +3,2 @@\n+ x\n c\n' > diff
-        // $ echo -ne 'a\nb\nc\nd\n' > something
-        // $ patch -p1 < diff
-        // patching file something
-        // $ cat something
-        // a
-        // b
-        //  x
-        // c
-        // d
-        //
-        // I made this comment because this stuff is not obvious from GNU's
-        // documentation on the format at all.
+        let mut expected_count = result.expected.len();
+        let mut actual_count = result.actual.len();
         if expected_count == 0 {
-            line_number_expected -= 1
+            line_number_expected -= 1;
+            expected_count = 1;
         }
         if actual_count == 0 {
-            line_number_actual -= 1
+            line_number_actual -= 1;
+            actual_count = 1;
         }
-        let exp_ct = if expected_count == 1 {
+        let end_line_number_expected = expected_count + line_number_expected - 1;
+        let end_line_number_actual = actual_count + line_number_actual - 1;
+        let exp_start = if end_line_number_expected == line_number_expected {
             String::new()
         } else {
-            format!(",{}", expected_count)
+            format!("{},", line_number_expected)
         };
-        let act_ct = if actual_count == 1 {
+        let act_start = if end_line_number_actual == line_number_actual {
             String::new()
         } else {
-            format!(",{}", actual_count)
+            format!("{},", line_number_actual)
         };
         writeln!(
             output,
-            "@@ -{}{} +{}{} @@",
-            line_number_expected, exp_ct, line_number_actual, act_ct
+            "***************\n*** {}{} ****",
+            exp_start, end_line_number_expected
         )
         .expect("write to Vec is infallible");
-        for line in result.lines {
-            match line {
-                DiffLine::Expected(e) => {
-                    write!(output, "-").expect("write to Vec is infallible");
-                    output.write_all(&e).expect("write to Vec is infallible");
-                    writeln!(output).unwrap();
+        if !result.expected_all_context {
+            for line in result.expected {
+                match line {
+                    DiffLine::Context(e) => {
+                        write!(output, "  ").expect("write to Vec is infallible");
+                        output.write_all(&e).expect("write to Vec is infallible");
+                        writeln!(output).unwrap();
+                    }
+                    DiffLine::Change(e) => {
+                        write!(output, "! ").expect("write to Vec is infallible");
+                        output.write_all(&e).expect("write to Vec is infallible");
+                        writeln!(output).unwrap();
+                    }
+                    DiffLine::Add(e) => {
+                        write!(output, "- ").expect("write to Vec is infallible");
+                        output.write_all(&e).expect("write to Vec is infallible");
+                        writeln!(output).unwrap();
+                    }
                 }
-                DiffLine::Context(c) => {
-                    write!(output, " ").expect("write to Vec is infallible");
-                    output.write_all(&c).expect("write to Vec is infallible");
-                    writeln!(output).unwrap();
+            }
+            if result.expected_missing_nl {
+                writeln!(output, r"\ No newline at end of file")
+                    .expect("write to Vec is infallible");
+            }
+        }
+        writeln!(output, "--- {}{} ----", act_start, end_line_number_actual)
+            .expect("write to Vec is infallible");
+        if !result.actual_all_context {
+            for line in result.actual {
+                match line {
+                    DiffLine::Context(e) => {
+                        write!(output, "  ").expect("write to Vec is infallible");
+                        output.write_all(&e).expect("write to Vec is infallible");
+                        writeln!(output).unwrap();
+                    }
+                    DiffLine::Change(e) => {
+                        write!(output, "! ").expect("write to Vec is infallible");
+                        output.write_all(&e).expect("write to Vec is infallible");
+                        writeln!(output).unwrap();
+                    }
+                    DiffLine::Add(e) => {
+                        write!(output, "+ ").expect("write to Vec is infallible");
+                        output.write_all(&e).expect("write to Vec is infallible");
+                        writeln!(output).unwrap();
+                    }
                 }
-                DiffLine::Actual(r) => {
-                    write!(output, "+",).expect("write to Vec is infallible");
-                    output.write_all(&r).expect("write to Vec is infallible");
-                    writeln!(output).unwrap();
-                }
-                DiffLine::MissingNL => {
-                    writeln!(output, r"\ No newline at end of file")
-                        .expect("write to Vec is infallible");
-                }
+            }
+            if result.actual_missing_nl {
+                writeln!(output, r"\ No newline at end of file")
+                    .expect("write to Vec is infallible");
             }
         }
     }
@@ -380,6 +354,7 @@ pub fn diff(
 #[test]
 fn test_permutations() {
     // test all possible six-line files.
+    let _ = std::fs::create_dir("target");
     for &a in &[0, 1, 2] {
         for &b in &[0, 1, 2] {
             for &c in &[0, 1, 2] {
@@ -436,6 +411,7 @@ fn test_permutations() {
                             let _ = fb;
                             let output = Command::new("patch")
                                 .arg("-p0")
+                                .arg("--context")
                                 .stdin(File::open("target/ab.diff").unwrap())
                                 .output()
                                 .unwrap();
@@ -457,6 +433,7 @@ fn test_permutations() {
 #[test]
 fn test_permutations_missing_line_ending() {
     // test all possible six-line files with missing newlines.
+    let _ = std::fs::create_dir("target");
     for &a in &[0, 1, 2] {
         for &b in &[0, 1, 2] {
             for &c in &[0, 1, 2] {
@@ -512,6 +489,9 @@ fn test_permutations_missing_line_ending() {
                                     }
                                     _ => unreachable!(),
                                 }
+                                if alef.is_empty() && bet.is_empty() {
+                                    continue;
+                                };
                                 // This test diff is intentionally reversed.
                                 // We want it to turn the alef into bet.
                                 let diff = diff(&alef, "a/alefn", &bet, "target/alefn", 2);
@@ -527,6 +507,7 @@ fn test_permutations_missing_line_ending() {
                                 let _ = fb;
                                 let output = Command::new("patch")
                                     .arg("-p0")
+                                    .arg("--context")
                                     .stdin(File::open("target/abn.diff").unwrap())
                                     .output()
                                     .unwrap();
@@ -549,6 +530,7 @@ fn test_permutations_missing_line_ending() {
 #[test]
 fn test_permutations_empty_lines() {
     // test all possible six-line files with missing newlines.
+    let _ = std::fs::create_dir("target");
     for &a in &[0, 1, 2] {
         for &b in &[0, 1, 2] {
             for &c in &[0, 1, 2] {
@@ -614,6 +596,7 @@ fn test_permutations_empty_lines() {
                                 let _ = fb;
                                 let output = Command::new("patch")
                                     .arg("-p0")
+                                    .arg("--context")
                                     .stdin(File::open("target/ab_.diff").unwrap())
                                     .output()
                                     .unwrap();
@@ -636,6 +619,7 @@ fn test_permutations_empty_lines() {
 #[test]
 fn test_permutations_missing_lines() {
     // test all possible six-line files.
+    let _ = std::fs::create_dir("target");
     for &a in &[0, 1, 2] {
         for &b in &[0, 1, 2] {
             for &c in &[0, 1, 2] {
@@ -671,6 +655,9 @@ fn test_permutations_missing_lines() {
                             if f != 2 {
                                 bet.write_all(b"l\n").unwrap();
                             }
+                            if alef.is_empty() && bet.is_empty() {
+                                continue;
+                            };
                             // This test diff is intentionally reversed.
                             // We want it to turn the alef into bet.
                             let diff = diff(&alef, "a/alefx", &bet, "target/alefx", 2);
@@ -686,6 +673,7 @@ fn test_permutations_missing_lines() {
                             let _ = fb;
                             let output = Command::new("patch")
                                 .arg("-p0")
+                                .arg("--context")
                                 .stdin(File::open("target/abx.diff").unwrap())
                                 .output()
                                 .unwrap();
@@ -707,6 +695,7 @@ fn test_permutations_missing_lines() {
 #[test]
 fn test_permutations_reverse() {
     // test all possible six-line files.
+    let _ = std::fs::create_dir("target");
     for &a in &[0, 1, 2] {
         for &b in &[0, 1, 2] {
             for &c in &[0, 1, 2] {
@@ -763,6 +752,7 @@ fn test_permutations_reverse() {
                             let _ = fb;
                             let output = Command::new("patch")
                                 .arg("-p0")
+                                .arg("--context")
                                 .stdin(File::open("target/abr.diff").unwrap())
                                 .output()
                                 .unwrap();
