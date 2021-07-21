@@ -3,7 +3,7 @@ A package (currently just `diff`, but eventually more) of programs related to fi
 Based on the incomplete diff generator in https://github.com/rust-lang/rust/blob/master/src/tools/compiletest/src/runtest.rs, and made to be compatible with GNU's diff and patch tools.
 
 ```
-~/diffutils$ cargo run -- -u3 Cargo.lock Cargo.toml 
+~/diffutils$ cargo run -- diff -u3 Cargo.lock Cargo.toml 
     Finished dev [unoptimized + debuginfo] target(s) in 0.00s
      Running `target/debug/diff -u3 Cargo.lock Cargo.toml`
 --- Cargo.lock	
