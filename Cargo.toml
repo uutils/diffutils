@@ -3,20 +3,6 @@ members = [
     "lib/unified-diff",
     "lib/context-diff",
     "lib/normal-diff",
-    "bin/diff",
+    "lib/ed-diff",
+    "bin/diffutils",
 ]
-
-[package]
-name = "diffutils"
-version = "0.3.0"
-authors = ["Michael Howell <michael@notriddle.com>"]
-edition = "2018"
-
-[dependencies]
-context-diff = { path = "lib/context-diff", version = "0.3.0" }
-normal-diff = { path = "lib/normal-diff", version = "0.3.0" }
-unified-diff = { path = "lib/unified-diff", version = "0.3.0" }
-
-[[bin]]
-name = "diffutils"
-path = "bin/main.rs"

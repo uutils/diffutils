@@ -1,5 +1,5 @@
 [package]
-name = "context-diff"
+name = "ed-diff"
 version = "0.3.0"
 edition = "2018"
 description = "An implementation of the GNU unified diff format"

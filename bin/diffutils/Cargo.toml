@@ -1,0 +1,17 @@
+[package]
+name = "diffutils"
+version = "0.3.0"
+edition = "2018"
+description = "A CLI app for generating diff files"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/notriddle/diffutils"
+
+[[bin]]
+name = "diffutils"
+path = "main.rs"
+
+[dependencies]
+unified-diff = { path = "../../lib/unified-diff/" }
+context-diff = { path = "../../lib/context-diff/" }
+normal-diff = { path = "../../lib/normal-diff/" }
+ed-diff = { path = "../../lib/ed-diff/" }

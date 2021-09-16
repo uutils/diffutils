@@ -1,6 +1,6 @@
 
 [package]
-name = "normal-diff-fuzz"
+name = "ed-diff-fuzz"
 version = "0.0.0"
 publish = false
 edition = "2018"
@@ -11,7 +11,7 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.3"
 
-[dependencies.normal-diff]
+[dependencies.ed-diff]
 path = ".."
 
 # Prevent this from interfering with workspaces
@@ -19,8 +19,8 @@ path = ".."
 members = ["."]
 
 [[bin]]
-name = "fuzz_patch"
-path = "fuzz_targets/fuzz_patch.rs"
+name = "fuzz_ed"
+path = "fuzz_targets/fuzz_ed.rs"
 test = false
 doc = false
 

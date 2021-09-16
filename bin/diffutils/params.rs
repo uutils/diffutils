@@ -5,6 +5,7 @@ pub enum Format {
     Normal,
     Unified,
     Context,
+    Ed,
 }
 
 #[cfg(unix)]
@@ -72,6 +73,12 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
                             return Err(format!("Conflicting output style options"));
                         }
                         format = Some(Format::Context);
+                    }
+                    b'e' => {
+                        if format.is_some() && format != Some(Format::Ed) {
+                            return Err(format!("Conflicting output style options"));
+                        }
+                        format = Some(Format::Ed);
                     }
                     b'u' => {
                         if format.is_some() && format != Some(Format::Unified) {
@@ -148,6 +155,18 @@ mod tests {
                 context_count: 3,
             }),
             parse_params([os("diff"), os("foo"), os("bar")].iter().cloned())
+        );
+    }
+    #[test]
+    fn basics_ed() {
+        assert_eq!(
+            Ok(Params {
+                from: os("foo"),
+                to: os("bar"),
+                format: Format::Ed,
+                context_count: 3,
+            }),
+            parse_params([os("diff"), os("-e"), os("foo"), os("bar")].iter().cloned())
         );
     }
     #[test]
