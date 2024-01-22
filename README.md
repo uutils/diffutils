@@ -1,4 +1,5 @@
-A package (currently just `diff`, but eventually more) of programs related to finding differences between files.
+The goal of this package is to be a dropped in replacement for the [diffutils commands](https://www.gnu.org/software/diffutils/) in Rust.
+
 
 Based on the incomplete diff generator in https://github.com/rust-lang/rust/blob/master/src/tools/compiletest/src/runtest.rs, and made to be compatible with GNU's diff and patch tools.
 
