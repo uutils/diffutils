@@ -10,9 +10,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.3"
-
-[dependencies.unified-diff]
-path = ".."
+diffutils = { path = "../" }
 
 # Prevent this from interfering with workspaces
 [workspace]
@@ -23,4 +21,18 @@ name = "fuzz_patch"
 path = "fuzz_targets/fuzz_patch.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "fuzz_normal"
+path = "fuzz_targets/fuzz_normal.rs"
+test = false
+doc = false
+
+
+[[bin]]
+name = "fuzz_ed"
+path = "fuzz_targets/fuzz_ed.rs"
+test = false
+doc = false
+
 

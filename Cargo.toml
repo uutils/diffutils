@@ -6,6 +6,10 @@ description = "A CLI app for generating diff files"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/notriddle/diffutils"
 
+[lib]
+name = "diffutils"
+path = "src/lib.rs"
+
 [[bin]]
 name = "diffutils"
 path = "src/main.rs"

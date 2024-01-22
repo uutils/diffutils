@@ -1,14 +1,13 @@
 #![no_main]
 #[macro_use]
 extern crate libfuzzer_sys;
-extern crate normal_diff;
-
+use diffutils::{unified_diff, normal_diff};
 use std::fs::{self, File};
 use std::io::Write;
 use std::process::Command;
 
-fuzz_target!(|x: (Vec<u8>, Vec<u8>)| {
-    let (from, to) = x;
+fuzz_target!(|x: (Vec<u8>, Vec<u8>, u8)| {
+    let (from, to, context) = x;
     /*if let Ok(s) = String::from_utf8(from.clone()) {
         if !s.is_ascii() { return }
         if s.find(|x| x < ' ' && x != '\n').is_some() { return }
@@ -21,7 +20,13 @@ fuzz_target!(|x: (Vec<u8>, Vec<u8>)| {
     } else {
         return
     }*/
-    let diff = normal_diff::diff(&from, &to);
+    let diff = unified_diff::diff(
+        &from,
+        "a/fuzz.file",
+        &to,
+        "target/fuzz.file",
+        context as usize,
+    );
     File::create("target/fuzz.file.original")
         .unwrap()
         .write_all(&from)
@@ -42,8 +47,6 @@ fuzz_target!(|x: (Vec<u8>, Vec<u8>)| {
         .arg("-p0")
         .arg("--binary")
         .arg("--fuzz=0")
-        .arg("--normal")
-        .arg("target/fuzz.file")
         .stdin(File::open("target/fuzz.diff").unwrap())
         .output()
         .unwrap();
