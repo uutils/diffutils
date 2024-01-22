@@ -10,6 +10,10 @@ use std::fs;
 use std::io::{self, Write};
 
 mod params;
+mod normal_diff;
+mod unified_diff;
+mod context_diff;
+mod ed_diff;
 
 fn main() -> Result<(), String> {
     let opts = env::args_os();

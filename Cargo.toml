@@ -1,8 +1,14 @@
-[workspace]
-members = [
-    "lib/unified-diff",
-    "lib/context-diff",
-    "lib/normal-diff",
-    "lib/ed-diff",
-    "bin/diffutils",
-]
+[package]
+name = "diffutils"
+version = "0.3.0"
+edition = "2018"
+description = "A CLI app for generating diff files"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/notriddle/diffutils"
+
+[[bin]]
+name = "diffutils"
+path = "src/main.rs"
+
+[dependencies]
+diff = "0.1.10"
