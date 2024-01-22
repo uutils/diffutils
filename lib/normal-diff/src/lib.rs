@@ -49,7 +49,7 @@ fn make_diff(expected: &[u8], actual: &[u8]) -> Vec<Mismatch> {
     for result in diff::slice(&expected_lines, &actual_lines) {
         match result {
             diff::Result::Left(str) => {
-                if mismatch.actual.len() != 0 && !mismatch.actual_missing_nl {
+                if !mismatch.actual.is_empty() && !mismatch.actual_missing_nl {
                     results.push(mismatch);
                     mismatch = Mismatch::new(line_number_expected, line_number_actual);
                 }
@@ -81,7 +81,7 @@ fn make_diff(expected: &[u8], actual: &[u8]) -> Vec<Mismatch> {
                     (true, true) | (false, false) => {
                         line_number_expected += 1;
                         line_number_actual += 1;
-                        if mismatch.actual.len() != 0 || mismatch.expected.len() != 0 {
+                        if !mismatch.actual.is_empty() || !mismatch.expected.is_empty() {
                             results.push(mismatch);
                             mismatch = Mismatch::new(line_number_expected, line_number_actual);
                         } else {
@@ -94,7 +94,7 @@ fn make_diff(expected: &[u8], actual: &[u8]) -> Vec<Mismatch> {
         }
     }
 
-    if mismatch.actual.len() != 0 || mismatch.expected.len() != 0 {
+    if !mismatch.actual.is_empty() || !mismatch.expected.is_empty() {
         results.push(mismatch);
     }
 
@@ -140,7 +140,7 @@ pub fn diff(expected: &[u8], actual: &[u8]) -> Vec<u8> {
         for expected in &result.expected {
             write!(&mut output, "< ").unwrap();
             output.write_all(expected).unwrap();
-            writeln!(&mut output, "").unwrap();
+            writeln!(&mut output).unwrap();
         }
         if result.expected_missing_nl {
             writeln!(&mut output, r"\ No newline at end of file").unwrap();
@@ -151,7 +151,7 @@ pub fn diff(expected: &[u8], actual: &[u8]) -> Vec<u8> {
         for actual in &result.actual {
             write!(&mut output, "> ").unwrap();
             output.write_all(actual).unwrap();
-            writeln!(&mut output, "").unwrap();
+            writeln!(&mut output).unwrap();
         }
         if result.actual_missing_nl {
             writeln!(&mut output, r"\ No newline at end of file").unwrap();

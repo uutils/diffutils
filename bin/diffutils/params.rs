@@ -33,7 +33,7 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
     let exe = match opts.next() {
         Some(from) => from,
         None => {
-            return Err(format!("Usage: <exe> <from> <to>"));
+            return Err("Usage: <exe> <from> <to>".to_string());
         }
     };
     let mut from = None;
@@ -55,8 +55,8 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
             continue;
         }
         let p = osstr_bytes(&param);
-        if p.get(0) == Some(&b'-') && p.get(1) != Some(&b'-') {
-            let mut bit = p[1..].into_iter().copied().peekable();
+        if p.first() == Some(&b'-') && p.get(1) != Some(&b'-') {
+            let mut bit = p[1..].iter().copied().peekable();
             // Can't use a for loop because `diff -30u` is supposed to make a diff
             // with 30 lines of context.
             while let Some(b) = bit.next() {
@@ -64,31 +64,31 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
                     b'0'..=b'9' => {
                         context_count = (b - b'0') as usize;
                         while let Some(b'0'..=b'9') = bit.peek() {
-                            context_count = context_count * 10;
+                            context_count *= 10;
                             context_count += (bit.next().unwrap() - b'0') as usize;
                         }
                     }
                     b'c' => {
                         if format.is_some() && format != Some(Format::Context) {
-                            return Err(format!("Conflicting output style options"));
+                            return Err("Conflicting output style options".to_string());
                         }
                         format = Some(Format::Context);
                     }
                     b'e' => {
                         if format.is_some() && format != Some(Format::Ed) {
-                            return Err(format!("Conflicting output style options"));
+                            return Err("Conflicting output style options".to_string());
                         }
                         format = Some(Format::Ed);
                     }
                     b'u' => {
                         if format.is_some() && format != Some(Format::Unified) {
-                            return Err(format!("Conflicting output style options"));
+                            return Err("Conflicting output style options".to_string());
                         }
                         format = Some(Format::Unified);
                     }
                     b'U' => {
                         if format.is_some() && format != Some(Format::Unified) {
-                            return Err(format!("Conflicting output style options"));
+                            return Err("Conflicting output style options".to_string());
                         }
                         format = Some(Format::Unified);
                         let context_count_maybe = if bit.peek().is_some() {
@@ -102,7 +102,7 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
                             context_count = context_count_maybe;
                             break;
                         } else {
-                            return Err(format!("Invalid context count"));
+                            return Err("Invalid context count".to_string());
                         }
                     }
                     _ => return Err(format!("Unknown option: {}", String::from_utf8_lossy(&[b]))),

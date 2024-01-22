@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 use std::io::Write;
-use std::mem;
+
 
 #[derive(Debug, PartialEq)]
 pub enum DiffLine {
@@ -106,7 +106,7 @@ fn make_diff(expected: &[u8], actual: &[u8], context_size: usize) -> Vec<Mismatc
                 if let Some(DiffLine::Add(content)) =
                     mismatch.expected.get_mut(expected_lines_change_idx)
                 {
-                    let content = mem::replace(content, Vec::new());
+                    let content = std::mem::take(content);
                     mismatch.expected[expected_lines_change_idx] = DiffLine::Change(content);
                     expected_lines_change_idx = expected_lines_change_idx.wrapping_sub(1); // if 0, becomes !0
                     mismatch.actual.push(DiffLine::Change(str.to_vec()));
@@ -192,7 +192,7 @@ fn make_diff(expected: &[u8], actual: &[u8], context_size: usize) -> Vec<Mismatc
     results.push(mismatch);
     results.remove(0);
 
-    if results.len() == 0 && expected_lines_count != actual_lines_count {
+    if results.is_empty() && expected_lines_count != actual_lines_count {
         let mut mismatch = Mismatch::new(expected_lines.len(), actual_lines.len());
         // empty diff and only expected lines has a missing line at end
         if expected_lines_count != expected_lines.len() {
@@ -230,19 +230,15 @@ fn make_diff(expected: &[u8], actual: &[u8], context_size: usize) -> Vec<Mismatc
 
     // hunks with pure context lines get truncated to empty
     for mismatch in &mut results {
-        if mismatch
+        if !mismatch
             .expected
-            .iter()
-            .find(|x| !matches!(x, DiffLine::Context(_)))
-            .is_none()
+            .iter().any(|x| !matches!(&x, DiffLine::Context(_)))
         {
             mismatch.expected_all_context = true;
         }
-        if mismatch
+        if !mismatch
             .actual
-            .iter()
-            .find(|x| !matches!(x, DiffLine::Context(_)))
-            .is_none()
+            .iter().any(|x| !matches!(&x, DiffLine::Context(_)))
         {
             mismatch.actual_all_context = true;
         }
@@ -261,7 +257,7 @@ pub fn diff(
     let mut output =
         format!("*** {}\t\n--- {}\t\n", expected_filename, actual_filename).into_bytes();
     let diff_results = make_diff(expected, actual, context_size);
-    if diff_results.len() == 0 {
+    if diff_results.is_empty() {
         return Vec::new();
     };
     for result in diff_results {

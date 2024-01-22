@@ -180,7 +180,7 @@ fn make_diff(expected: &[u8], actual: &[u8], context_size: usize) -> Vec<Mismatc
     results.push(mismatch);
     results.remove(0);
 
-    if results.len() == 0 && expected_lines_count != actual_lines_count {
+    if results.is_empty() && expected_lines_count != actual_lines_count {
         let mut mismatch = Mismatch::new(expected_lines.len() as u32, actual_lines.len() as u32);
         // empty diff and only expected lines has a missing line at end
         if expected_lines_count != expected_lines.len() as u32 {
@@ -229,7 +229,7 @@ pub fn diff(
     let mut output =
         format!("--- {}\t\n+++ {}\t\n", expected_filename, actual_filename).into_bytes();
     let diff_results = make_diff(expected, actual, context_size);
-    if diff_results.len() == 0 {
+    if diff_results.is_empty() {
         return Vec::new();
     };
     for result in diff_results {

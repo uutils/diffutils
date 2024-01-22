@@ -48,8 +48,8 @@ fn make_diff(expected: &[u8], actual: &[u8]) -> Result<Vec<Mismatch>, DiffError>
 
     debug_assert_eq!(b"".split(|&c| c == b'\n').count(), 1);
     // ^ means that underflow here is impossible
-    let expected_lines_count = expected_lines.len() - 1;
-    let actual_lines_count = actual_lines.len() - 1;
+    let _expected_lines_count = expected_lines.len() - 1;
+    let _actual_lines_count = actual_lines.len() - 1;
 
     if expected_lines.last() == Some(&&b""[..]) {
         expected_lines.pop();
@@ -66,7 +66,7 @@ fn make_diff(expected: &[u8], actual: &[u8]) -> Result<Vec<Mismatch>, DiffError>
     for result in diff::slice(&expected_lines, &actual_lines) {
         match result {
             diff::Result::Left(str) => {
-                if mismatch.actual.len() != 0 {
+                if !mismatch.actual.is_empty() {
                     results.push(mismatch);
                     mismatch = Mismatch::new(line_number_expected, line_number_actual);
                 }
@@ -77,10 +77,10 @@ fn make_diff(expected: &[u8], actual: &[u8]) -> Result<Vec<Mismatch>, DiffError>
                 mismatch.actual.push(str.to_vec());
                 line_number_actual += 1;
             }
-            diff::Result::Both(str, _) => {
+            diff::Result::Both(_str, _) => {
                 line_number_expected += 1;
                 line_number_actual += 1;
-                if mismatch.actual.len() != 0 || mismatch.expected.len() != 0 {
+                if !mismatch.actual.is_empty() || !mismatch.expected.is_empty() {
                     results.push(mismatch);
                     mismatch = Mismatch::new(line_number_expected, line_number_actual);
                 } else {
@@ -91,7 +91,7 @@ fn make_diff(expected: &[u8], actual: &[u8]) -> Result<Vec<Mismatch>, DiffError>
         }
     }
 
-    if mismatch.actual.len() != 0 || mismatch.expected.len() != 0 {
+    if !mismatch.actual.is_empty() || !mismatch.expected.is_empty() {
         results.push(mismatch);
     }
 
@@ -104,7 +104,7 @@ pub fn diff(expected: &[u8], actual: &[u8]) -> Result<Vec<u8>, DiffError> {
     let mut lines_offset = 0;
     for result in diff_results {
         let line_number_expected: isize = result.line_number_expected as isize + lines_offset;
-        let line_number_actual: isize = result.line_number_actual as isize + lines_offset;
+        let _line_number_actual: isize = result.line_number_actual as isize + lines_offset;
         let expected_count: isize = result.expected.len() as isize;
         let actual_count: isize = result.actual.len() as isize;
         match (expected_count, actual_count) {
@@ -137,13 +137,13 @@ pub fn diff(expected: &[u8], actual: &[u8]) -> Result<Vec<u8>, DiffError> {
                     writeln!(&mut output, "..\n.\ns/.//\na").unwrap();
                 } else {
                     output.write_all(actual).unwrap();
-                    writeln!(&mut output, "").unwrap();
+                    writeln!(&mut output).unwrap();
                 }
             }
             writeln!(&mut output, ".").unwrap();
         }
     }
-    return Ok(output)
+    Ok(output)
 }
 
 pub fn diff_w(expected: &[u8], actual: &[u8], filename: &str) -> Result<Vec<u8>, DiffError> {
