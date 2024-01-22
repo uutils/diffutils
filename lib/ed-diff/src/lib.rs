@@ -109,12 +109,7 @@ pub fn diff(expected: &[u8], actual: &[u8]) -> Result<Vec<u8>, DiffError> {
         let actual_count: isize = result.actual.len() as isize;
         match (expected_count, actual_count) {
             (0, 0) => unreachable!(),
-            (0, _) => writeln!(
-                &mut output,
-                "{}a",
-                line_number_expected - 1
-            )
-            .unwrap(),
+            (0, _) => writeln!(&mut output, "{}a", line_number_expected - 1).unwrap(),
             (_, 0) => writeln!(
                 &mut output,
                 "{},{}d",
@@ -229,7 +224,6 @@ fn test_permutations() {
         }
     }
 }
-
 
 #[test]
 fn test_permutations_empty_lines() {

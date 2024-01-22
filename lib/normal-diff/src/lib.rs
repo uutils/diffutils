@@ -63,7 +63,10 @@ fn make_diff(expected: &[u8], actual: &[u8]) -> Vec<Mismatch> {
                 line_number_actual += 1;
             }
             diff::Result::Both(str, _) => {
-                match (line_number_expected > expected_lines_count, line_number_actual > actual_lines_count) {
+                match (
+                    line_number_expected > expected_lines_count,
+                    line_number_actual > actual_lines_count,
+                ) {
                     (true, false) => {
                         line_number_expected += 1;
                         line_number_actual += 1;
@@ -88,7 +91,7 @@ fn make_diff(expected: &[u8], actual: &[u8]) -> Vec<Mismatch> {
                             mismatch.line_number_expected = line_number_expected;
                             mismatch.line_number_actual = line_number_actual;
                         }
-                    },
+                    }
                 }
             }
         }

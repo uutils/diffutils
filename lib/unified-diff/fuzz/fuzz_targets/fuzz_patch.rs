@@ -1,5 +1,6 @@
 #![no_main]
-#[macro_use] extern crate libfuzzer_sys;
+#[macro_use]
+extern crate libfuzzer_sys;
 extern crate unified_diff;
 
 use std::fs::{self, File};
@@ -20,7 +21,13 @@ fuzz_target!(|x: (Vec<u8>, Vec<u8>, u8)| {
     } else {
         return
     }*/
-    let diff = unified_diff::diff(&from, "a/fuzz.file", &to, "target/fuzz.file", context as usize);
+    let diff = unified_diff::diff(
+        &from,
+        "a/fuzz.file",
+        &to,
+        "target/fuzz.file",
+        context as usize,
+    );
     File::create("target/fuzz.file.original")
         .unwrap()
         .write_all(&from)
@@ -45,11 +52,18 @@ fuzz_target!(|x: (Vec<u8>, Vec<u8>, u8)| {
         .output()
         .unwrap();
     if !output.status.success() {
-        panic!("STDOUT:\n{}\nSTDERR:\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        panic!(
+            "STDOUT:\n{}\nSTDERR:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
     let result = fs::read("target/fuzz.file").unwrap();
     if result != to {
-        panic!("STDOUT:\n{}\nSTDERR:\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        panic!(
+            "STDOUT:\n{}\nSTDERR:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 });
-

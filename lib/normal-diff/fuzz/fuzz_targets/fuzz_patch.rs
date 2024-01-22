@@ -1,5 +1,6 @@
 #![no_main]
-#[macro_use] extern crate libfuzzer_sys;
+#[macro_use]
+extern crate libfuzzer_sys;
 extern crate normal_diff;
 
 use std::fs::{self, File};
@@ -47,11 +48,18 @@ fuzz_target!(|x: (Vec<u8>, Vec<u8>)| {
         .output()
         .unwrap();
     if !output.status.success() {
-        panic!("STDOUT:\n{}\nSTDERR:\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        panic!(
+            "STDOUT:\n{}\nSTDERR:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
     let result = fs::read("target/fuzz.file").unwrap();
     if result != to {
-        panic!("STDOUT:\n{}\nSTDERR:\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        panic!(
+            "STDOUT:\n{}\nSTDERR:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 });
-

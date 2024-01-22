@@ -1,7 +1,6 @@
 use std::collections::VecDeque;
 use std::io::Write;
 
-
 #[derive(Debug, PartialEq)]
 pub enum DiffLine {
     Context(Vec<u8>),
@@ -232,13 +231,15 @@ fn make_diff(expected: &[u8], actual: &[u8], context_size: usize) -> Vec<Mismatc
     for mismatch in &mut results {
         if !mismatch
             .expected
-            .iter().any(|x| !matches!(&x, DiffLine::Context(_)))
+            .iter()
+            .any(|x| !matches!(&x, DiffLine::Context(_)))
         {
             mismatch.expected_all_context = true;
         }
         if !mismatch
             .actual
-            .iter().any(|x| !matches!(&x, DiffLine::Context(_)))
+            .iter()
+            .any(|x| !matches!(&x, DiffLine::Context(_)))
         {
             mismatch.actual_all_context = true;
         }

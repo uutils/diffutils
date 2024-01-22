@@ -44,10 +44,7 @@ fn main() -> Result<(), String> {
             &to.to_string_lossy(),
             context_count,
         ),
-        Format::Ed => ed_diff::diff(
-            &from_content,
-            &to_content,
-        )?,
+        Format::Ed => ed_diff::diff(&from_content, &to_content)?,
     };
     io::stdout().write_all(&result).unwrap();
     Ok(())
