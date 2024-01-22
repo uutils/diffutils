@@ -9,12 +9,11 @@ use std::env;
 use std::fs;
 use std::io::{self, Write};
 
-
-mod params;
-mod normal_diff;
-mod unified_diff;
 mod context_diff;
 mod ed_diff;
+mod normal_diff;
+mod params;
+mod unified_diff;
 
 fn main() -> Result<(), String> {
     let opts = env::args_os();
