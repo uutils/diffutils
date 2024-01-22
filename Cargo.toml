@@ -4,7 +4,7 @@ version = "0.3.0"
 edition = "2018"
 description = "A CLI app for generating diff files"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/notriddle/diffutils"
+repository = "https://github.com/uutils/diffutils"
 
 [lib]
 name = "diffutils"
