@@ -446,14 +446,30 @@ mod tests {
                                 fb.write_all(&bet[..]).unwrap();
                                 let _ = fa;
                                 let _ = fb;
+                                println!(
+                                    "diff: {:?}",
+                                    String::from_utf8(diff.clone())
+                                        .unwrap_or_else(|_| String::from("[Invalid UTF-8]"))
+                                );
+                                println!(
+                                    "alef: {:?}",
+                                    String::from_utf8(alef.clone())
+                                        .unwrap_or_else(|_| String::from("[Invalid UTF-8]"))
+                                );
+                                println!(
+                                    "bet: {:?}",
+                                    String::from_utf8(bet.clone())
+                                        .unwrap_or_else(|_| String::from("[Invalid UTF-8]"))
+                                );
+
                                 let output = Command::new("patch")
                                     .arg("-p0")
                                     .stdin(File::open(&format!("{target}/ab.diff")).unwrap())
                                     .output()
                                     .unwrap();
+                                println!("{}", String::from_utf8_lossy(&output.stdout));
+                                println!("{}", String::from_utf8_lossy(&output.stderr));
                                 assert!(output.status.success(), "{:?}", output);
-                                //println!("{}", String::from_utf8_lossy(&output.stdout));
-                                //println!("{}", String::from_utf8_lossy(&output.stderr));
                                 let alef = fs::read(&format!("{target}/alef")).unwrap();
                                 assert_eq!(alef, bet);
                             }
