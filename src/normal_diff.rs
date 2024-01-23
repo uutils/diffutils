@@ -172,7 +172,7 @@ pub fn diff(expected: &[u8], actual: &[u8]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    use pretty_assertions::assert_eq;
     #[test]
     fn test_permutations() {
         let target = "target/normal-diff/";

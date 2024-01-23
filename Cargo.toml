@@ -16,3 +16,6 @@ path = "src/main.rs"
 
 [dependencies]
 diff = "0.1.10"
+
+[dev-dependencies]
+pretty_assertions = "1"
