@@ -30,11 +30,9 @@ pub struct Params {
 pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params, String> {
     let mut opts = opts.into_iter();
     // parse CLI
-    let exe = match opts.next() {
-        Some(from) => from,
-        None => {
-            return Err("Usage: <exe> <from> <to>".to_string());
-        }
+
+    let Some(exe) = opts.next() else {
+        return Err("Usage: <exe> <from> <to>".to_string());
     };
     let mut from = None;
     let mut to = None;
@@ -101,9 +99,8 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
                         {
                             context_count = context_count_maybe;
                             break;
-                        } else {
-                            return Err("Invalid context count".to_string());
                         }
+                        return Err("Invalid context count".to_string());
                     }
                     _ => return Err(format!("Unknown option: {}", String::from_utf8_lossy(&[b]))),
                 }
@@ -111,7 +108,7 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
         } else if from.is_none() {
             from = Some(param);
         } else if to.is_none() {
-            to = Some(param)
+            to = Some(param);
         } else {
             return Err(format!("Usage: {} <from> <to>", exe.to_string_lossy()));
         }

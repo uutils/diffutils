@@ -79,7 +79,7 @@ fn make_diff(expected: &[u8], actual: &[u8], context_size: usize) -> Vec<Mismatc
                             // always come after Expected (the - lines)
                             mismatch.lines.push(DiffLine::Expected(str.to_vec()));
                             if line_number_expected > expected_lines_count {
-                                mismatch.lines.push(DiffLine::MissingNL)
+                                mismatch.lines.push(DiffLine::MissingNL);
                             }
                             mismatch.lines.push(DiffLine::Actual(res));
                             mismatch.lines.push(DiffLine::MissingNL);
@@ -89,7 +89,7 @@ fn make_diff(expected: &[u8], actual: &[u8], context_size: usize) -> Vec<Mismatc
                 } else {
                     mismatch.lines.push(DiffLine::Expected(str.to_vec()));
                     if line_number_expected > expected_lines_count {
-                        mismatch.lines.push(DiffLine::MissingNL)
+                        mismatch.lines.push(DiffLine::MissingNL);
                     }
                 }
                 line_number_expected += 1;
@@ -111,7 +111,7 @@ fn make_diff(expected: &[u8], actual: &[u8], context_size: usize) -> Vec<Mismatc
 
                 mismatch.lines.push(DiffLine::Actual(str.to_vec()));
                 if line_number_actual > actual_lines_count {
-                    mismatch.lines.push(DiffLine::MissingNL)
+                    mismatch.lines.push(DiffLine::MissingNL);
                 }
                 line_number_actual += 1;
                 lines_since_mismatch = 0;
@@ -224,6 +224,7 @@ fn make_diff(expected: &[u8], actual: &[u8], context_size: usize) -> Vec<Mismatc
     results
 }
 
+#[must_use]
 pub fn diff(
     expected: &[u8],
     expected_filename: &str,
@@ -231,8 +232,7 @@ pub fn diff(
     actual_filename: &str,
     context_size: usize,
 ) -> Vec<u8> {
-    let mut output =
-        format!("--- {}\t\n+++ {}\t\n", expected_filename, actual_filename).into_bytes();
+    let mut output = format!("--- {expected_filename}\t\n+++ {actual_filename}\t\n").into_bytes();
     let diff_results = make_diff(expected, actual, context_size);
     if diff_results.is_empty() {
         return Vec::new();
@@ -334,25 +334,24 @@ pub fn diff(
         // I made this comment because this stuff is not obvious from GNU's
         // documentation on the format at all.
         if expected_count == 0 {
-            line_number_expected -= 1
+            line_number_expected -= 1;
         }
         if actual_count == 0 {
-            line_number_actual -= 1
+            line_number_actual -= 1;
         }
         let exp_ct = if expected_count == 1 {
             String::new()
         } else {
-            format!(",{}", expected_count)
+            format!(",{expected_count}")
         };
         let act_ct = if actual_count == 1 {
             String::new()
         } else {
-            format!(",{}", actual_count)
+            format!(",{actual_count}")
         };
         writeln!(
             output,
-            "@@ -{}{} +{}{} @@",
-            line_number_expected, exp_ct, line_number_actual, act_ct
+            "@@ -{line_number_expected}{exp_ct} +{line_number_actual}{act_ct} @@"
         )
         .expect("write to Vec is infallible");
         for line in result.lines {
@@ -435,28 +434,26 @@ mod tests {
                                 // This test diff is intentionally reversed.
                                 // We want it to turn the alef into bet.
                                 let diff =
-                                    diff(&alef, "a/alef", &bet, &format!("{}/alef", target), 2);
-                                File::create(&format!("{}/ab.diff", target))
+                                    diff(&alef, "a/alef", &bet, &format!("{target}/alef"), 2);
+                                File::create(&format!("{target}/ab.diff"))
                                     .unwrap()
                                     .write_all(&diff)
                                     .unwrap();
-                                let mut fa = File::create(&format!("{}/alef", target)).unwrap();
+                                let mut fa = File::create(&format!("{target}/alef")).unwrap();
                                 fa.write_all(&alef[..]).unwrap();
-                                let mut fb = File::create(&format!("{}/bet", target)).unwrap();
+                                let mut fb = File::create(&format!("{target}/bet")).unwrap();
                                 fb.write_all(&bet[..]).unwrap();
                                 let _ = fa;
                                 let _ = fb;
                                 let output = Command::new("patch")
                                     .arg("-p0")
-                                    .stdin(File::open(&format!("{}/ab.diff", target)).unwrap())
+                                    .stdin(File::open(&format!("{target}/ab.diff")).unwrap())
                                     .output()
                                     .unwrap();
-                                if !output.status.success() {
-                                    panic!("{:?}", output);
-                                }
+                                assert!(output.status.success(), "{:?}", output);
                                 //println!("{}", String::from_utf8_lossy(&output.stdout));
                                 //println!("{}", String::from_utf8_lossy(&output.stderr));
-                                let alef = fs::read(&format!("{}/alef", target)).unwrap();
+                                let alef = fs::read(&format!("{target}/alef")).unwrap();
                                 assert_eq!(alef, bet);
                             }
                         }
@@ -528,35 +525,27 @@ mod tests {
                                     }
                                     // This test diff is intentionally reversed.
                                     // We want it to turn the alef into bet.
-                                    let diff = diff(
-                                        &alef,
-                                        "a/alefn",
-                                        &bet,
-                                        &format!("{}/alefn", target),
-                                        2,
-                                    );
-                                    File::create(&format!("{}/abn.diff", target))
+                                    let diff =
+                                        diff(&alef, "a/alefn", &bet, &format!("{target}/alefn"), 2);
+                                    File::create(&format!("{target}/abn.diff"))
                                         .unwrap()
                                         .write_all(&diff)
                                         .unwrap();
-                                    let mut fa =
-                                        File::create(&format!("{}/alefn", target)).unwrap();
+                                    let mut fa = File::create(&format!("{target}/alefn")).unwrap();
                                     fa.write_all(&alef[..]).unwrap();
-                                    let mut fb = File::create(&format!("{}/betn", target)).unwrap();
+                                    let mut fb = File::create(&format!("{target}/betn")).unwrap();
                                     fb.write_all(&bet[..]).unwrap();
                                     let _ = fa;
                                     let _ = fb;
                                     let output = Command::new("patch")
                                         .arg("-p0")
-                                        .stdin(File::open(&format!("{}/abn.diff", target)).unwrap())
+                                        .stdin(File::open(&format!("{target}/abn.diff")).unwrap())
                                         .output()
                                         .unwrap();
-                                    if !output.status.success() {
-                                        panic!("{:?}", output);
-                                    }
+                                    assert!(output.status.success(), "{:?}", output);
                                     //println!("{}", String::from_utf8_lossy(&output.stdout));
                                     //println!("{}", String::from_utf8_lossy(&output.stderr));
-                                    let alef = fs::read(&format!("{}/alefn", target)).unwrap();
+                                    let alef = fs::read(&format!("{target}/alefn")).unwrap();
                                     assert_eq!(alef, bet);
                                 }
                             }
@@ -624,35 +613,27 @@ mod tests {
                                     }
                                     // This test diff is intentionally reversed.
                                     // We want it to turn the alef into bet.
-                                    let diff = diff(
-                                        &alef,
-                                        "a/alef_",
-                                        &bet,
-                                        &format!("{}/alef_", target),
-                                        2,
-                                    );
-                                    File::create(&format!("{}/ab_.diff", target))
+                                    let diff =
+                                        diff(&alef, "a/alef_", &bet, &format!("{target}/alef_"), 2);
+                                    File::create(&format!("{target}/ab_.diff"))
                                         .unwrap()
                                         .write_all(&diff)
                                         .unwrap();
-                                    let mut fa =
-                                        File::create(&format!("{}/alef_", target)).unwrap();
+                                    let mut fa = File::create(&format!("{target}/alef_")).unwrap();
                                     fa.write_all(&alef[..]).unwrap();
-                                    let mut fb = File::create(&format!("{}/bet_", target)).unwrap();
+                                    let mut fb = File::create(&format!("{target}/bet_")).unwrap();
                                     fb.write_all(&bet[..]).unwrap();
                                     let _ = fa;
                                     let _ = fb;
                                     let output = Command::new("patch")
                                         .arg("-p0")
-                                        .stdin(File::open(&format!("{}/ab_.diff", target)).unwrap())
+                                        .stdin(File::open(&format!("{target}/ab_.diff")).unwrap())
                                         .output()
                                         .unwrap();
-                                    if !output.status.success() {
-                                        panic!("{:?}", output);
-                                    }
+                                    assert!(output.status.success(), "{:?}", output);
                                     //println!("{}", String::from_utf8_lossy(&output.stdout));
                                     //println!("{}", String::from_utf8_lossy(&output.stderr));
-                                    let alef = fs::read(&format!("{}/alef_", target)).unwrap();
+                                    let alef = fs::read(&format!("{target}/alef_")).unwrap();
                                     assert_eq!(alef, bet);
                                 }
                             }
@@ -706,28 +687,26 @@ mod tests {
                                 // This test diff is intentionally reversed.
                                 // We want it to turn the alef into bet.
                                 let diff =
-                                    diff(&alef, "a/alefx", &bet, &format!("{}/alefx", target), 2);
-                                File::create(&format!("{}/abx.diff", target))
+                                    diff(&alef, "a/alefx", &bet, &format!("{target}/alefx"), 2);
+                                File::create(&format!("{target}/abx.diff"))
                                     .unwrap()
                                     .write_all(&diff)
                                     .unwrap();
-                                let mut fa = File::create(&format!("{}/alefx", target)).unwrap();
+                                let mut fa = File::create(&format!("{target}/alefx")).unwrap();
                                 fa.write_all(&alef[..]).unwrap();
-                                let mut fb = File::create(&format!("{}/betx", target)).unwrap();
+                                let mut fb = File::create(&format!("{target}/betx")).unwrap();
                                 fb.write_all(&bet[..]).unwrap();
                                 let _ = fa;
                                 let _ = fb;
                                 let output = Command::new("patch")
                                     .arg("-p0")
-                                    .stdin(File::open(&format!("{}/abx.diff", target)).unwrap())
+                                    .stdin(File::open(&format!("{target}/abx.diff")).unwrap())
                                     .output()
                                     .unwrap();
-                                if !output.status.success() {
-                                    panic!("{:?}", output);
-                                }
+                                assert!(output.status.success(), "{:?}", output);
                                 //println!("{}", String::from_utf8_lossy(&output.stdout));
                                 //println!("{}", String::from_utf8_lossy(&output.stderr));
-                                let alef = fs::read(&format!("{}/alefx", target)).unwrap();
+                                let alef = fs::read(&format!("{target}/alefx")).unwrap();
                                 assert_eq!(alef, bet);
                             }
                         }
@@ -786,28 +765,26 @@ mod tests {
                                 // This test diff is intentionally reversed.
                                 // We want it to turn the alef into bet.
                                 let diff =
-                                    diff(&alef, "a/alefr", &bet, &format!("{}/alefr", target), 2);
-                                File::create(&format!("{}/abr.diff", target))
+                                    diff(&alef, "a/alefr", &bet, &format!("{target}/alefr"), 2);
+                                File::create(&format!("{target}/abr.diff"))
                                     .unwrap()
                                     .write_all(&diff)
                                     .unwrap();
-                                let mut fa = File::create(&format!("{}/alefr", target)).unwrap();
+                                let mut fa = File::create(&format!("{target}/alefr")).unwrap();
                                 fa.write_all(&alef[..]).unwrap();
-                                let mut fb = File::create(&format!("{}/betr", target)).unwrap();
+                                let mut fb = File::create(&format!("{target}/betr")).unwrap();
                                 fb.write_all(&bet[..]).unwrap();
                                 let _ = fa;
                                 let _ = fb;
                                 let output = Command::new("patch")
                                     .arg("-p0")
-                                    .stdin(File::open(&format!("{}/abr.diff", target)).unwrap())
+                                    .stdin(File::open(&format!("{target}/abr.diff")).unwrap())
                                     .output()
                                     .unwrap();
-                                if !output.status.success() {
-                                    panic!("{:?}", output);
-                                }
+                                assert!(output.status.success(), "{:?}", output);
                                 //println!("{}", String::from_utf8_lossy(&output.stdout));
                                 //println!("{}", String::from_utf8_lossy(&output.stderr));
-                                let alef = fs::read(&format!("{}/alefr", target)).unwrap();
+                                let alef = fs::read(&format!("{target}/alefr")).unwrap();
                                 assert_eq!(alef, bet);
                             }
                         }

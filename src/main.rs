@@ -3,7 +3,7 @@
 // For the full copyright and license information, please view the LICENSE-*
 // files that was distributed with this source code.
 
-use crate::params::*;
+use crate::params::{parse_params, Format, Params};
 use std::env;
 
 use std::fs;
@@ -27,13 +27,13 @@ fn main() -> Result<(), String> {
     let from_content = match fs::read(&from) {
         Ok(from_content) => from_content,
         Err(e) => {
-            return Err(format!("Failed to read from-file: {}", e));
+            return Err(format!("Failed to read from-file: {e}"));
         }
     };
     let to_content = match fs::read(&to) {
         Ok(to_content) => to_content,
         Err(e) => {
-            return Err(format!("Failed to read from-file: {}", e));
+            return Err(format!("Failed to read from-file: {e}"));
         }
     };
     // run diff
