@@ -356,7 +356,8 @@ pub fn diff(
 #[test]
 fn test_permutations() {
     // test all possible six-line files.
-    let _ = std::fs::create_dir("target");
+    let target = "target/context-diff/";
+    let _ = std::fs::create_dir(target);
     for &a in &[0, 1, 2] {
         for &b in &[0, 1, 2] {
             for &c in &[0, 1, 2] {
@@ -400,21 +401,21 @@ fn test_permutations() {
                             }
                             // This test diff is intentionally reversed.
                             // We want it to turn the alef into bet.
-                            let diff = diff(&alef, "a/alef", &bet, "target/alef", 2);
-                            File::create("target/ab.diff")
+                            let diff = diff(&alef, "a/alef", &bet, &format!("{}/alef", target), 2);
+                            File::create(&format!("{}/ab.diff", target))
                                 .unwrap()
                                 .write_all(&diff)
                                 .unwrap();
-                            let mut fa = File::create("target/alef").unwrap();
+                            let mut fa = File::create(&format!("{}/alef", target)).unwrap();
                             fa.write_all(&alef[..]).unwrap();
-                            let mut fb = File::create("target/bet").unwrap();
+                            let mut fb = File::create(&format!("{}/bet", target)).unwrap();
                             fb.write_all(&bet[..]).unwrap();
                             let _ = fa;
                             let _ = fb;
                             let output = Command::new("patch")
                                 .arg("-p0")
                                 .arg("--context")
-                                .stdin(File::open("target/ab.diff").unwrap())
+                                .stdin(File::open(&format!("{}/ab.diff", target)).unwrap())
                                 .output()
                                 .unwrap();
                             if !output.status.success() {
@@ -422,7 +423,7 @@ fn test_permutations() {
                             }
                             //println!("{}", String::from_utf8_lossy(&output.stdout));
                             //println!("{}", String::from_utf8_lossy(&output.stderr));
-                            let alef = fs::read("target/alef").unwrap();
+                            let alef = fs::read(&format!("{}/alef", target)).unwrap();
                             assert_eq!(alef, bet);
                         }
                     }
@@ -434,8 +435,9 @@ fn test_permutations() {
 
 #[test]
 fn test_permutations_empty_lines() {
+    let target = "target/context-diff/";
     // test all possible six-line files with missing newlines.
-    let _ = std::fs::create_dir("target");
+    let _ = std::fs::create_dir(target);
     for &a in &[0, 1, 2] {
         for &b in &[0, 1, 2] {
             for &c in &[0, 1, 2] {
@@ -473,21 +475,22 @@ fn test_permutations_empty_lines() {
                             }
                             // This test diff is intentionally reversed.
                             // We want it to turn the alef into bet.
-                            let diff = diff(&alef, "a/alef_", &bet, "target/alef_", 2);
-                            File::create("target/ab_.diff")
+                            let diff =
+                                diff(&alef, "a/alef_", &bet, &format!("{}/alef_", target), 2);
+                            File::create(&format!("{}/ab_.diff", target))
                                 .unwrap()
                                 .write_all(&diff)
                                 .unwrap();
-                            let mut fa = File::create("target/alef_").unwrap();
+                            let mut fa = File::create(&format!("{}/alef_", target)).unwrap();
                             fa.write_all(&alef[..]).unwrap();
-                            let mut fb = File::create("target/bet_").unwrap();
+                            let mut fb = File::create(&format!("{}/bet_", target)).unwrap();
                             fb.write_all(&bet[..]).unwrap();
                             let _ = fa;
                             let _ = fb;
                             let output = Command::new("patch")
                                 .arg("-p0")
                                 .arg("--context")
-                                .stdin(File::open("target/ab_.diff").unwrap())
+                                .stdin(File::open(&format!("{}/ab_.diff", target)).unwrap())
                                 .output()
                                 .unwrap();
                             if !output.status.success() {
@@ -495,7 +498,7 @@ fn test_permutations_empty_lines() {
                             }
                             //println!("{}", String::from_utf8_lossy(&output.stdout));
                             //println!("{}", String::from_utf8_lossy(&output.stderr));
-                            let alef = fs::read("target/alef_").unwrap();
+                            let alef = fs::read(&format!("{}/alef_", target)).unwrap();
                             assert_eq!(alef, bet);
                         }
                     }
@@ -507,8 +510,9 @@ fn test_permutations_empty_lines() {
 
 #[test]
 fn test_permutations_missing_lines() {
+    let target = "target/context-diff/";
     // test all possible six-line files.
-    let _ = std::fs::create_dir("target");
+    let _ = std::fs::create_dir(target);
     for &a in &[0, 1, 2] {
         for &b in &[0, 1, 2] {
             for &c in &[0, 1, 2] {
@@ -549,21 +553,22 @@ fn test_permutations_missing_lines() {
                             };
                             // This test diff is intentionally reversed.
                             // We want it to turn the alef into bet.
-                            let diff = diff(&alef, "a/alefx", &bet, "target/alefx", 2);
-                            File::create("target/abx.diff")
+                            let diff =
+                                diff(&alef, "a/alefx", &bet, &format!("{}/alefx", target), 2);
+                            File::create(&format!("{}/abx.diff", target))
                                 .unwrap()
                                 .write_all(&diff)
                                 .unwrap();
-                            let mut fa = File::create("target/alefx").unwrap();
+                            let mut fa = File::create(&format!("{}/alefx", target)).unwrap();
                             fa.write_all(&alef[..]).unwrap();
-                            let mut fb = File::create("target/betx").unwrap();
+                            let mut fb = File::create(&format!("{}/betx", target)).unwrap();
                             fb.write_all(&bet[..]).unwrap();
                             let _ = fa;
                             let _ = fb;
                             let output = Command::new("patch")
                                 .arg("-p0")
                                 .arg("--context")
-                                .stdin(File::open("target/abx.diff").unwrap())
+                                .stdin(File::open(&format!("{}/abx.diff", target)).unwrap())
                                 .output()
                                 .unwrap();
                             if !output.status.success() {
@@ -571,7 +576,7 @@ fn test_permutations_missing_lines() {
                             }
                             //println!("{}", String::from_utf8_lossy(&output.stdout));
                             //println!("{}", String::from_utf8_lossy(&output.stderr));
-                            let alef = fs::read("target/alefx").unwrap();
+                            let alef = fs::read(&format!("{}/alefx", target)).unwrap();
                             assert_eq!(alef, bet);
                         }
                     }
@@ -583,8 +588,9 @@ fn test_permutations_missing_lines() {
 
 #[test]
 fn test_permutations_reverse() {
+    let target = "target/context-diff/";
     // test all possible six-line files.
-    let _ = std::fs::create_dir("target");
+    let _ = std::fs::create_dir(target);
     for &a in &[0, 1, 2] {
         for &b in &[0, 1, 2] {
             for &c in &[0, 1, 2] {
@@ -628,21 +634,22 @@ fn test_permutations_reverse() {
                             }
                             // This test diff is intentionally reversed.
                             // We want it to turn the alef into bet.
-                            let diff = diff(&alef, "a/alefr", &bet, "target/alefr", 2);
-                            File::create("target/abr.diff")
+                            let diff =
+                                diff(&alef, "a/alefr", &bet, &format!("{}/alefr", target), 2);
+                            File::create(&format!("{}/abr.diff", target))
                                 .unwrap()
                                 .write_all(&diff)
                                 .unwrap();
-                            let mut fa = File::create("target/alefr").unwrap();
+                            let mut fa = File::create(&format!("{}/alefr", target)).unwrap();
                             fa.write_all(&alef[..]).unwrap();
-                            let mut fb = File::create("target/betr").unwrap();
+                            let mut fb = File::create(&format!("{}/betr", target)).unwrap();
                             fb.write_all(&bet[..]).unwrap();
                             let _ = fa;
                             let _ = fb;
                             let output = Command::new("patch")
                                 .arg("-p0")
                                 .arg("--context")
-                                .stdin(File::open("target/abr.diff").unwrap())
+                                .stdin(File::open(&format!("{}/abr.diff", target)).unwrap())
                                 .output()
                                 .unwrap();
                             if !output.status.success() {
@@ -650,7 +657,7 @@ fn test_permutations_reverse() {
                             }
                             //println!("{}", String::from_utf8_lossy(&output.stdout));
                             //println!("{}", String::from_utf8_lossy(&output.stderr));
-                            let alef = fs::read("target/alefr").unwrap();
+                            let alef = fs::read(&format!("{}/alefr", target)).unwrap();
                             assert_eq!(alef, bet);
                         }
                     }
