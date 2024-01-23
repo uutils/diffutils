@@ -146,12 +146,6 @@ pub fn diff(expected: &[u8], actual: &[u8]) -> Result<Vec<u8>, DiffError> {
     Ok(output)
 }
 
-pub fn diff_w(expected: &[u8], actual: &[u8], filename: &str) -> Result<Vec<u8>, DiffError> {
-    let mut output = diff(expected, actual)?;
-    writeln!(&mut output, "w {}", filename).unwrap();
-    Ok(output)
-}
-
 #[test]
 fn test_permutations() {
     let target = "target/ed-diff/";
