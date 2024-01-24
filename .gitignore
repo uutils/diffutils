@@ -3,5 +3,4 @@
 /lib/ed-diff/target
 /lib/context-diff/target
 /lib/unified-diff/target
-Cargo.lock
 *.swp
