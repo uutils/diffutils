@@ -14,11 +14,7 @@ jobs:
         os: [ubuntu-latest, macOS-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
+      - uses: dtolnay/rust-toolchain@stable
       - run: cargo check
 
   test:
@@ -29,11 +25,7 @@ jobs:
         os: [ubuntu-latest, macOS-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
+      - uses: dtolnay/rust-toolchain@stable
       - run: cargo test
 
   fmt:
@@ -41,11 +33,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
+      - uses: dtolnay/rust-toolchain@stable
       - run: rustup component add rustfmt
       - run: cargo fmt --all -- --check
 
@@ -57,11 +45,7 @@ jobs:
         os: [ubuntu-latest, macOS-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
+      - uses: dtolnay/rust-toolchain@stable
       - run: rustup component add clippy
       - run: cargo clippy -- -D warnings
 
@@ -98,11 +82,7 @@ jobs:
         outputs CODECOV_FLAGS
 
     - name: rust toolchain ~ install
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: ${{ steps.vars.outputs.TOOLCHAIN }}
-        default: true
-        profile: minimal # minimal component installation (ie, no documentation)
+      uses: dtolnay/rust-toolchain@nightly
     - name: Test
       run: cargo test ${{ steps.vars.outputs.CARGO_FEATURES_OPTION }} --no-fail-fast
       env:
