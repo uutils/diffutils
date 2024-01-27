@@ -1,3 +1,10 @@
+[![Crates.io](https://img.shields.io/crates/v/diffutils.svg)](https://crates.io/crates/diffutils)
+[![Discord](https://img.shields.io/badge/discord-join-7289DA.svg?logo=discord&longCache=true&style=flat)](https://discord.gg/wQVJbvJ)
+[![License](http://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/uutils/diffutils/blob/main/LICENSE)
+[![dependency status](https://deps.rs/repo/github/uutils/diffutils/status.svg)](https://deps.rs/repo/github/uutils/diffutils)
+
+[![CodeCov](https://codecov.io/gh/uutils/diffutils/branch/master/graph/badge.svg)](https://codecov.io/gh/uutils/diffutils)
+
 The goal of this package is to be a dropped in replacement for the [diffutils commands](https://www.gnu.org/software/diffutils/) in Rust.
 
 
