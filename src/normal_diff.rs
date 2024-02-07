@@ -136,6 +136,28 @@ pub fn diff(expected: &[u8], actual: &[u8]) -> Vec<u8> {
                 line_number_actual - 1
             )
             .unwrap(),
+            (1, 1) => writeln!(
+                &mut output,
+                "{}c{}",
+                line_number_expected, line_number_actual
+            )
+            .unwrap(),
+            (1, _) => writeln!(
+                &mut output,
+                "{}c{},{}",
+                line_number_expected,
+                line_number_actual,
+                actual_count + line_number_actual - 1
+            )
+            .unwrap(),
+            (_, 1) => writeln!(
+                &mut output,
+                "{},{}c{}",
+                line_number_expected,
+                expected_count + line_number_expected - 1,
+                line_number_actual
+            )
+            .unwrap(),
             _ => writeln!(
                 &mut output,
                 "{},{}c{},{}",
@@ -173,6 +195,18 @@ pub fn diff(expected: &[u8], actual: &[u8]) -> Vec<u8> {
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+
+    #[test]
+    fn test_basic() {
+        let mut a = Vec::new();
+        a.write_all(b"a\n").unwrap();
+        let mut b = Vec::new();
+        b.write_all(b"b\n").unwrap();
+        let diff = diff(&a, &b);
+        let expected = b"1c1\n< a\n---\n> b\n".to_vec();
+        assert_eq!(diff, expected);
+    }
+
     #[test]
     fn test_permutations() {
         let target = "target/normal-diff/";
