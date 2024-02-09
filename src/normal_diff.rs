@@ -111,6 +111,8 @@ fn make_diff(expected: &[u8], actual: &[u8]) -> Vec<Mismatch> {
 
 #[must_use]
 pub fn diff(expected: &[u8], actual: &[u8]) -> Vec<u8> {
+    // See https://www.gnu.org/software/diffutils/manual/html_node/Detailed-Normal.html
+    // for details on the syntax of the normal format.
     let mut output = Vec::new();
     let diff_results = make_diff(expected, actual);
     for result in diff_results {
@@ -121,6 +123,7 @@ pub fn diff(expected: &[u8], actual: &[u8]) -> Vec<u8> {
         match (expected_count, actual_count) {
             (0, 0) => unreachable!(),
             (0, _) => writeln!(
+                // 'a' stands for "Add lines"
                 &mut output,
                 "{}a{},{}",
                 line_number_expected - 1,
@@ -129,6 +132,7 @@ pub fn diff(expected: &[u8], actual: &[u8]) -> Vec<u8> {
             )
             .unwrap(),
             (_, 0) => writeln!(
+                // 'd' stands for "Delete lines"
                 &mut output,
                 "{},{}d{}",
                 line_number_expected,
@@ -136,7 +140,35 @@ pub fn diff(expected: &[u8], actual: &[u8]) -> Vec<u8> {
                 line_number_actual - 1
             )
             .unwrap(),
+            (1, 1) => writeln!(
+                // 'c' stands for "Change lines"
+                // exactly one line replaced by one line
+                &mut output,
+                "{}c{}",
+                line_number_expected,
+                line_number_actual
+            )
+            .unwrap(),
+            (1, _) => writeln!(
+                // one line replaced by multiple lines
+                &mut output,
+                "{}c{},{}",
+                line_number_expected,
+                line_number_actual,
+                actual_count + line_number_actual - 1
+            )
+            .unwrap(),
+            (_, 1) => writeln!(
+                // multiple lines replaced by one line
+                &mut output,
+                "{},{}c{}",
+                line_number_expected,
+                expected_count + line_number_expected - 1,
+                line_number_actual
+            )
+            .unwrap(),
             _ => writeln!(
+                // general case: multiple lines replaced by multiple lines
                 &mut output,
                 "{},{}c{},{}",
                 line_number_expected,
@@ -173,6 +205,18 @@ pub fn diff(expected: &[u8], actual: &[u8]) -> Vec<u8> {
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+
+    #[test]
+    fn test_basic() {
+        let mut a = Vec::new();
+        a.write_all(b"a\n").unwrap();
+        let mut b = Vec::new();
+        b.write_all(b"b\n").unwrap();
+        let diff = diff(&a, &b);
+        let expected = b"1c1\n< a\n---\n> b\n".to_vec();
+        assert_eq!(diff, expected);
+    }
+
     #[test]
     fn test_permutations() {
         let target = "target/normal-diff/";
