@@ -33,7 +33,7 @@ fn main() -> Result<(), String> {
     let to_content = match fs::read(&to) {
         Ok(to_content) => to_content,
         Err(e) => {
-            return Err(format!("Failed to read from-file: {e}"));
+            return Err(format!("Failed to read to-file: {e}"));
         }
     };
     // run diff
