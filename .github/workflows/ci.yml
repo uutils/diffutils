@@ -57,6 +57,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo build --release
       - run: ./run-upstream-testsuite.sh release
+        env:
+          TERM: xterm
 
   coverage:
     name: Code Coverage
