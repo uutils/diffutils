@@ -2,8 +2,11 @@
 
 scriptpath=$(dirname "$(readlink -f "$0")")
 
+# Allow passing a specific profile as parameter (default to "release")
 profile="release"
 [[ -n $1 ]] && profile="$1"
+
+# Verify that the diffutils binary was built for the requested profile
 binary="$scriptpath/target/$profile/diffutils"
 if [[ ! -x "$binary" ]]
 then
@@ -23,8 +26,8 @@ cd diffutils
 git sparse-checkout set --no-cone tests &> /dev/null
 git checkout &> /dev/null
 
-# Ensure that calling `diff` invokes the built binary instead of
-# the upstream binary that is most likely installed on the system
+# Ensure that calling `diff` invokes the built `diffutils` binary instead of
+# the upstream `diff` binary that is most likely installed on the system
 mkdir src
 cd src
 ln -s "$binary" diff
