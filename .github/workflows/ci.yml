@@ -49,6 +49,15 @@ jobs:
       - run: rustup component add clippy
       - run: cargo clippy -- -D warnings
 
+  upstream-testsuite:
+    name: Upstream test suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release
+      - run: ./run-upstream-testsuite.sh release
+
   coverage:
     name: Code Coverage
     runs-on: ${{ matrix.job.os }}
