@@ -2,6 +2,15 @@
 
 scriptpath=$(dirname "$(readlink -f "$0")")
 
+profile="release"
+[[ -n $1 ]] && profile="$1"
+binary="$scriptpath/target/$profile/diffutils"
+if [[ ! -x "$binary" ]]
+then
+  echo "Missing build for profile $profile"
+  exit 1
+fi
+
 # Work in a temporary directory
 tempdir=$(mktemp -d)
 cd "$tempdir"
@@ -18,7 +27,7 @@ git checkout &> /dev/null
 # the upstream binary that is most likely installed on the system
 mkdir src
 cd src
-ln -s "$scriptpath/target/release/diffutils" diff # XXX: this assumes a release build
+ln -s "$binary" diff
 cd ../tests
 
 # Get a list of all upstream tests and run only those that invoke `diff`
