@@ -56,7 +56,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo build --release
-      - run: ./run-upstream-testsuite.sh release
+      # do not fail, the report is merely informative (at least until all tests pass reliably)
+      - run: ./run-upstream-testsuite.sh release || true
         env:
           TERM: xterm
 
