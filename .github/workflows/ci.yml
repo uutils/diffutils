@@ -60,6 +60,10 @@ jobs:
       - run: ./run-upstream-testsuite.sh release || true
         env:
           TERM: xterm
+      - uses: actions/upload-artifact@v4
+        with:
+          name: test-results.json
+          path: test-results.json
 
   coverage:
     name: Code Coverage

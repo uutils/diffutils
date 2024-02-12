@@ -43,25 +43,45 @@ else
 fi
 echo "Running $(echo "$tests" | wc -w) tests"
 export LC_ALL=C
-pass="$(tput setaf 2)PASS$(tput sgr0)"
-fail="$(tput setaf 1)FAIL$(tput sgr0)"
-skip=SKIP
+export KEEP=yes
 exitcode=0
+json=""
 for test in $tests
 do
-  result=$fail
+  result="FAIL"
   # Run only the tests that invoke `diff`, because other binaries aren't implemented yet
   if ! grep -E -s -q "(cmp|diff3|sdiff)" "$test"
   then
-    sh "$test" &> /dev/null && result=$pass || exitcode=1
+    sh "$test" &> /dev/null && result="PASS" || exitcode=1
+    json="$json{\"test\":\"$test\",\"result\":\"$result\",\"files\":{"
+    cd gt-$test.*
+    for file in *
+    do
+      if [[ -f "$file" ]]
+      then
+        content=$(base64 -w0 < "$file")
+        json="$json\"$file\":\"$content\","
+      fi
+    done
+    json="${json%,}}},"
+    cd - > /dev/null
   else
-    result=$skip
+    result="SKIP"
+    json="$json{\"test\":\"$test\",\"result\":\"$result\"},"
   fi
-  printf "  %-40s $result\n" "$test"
+  color=2 # green
+  [[ "$result" = "FAIL" ]] && color=1 # red
+  [[ "$result" = "SKIP" ]] && color=3 # yellow
+  printf "  %-40s $(tput setaf $color)$result$(tput sgr0)\n" "$test"
 done
+json="[${json%,}]"
 
 # Clean up
 cd "$scriptpath"
 rm -rf "$tempdir"
+
+resultsfile="test-results.json"
+echo "$json" | jq > "$resultsfile"
+echo "Results written to $resultsfile"
 
 exit $exitcode
