@@ -33,9 +33,14 @@ cd src
 ln -s "$binary" diff
 cd ../tests
 
-# Get a list of all upstream tests and run only those that invoke `diff`
-echo -e '\n\nprinttests:\n\t@echo "${TESTS}"' >> Makefile.am
-tests=$(make -f Makefile.am printtests)
+if [[ -n "$TESTS" ]]
+then
+  tests="$TESTS"
+else
+  # Get a list of all upstream tests (default if $TESTS isn't set)
+  echo -e '\n\nprinttests:\n\t@echo "${TESTS}"' >> Makefile.am
+  tests=$(make -f Makefile.am printtests)
+fi
 echo "Running $(echo "$tests" | wc -w) tests"
 export LC_ALL=C
 pass="$(tput setaf 2)PASS$(tput sgr0)"
@@ -45,6 +50,7 @@ exitcode=0
 for test in $tests
 do
   result=$fail
+  # Run only the tests that invoke `diff`, because other binaries aren't implemented yet
   if ! grep -E -s -q "(cmp|diff3|sdiff)" "$test"
   then
     sh "$test" &> /dev/null && result=$pass || exitcode=1
