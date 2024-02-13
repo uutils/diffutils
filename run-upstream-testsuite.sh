@@ -52,22 +52,21 @@ do
   # Run only the tests that invoke `diff`, because other binaries aren't implemented yet
   if ! grep -E -s -q "(cmp|diff3|sdiff)" "$test"
   then
-    sh "$test" &> /dev/null && result="PASS" || exitcode=1
-    json="$json{\"test\":\"$test\",\"result\":\"$result\",\"files\":{"
+    sh "$test" 1> stdout.txt 2> stderr.txt && result="PASS" || exitcode=1
+    json+="{\"test\":\"$test\",\"result\":\"$result\","
+    json+="\"stdout\":\"$(base64 -w0 < stdout.txt)\","
+    json+="\"stderr\":\"$(base64 -w0 < stderr.txt)\","
+    json+="\"files\":{"
     cd gt-$test.*
     for file in *
     do
-      if [[ -f "$file" ]]
-      then
-        content=$(base64 -w0 < "$file")
-        json="$json\"$file\":\"$content\","
-      fi
+      [[ -f "$file" ]] && json+="\"$file\":\"$(base64 -w0 < "$file")\","
     done
     json="${json%,}}},"
     cd - > /dev/null
   else
     result="SKIP"
-    json="$json{\"test\":\"$test\",\"result\":\"$result\"},"
+    json+="{\"test\":\"$test\",\"result\":\"$result\"},"
   fi
   color=2 # green
   [[ "$result" = "FAIL" ]] && color=1 # red
