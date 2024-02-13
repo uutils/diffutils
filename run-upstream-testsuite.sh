@@ -58,6 +58,8 @@ do
     json+="\"stderr\":\"$(base64 -w0 < stderr.txt)\","
     json+="\"files\":{"
     cd gt-$test.*
+    # Note: this doesn't include the contents of subdirectories,
+    # but there isn't much value added in doing so
     for file in *
     do
       [[ -f "$file" ]] && json+="\"$file\":\"$(base64 -w0 < "$file")\","
