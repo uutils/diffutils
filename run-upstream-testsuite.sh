@@ -1,6 +1,7 @@
 #!/bin/bash
 
 scriptpath=$(dirname "$(readlink -f "$0")")
+rev=$(git rev-parse HEAD)
 
 # Allow passing a specific profile as parameter (default to "release")
 profile="release"
@@ -25,6 +26,7 @@ git clone -n --depth=1 --filter=tree:0 "$testsuite" &> /dev/null
 cd diffutils
 git sparse-checkout set --no-cone tests &> /dev/null
 git checkout &> /dev/null
+upstreamrev=$(git rev-parse HEAD)
 
 # Ensure that calling `diff` invokes the built `diffutils` binary instead of
 # the upstream `diff` binary that is most likely installed on the system
@@ -45,7 +47,7 @@ echo "Running $(echo "$tests" | wc -w) tests"
 export LC_ALL=C
 export KEEP=yes
 exitcode=0
-json=""
+timestamp=$(date -Iseconds)
 for test in $tests
 do
   result="FAIL"
@@ -75,7 +77,16 @@ do
   [[ "$result" = "SKIP" ]] && color=3 # yellow
   printf "  %-40s $(tput setaf $color)$result$(tput sgr0)\n" "$test"
 done
-json="[${json%,}]"
+json="\"tests\":[${json%,}]"
+
+metadata="\"timestamp\":\"$timestamp\","
+metadata+="\"revision\":\"$rev\","
+metadata+="\"upstream-revision\":\"$upstreamrev\","
+if [[ -n "$GITHUB_ACTIONS" ]]
+then
+  metadata+="\"branch\":\"$GITHUB_REF\","
+fi
+json="{$metadata $json}"
 
 # Clean up
 cd "$scriptpath"
