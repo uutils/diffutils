@@ -20,7 +20,8 @@ tempdir=$(mktemp -d)
 cd "$tempdir"
 
 # Check out the upstream test suite
-testsuite="https://git.savannah.gnu.org/git/diffutils.git"
+gitserver="https://git.savannah.gnu.org"
+testsuite="$gitserver/git/diffutils.git"
 echo "Fetching upstream test suite from $testsuite"
 git clone -n --depth=1 --filter=tree:0 "$testsuite" &> /dev/null
 cd diffutils
@@ -48,14 +49,17 @@ export LC_ALL=C
 export KEEP=yes
 exitcode=0
 timestamp=$(date -Iseconds)
+urlroot="$gitserver/cgit/diffutils.git/tree/tests/"
 for test in $tests
 do
   result="FAIL"
+  url="$urlroot$test?id=$upstreamrev"
   # Run only the tests that invoke `diff`, because other binaries aren't implemented yet
   if ! grep -E -s -q "(cmp|diff3|sdiff)" "$test"
   then
     sh "$test" 1> stdout.txt 2> stderr.txt && result="PASS" || exitcode=1
     json+="{\"test\":\"$test\",\"result\":\"$result\","
+    json+="\"url\":\"$url\","
     json+="\"stdout\":\"$(base64 -w0 < stdout.txt)\","
     json+="\"stderr\":\"$(base64 -w0 < stderr.txt)\","
     json+="\"files\":{"
@@ -70,7 +74,7 @@ do
     cd - > /dev/null
   else
     result="SKIP"
-    json+="{\"test\":\"$test\",\"result\":\"$result\"},"
+    json+="{\"test\":\"$test\",\"url\":\"$url\",\"result\":\"$result\"},"
   fi
   color=2 # green
   [[ "$result" = "FAIL" ]] && color=1 # red
