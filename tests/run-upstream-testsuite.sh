@@ -44,12 +44,17 @@ else
   echo -e '\n\nprinttests:\n\t@echo "${TESTS}"' >> Makefile.am
   tests=$(make -f Makefile.am printtests)
 fi
-echo "Running $(echo "$tests" | wc -w) tests"
+total=$(echo "$tests" | wc -w)
+echo "Running $total tests"
 export LC_ALL=C
 export KEEP=yes
 exitcode=0
 timestamp=$(date -Iseconds)
 urlroot="$gitserver/cgit/diffutils.git/tree/tests/"
+passed=0
+failed=0
+skipped=0
+normal="$(tput sgr0)"
 for test in $tests
 do
   result="FAIL"
@@ -72,8 +77,11 @@ do
     done
     json="${json%,}}},"
     cd - > /dev/null
+    [[ "$result" = "PASS" ]] && (( passed++ ))
+    [[ "$result" = "FAIL" ]] && (( failed++ ))
   else
     result="SKIP"
+    (( skipped++ ))
     json+="{\"test\":\"$test\",\"url\":\"$url\",\"result\":\"$result\"},"
   fi
   color=2 # green
@@ -81,8 +89,11 @@ do
   [[ "$result" = "SKIP" ]] && color=3 # yellow
   printf "  %-40s $(tput setaf $color)$result$(tput sgr0)\n" "$test"
 done
-json="\"tests\":[${json%,}]"
+echo ""
+echo "Summary: TOTAL: $total / $(tput setaf 2)PASS$normal: $passed / $(tput setaf 1)FAIL$normal: $failed / $(tput setaf 3)SKIP$normal: $skipped"
+echo ""
 
+json="\"tests\":[${json%,}]"
 metadata="\"timestamp\":\"$timestamp\","
 metadata+="\"revision\":\"$rev\","
 metadata+="\"upstream-revision\":\"$upstreamrev\","
