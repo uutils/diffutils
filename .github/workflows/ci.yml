@@ -57,14 +57,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo build --release
       # do not fail, the report is merely informative (at least until all tests pass reliably)
-      - run: ./run-upstream-testsuite.sh release || true
+      - run: ./tests/run-upstream-testsuite.sh release || true
         env:
           TERM: xterm
       - uses: actions/upload-artifact@v4
         with:
           name: test-results.json
-          path: test-results.json
-      - run: ./print-test-results.sh
+          path: tests/test-results.json
+      - run: ./tests/print-test-results.sh tests/test-results.json
 
   coverage:
     name: Code Coverage

@@ -8,7 +8,7 @@ profile="release"
 [[ -n $1 ]] && profile="$1"
 
 # Verify that the diffutils binary was built for the requested profile
-binary="$scriptpath/target/$profile/diffutils"
+binary="$scriptpath/../target/$profile/diffutils"
 if [[ ! -x "$binary" ]]
 then
   echo "Missing build for profile $profile"
