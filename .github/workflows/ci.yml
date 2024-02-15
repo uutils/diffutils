@@ -64,6 +64,7 @@ jobs:
         with:
           name: test-results.json
           path: test-results.json
+      - run: ./print-test-results.sh
 
   coverage:
     name: Code Coverage
