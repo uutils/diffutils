@@ -6,7 +6,7 @@
 json="test-results.json"
 [[ -n $1 ]] && json="$1"
 
-codeblock () { echo "\`\`\`"; }
+codeblock () { echo -e "\`\`\`\n$1\n\`\`\`"; }
 
 jq -c '.tests[]' "$json" | while read -r test
 do
@@ -22,17 +22,13 @@ do
     if [[ -n "$stdout" ]]
     then
       echo "## stdout"
-      codeblock
-      echo "$stdout"
-      codeblock
+      codeblock "$stdout"
     fi
     stderr=$(echo "$test" | jq -r '.stderr' | base64 -d)
     if [[ -n "$stderr" ]]
     then
       echo "## stderr"
-      codeblock
-      echo "$stderr"
-      codeblock
+      codeblock "$stderr"
     fi
   fi
   echo ""
