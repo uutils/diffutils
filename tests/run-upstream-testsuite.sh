@@ -1,5 +1,28 @@
 #!/bin/bash
 
+# Run the GNU upstream test suite for diffutils against a local build of the
+# Rust implementation, print out a summary of the test results, and writes a
+# JSON file ('test-results.json') containing detailed information about the
+# test run.
+
+# The JSON file contains metadata about the test run, and for each test the
+# result as well as the contents of stdout, stderr, and of all the files
+# written by the test script, if any (excluding subdirectories).
+
+# The script takes a shortcut to fetch only the test suite from the upstream
+# repository and carefully avoids running the autotools machinery which is
+# time-consuming and resource-intensive, and doesn't offer the option to not
+# build the upstream binaries. As a consequence, the environment in which the
+# tests are run might not match exactly that used when the upstream tests are
+# run through the autotools.
+
+# By default it expects a release build of the diffutils binary, but a
+# different build profile can be specified as an argument
+# (e.g. 'dev' or 'test').
+# Unless overriden by the $TESTS environment variable, all tests in the test
+# suite will be run. Tests targeting a command that is not yet implemented
+# (e.g. cmp, diff3 or sdiff) are skipped.
+
 scriptpath=$(dirname "$(readlink -f "$0")")
 rev=$(git rev-parse HEAD)
 
@@ -59,7 +82,8 @@ for test in $tests
 do
   result="FAIL"
   url="$urlroot$test?id=$upstreamrev"
-  # Run only the tests that invoke `diff`, because other binaries aren't implemented yet
+  # Run only the tests that invoke `diff`,
+  # because other binaries aren't implemented yet
   if ! grep -E -s -q "(cmp|diff3|sdiff)" "$test"
   then
     sh "$test" 1> stdout.txt 2> stderr.txt && result="PASS" || exitcode=1
@@ -90,7 +114,10 @@ do
   printf "  %-40s $(tput setaf $color)$result$(tput sgr0)\n" "$test"
 done
 echo ""
-echo "Summary: TOTAL: $total / $(tput setaf 2)PASS$normal: $passed / $(tput setaf 1)FAIL$normal: $failed / $(tput setaf 3)SKIP$normal: $skipped"
+echo -n "Summary: TOTAL: $total / "
+echo -n "$(tput setaf 2)PASS$normal: $passed / "
+echo -n "$(tput setaf 1)FAIL$normal: $failed / "
+echo "$(tput setaf 3)SKIP$normal: $skipped"
 echo ""
 
 json="\"tests\":[${json%,}]"
@@ -109,6 +136,6 @@ rm -rf "$tempdir"
 
 resultsfile="test-results.json"
 echo "$json" | jq > "$resultsfile"
-echo "Results written to $resultsfile"
+echo "Results written to $scriptpath/$resultsfile"
 
 exit $exitcode

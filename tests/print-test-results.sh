@@ -1,7 +1,10 @@
 #!/bin/bash
 
-# Print the test results written to a JSON file
-# by run-upstream-testsuite.sh in a markdown format.
+# Print the test results written to a JSON file by run-upstream-testsuite.sh
+# in a markdown format. The printout includes the name of the test, the result,
+# the URL to the test script and the contents of stdout and stderr.
+# It can be used verbatim as the description when filing an issue for a test
+# with an unexpected result.
 
 json="test-results.json"
 [[ -n $1 ]] && json="$1"
