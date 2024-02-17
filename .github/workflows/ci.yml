@@ -49,8 +49,8 @@ jobs:
       - run: rustup component add clippy
       - run: cargo clippy -- -D warnings
 
-  upstream-testsuite:
-    name: Upstream test suite
+  gnu-testsuite:
+    name: GNU test suite
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
