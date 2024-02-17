@@ -22,6 +22,8 @@ cd diffutils
 cargo build --release
 ```
 
+## Example
+
 ```bash
 
 cat <<EOF >fruits_old.txt
