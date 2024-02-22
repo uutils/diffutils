@@ -42,7 +42,7 @@ impl Mismatch {
 }
 
 // Produces a diff between the expected output and actual output.
-fn make_diff(expected: &[u8], actual: &[u8]) -> Result<Vec<Mismatch>, DiffError> {
+fn make_diff(expected: &[u8], actual: &[u8], stop_early: bool) -> Result<Vec<Mismatch>, DiffError> {
     let mut line_number_expected = 1;
     let mut line_number_actual = 1;
     let mut results = Vec::new();
@@ -94,6 +94,10 @@ fn make_diff(expected: &[u8], actual: &[u8]) -> Result<Vec<Mismatch>, DiffError>
                 }
             }
         }
+        if stop_early && !results.is_empty() {
+            // Optimization: stop analyzing the files as soon as there are any differences
+            return Ok(results);
+        }
     }
 
     if !mismatch.actual.is_empty() || !mismatch.expected.is_empty() {
@@ -103,9 +107,13 @@ fn make_diff(expected: &[u8], actual: &[u8]) -> Result<Vec<Mismatch>, DiffError>
     Ok(results)
 }
 
-pub fn diff(expected: &[u8], actual: &[u8]) -> Result<Vec<u8>, DiffError> {
+pub fn diff(expected: &[u8], actual: &[u8], stop_early: bool) -> Result<Vec<u8>, DiffError> {
     let mut output = Vec::new();
-    let diff_results = make_diff(expected, actual)?;
+    let diff_results = make_diff(expected, actual, stop_early)?;
+    if stop_early && !diff_results.is_empty() {
+        write!(&mut output, "\0").unwrap();
+        return Ok(output);
+    }
     let mut lines_offset = 0;
     for result in diff_results {
         let line_number_expected: isize = result.line_number_expected as isize + lines_offset;
@@ -152,7 +160,7 @@ mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
     pub fn diff_w(expected: &[u8], actual: &[u8], filename: &str) -> Result<Vec<u8>, DiffError> {
-        let mut output = diff(expected, actual)?;
+        let mut output = diff(expected, actual, false)?;
         writeln!(&mut output, "w {filename}").unwrap();
         Ok(output)
     }
@@ -161,7 +169,7 @@ mod tests {
     fn test_basic() {
         let from = b"a\n";
         let to = b"b\n";
-        let diff = diff(from, to).unwrap();
+        let diff = diff(from, to, false).unwrap();
         let expected = vec!["1c", "b", ".", ""].join("\n");
         assert_eq!(diff, expected.as_bytes());
     }
@@ -390,4 +398,6 @@ mod tests {
             }
         }
     }
+
+    // TODO: add tests for stop_early parameter
 }

@@ -65,13 +65,14 @@ fn main() -> ExitCode {
     };
     // run diff
     let result: Vec<u8> = match format {
-        Format::Normal => normal_diff::diff(&from_content, &to_content),
+        Format::Normal => normal_diff::diff(&from_content, &to_content, brief),
         Format::Unified => unified_diff::diff(
             &from_content,
             &from.to_string_lossy(),
             &to_content,
             &to.to_string_lossy(),
             context_count,
+            brief,
         ),
         Format::Context => context_diff::diff(
             &from_content,
@@ -79,8 +80,9 @@ fn main() -> ExitCode {
             &to_content,
             &to.to_string_lossy(),
             context_count,
+            brief,
         ),
-        Format::Ed => ed_diff::diff(&from_content, &to_content).unwrap_or_else(|error| {
+        Format::Ed => ed_diff::diff(&from_content, &to_content, brief).unwrap_or_else(|error| {
             eprintln!("{error}");
             exit(2);
         }),
