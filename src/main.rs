@@ -29,6 +29,7 @@ fn main() -> ExitCode {
         context_count,
         format,
         report_identical_files,
+        brief,
     } = parse_params(opts).unwrap_or_else(|error| {
         eprintln!("{error}");
         exit(2);
@@ -84,7 +85,15 @@ fn main() -> ExitCode {
             exit(2);
         }),
     };
-    io::stdout().write_all(&result).unwrap();
+    if brief && !result.is_empty() {
+        println!(
+            "Files {} and {} differ",
+            from.to_string_lossy(),
+            to.to_string_lossy()
+        );
+    } else {
+        io::stdout().write_all(&result).unwrap();
+    }
     if result.is_empty() {
         maybe_report_identical_files();
         ExitCode::SUCCESS
