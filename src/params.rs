@@ -25,6 +25,7 @@ pub struct Params {
     pub to: OsString,
     pub format: Format,
     pub context_count: usize,
+    pub report_identical_files: bool,
 }
 
 pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params, String> {
@@ -38,6 +39,7 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
     let mut to = None;
     let mut format = None;
     let mut context_count = 3;
+    let mut report_identical_files = false;
     while let Some(param) = opts.next() {
         if param == "--" {
             break;
@@ -50,6 +52,10 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
             } else {
                 return Err(format!("Usage: {} <from> <to>", exe.to_string_lossy()));
             }
+            continue;
+        }
+        if param == "-s" || param == "--report-identical-files" {
+            report_identical_files = true;
             continue;
         }
         let p = osstr_bytes(&param);
@@ -133,6 +139,7 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
         to,
         format,
         context_count,
+        report_identical_files,
     })
 }
 
@@ -150,6 +157,7 @@ mod tests {
                 to: os("bar"),
                 format: Format::Normal,
                 context_count: 3,
+                report_identical_files: false,
             }),
             parse_params([os("diff"), os("foo"), os("bar")].iter().cloned())
         );
@@ -162,6 +170,7 @@ mod tests {
                 to: os("bar"),
                 format: Format::Ed,
                 context_count: 3,
+                report_identical_files: false,
             }),
             parse_params([os("diff"), os("-e"), os("foo"), os("bar")].iter().cloned())
         );
@@ -174,6 +183,7 @@ mod tests {
                 to: os("bar"),
                 format: Format::Unified,
                 context_count: 54,
+                report_identical_files: false,
             }),
             parse_params(
                 [os("diff"), os("-u54"), os("foo"), os("bar")]
@@ -187,6 +197,7 @@ mod tests {
                 to: os("bar"),
                 format: Format::Unified,
                 context_count: 54,
+                report_identical_files: false,
             }),
             parse_params(
                 [os("diff"), os("-U54"), os("foo"), os("bar")]
@@ -200,6 +211,7 @@ mod tests {
                 to: os("bar"),
                 format: Format::Unified,
                 context_count: 54,
+                report_identical_files: false,
             }),
             parse_params(
                 [os("diff"), os("-U"), os("54"), os("foo"), os("bar")]
@@ -213,11 +225,54 @@ mod tests {
                 to: os("bar"),
                 format: Format::Context,
                 context_count: 54,
+                report_identical_files: false,
             }),
             parse_params(
                 [os("diff"), os("-c54"), os("foo"), os("bar")]
                     .iter()
                     .cloned()
+            )
+        );
+    }
+    #[test]
+    fn report_identical_files() {
+        assert_eq!(
+            Ok(Params {
+                from: os("foo"),
+                to: os("bar"),
+                format: Format::Normal,
+                context_count: 3,
+                report_identical_files: false,
+            }),
+            parse_params([os("diff"), os("foo"), os("bar")].iter().cloned())
+        );
+        assert_eq!(
+            Ok(Params {
+                from: os("foo"),
+                to: os("bar"),
+                format: Format::Normal,
+                context_count: 3,
+                report_identical_files: true,
+            }),
+            parse_params([os("diff"), os("-s"), os("foo"), os("bar")].iter().cloned())
+        );
+        assert_eq!(
+            Ok(Params {
+                from: os("foo"),
+                to: os("bar"),
+                format: Format::Normal,
+                context_count: 3,
+                report_identical_files: true,
+            }),
+            parse_params(
+                [
+                    os("diff"),
+                    os("--report-identical-files"),
+                    os("foo"),
+                    os("bar"),
+                ]
+                .iter()
+                .cloned()
             )
         );
     }
@@ -229,6 +284,7 @@ mod tests {
                 to: os("-h"),
                 format: Format::Normal,
                 context_count: 3,
+                report_identical_files: false,
             }),
             parse_params([os("diff"), os("--"), os("-g"), os("-h")].iter().cloned())
         );
