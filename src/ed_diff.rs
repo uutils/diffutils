@@ -122,6 +122,7 @@ pub fn diff(expected: &[u8], actual: &[u8]) -> Result<Vec<u8>, DiffError> {
                 expected_count + line_number_expected - 1
             )
             .unwrap(),
+            (1, _) => writeln!(&mut output, "{}c", line_number_expected).unwrap(),
             _ => writeln!(
                 &mut output,
                 "{},{}c",
@@ -154,6 +155,15 @@ mod tests {
         let mut output = diff(expected, actual)?;
         writeln!(&mut output, "w {filename}").unwrap();
         Ok(output)
+    }
+
+    #[test]
+    fn test_basic() {
+        let from = b"a\n";
+        let to = b"b\n";
+        let diff = diff(from, to).unwrap();
+        let expected = vec!["1c", "b", ".", ""].join("\n");
+        assert_eq!(diff, expected.as_bytes());
     }
 
     #[test]
