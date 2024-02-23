@@ -547,5 +547,23 @@ mod tests {
         }
     }
 
-    // TODO: add tests for stop_early parameter
+    #[test]
+    fn test_stop_early() {
+        let from = vec!["a", "b", "c"].join("\n");
+        let to = vec!["a", "d", "c"].join("\n");
+
+        let diff_full = diff(from.as_bytes(), to.as_bytes(), false);
+        let expected_full = vec!["2c2", "< b", "---", "> d", ""].join("\n");
+        assert_eq!(diff_full, expected_full.as_bytes());
+
+        let diff_brief = diff(from.as_bytes(), to.as_bytes(), true);
+        let expected_brief = "\0".as_bytes();
+        assert_eq!(diff_brief, expected_brief);
+
+        let nodiff_full = diff(from.as_bytes(), from.as_bytes(), false);
+        assert!(nodiff_full.is_empty());
+
+        let nodiff_brief = diff(from.as_bytes(), from.as_bytes(), true);
+        assert!(nodiff_brief.is_empty());
+    }
 }

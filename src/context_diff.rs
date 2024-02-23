@@ -699,5 +699,68 @@ mod tests {
         }
     }
 
-    // TODO: add tests for stop_early parameter
+    #[test]
+    fn test_stop_early() {
+        let from_filename = "foo";
+        let from = vec!["a", "b", "c", ""].join("\n");
+        let to_filename = "bar";
+        let to = vec!["a", "d", "c", ""].join("\n");
+        let context_size: usize = 3;
+
+        let diff_full = diff(
+            from.as_bytes(),
+            from_filename,
+            to.as_bytes(),
+            to_filename,
+            context_size,
+            false,
+        );
+        let expected_full = vec![
+            "*** foo\t",
+            "--- bar\t",
+            "***************",
+            "*** 1,3 ****",
+            "  a",
+            "! b",
+            "  c",
+            "--- 1,3 ----",
+            "  a",
+            "! d",
+            "  c",
+            "",
+        ]
+        .join("\n");
+        assert_eq!(diff_full, expected_full.as_bytes());
+
+        let diff_brief = diff(
+            from.as_bytes(),
+            from_filename,
+            to.as_bytes(),
+            to_filename,
+            context_size,
+            true,
+        );
+        let expected_brief = vec!["*** foo\t", "--- bar\t", ""].join("\n");
+        assert_eq!(diff_brief, expected_brief.as_bytes());
+
+        let nodiff_full = diff(
+            from.as_bytes(),
+            from_filename,
+            from.as_bytes(),
+            to_filename,
+            context_size,
+            false,
+        );
+        assert!(nodiff_full.is_empty());
+
+        let nodiff_brief = diff(
+            from.as_bytes(),
+            from_filename,
+            from.as_bytes(),
+            to_filename,
+            context_size,
+            true,
+        );
+        assert!(nodiff_brief.is_empty());
+    }
 }
