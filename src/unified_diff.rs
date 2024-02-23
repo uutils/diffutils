@@ -246,7 +246,8 @@ pub fn diff(
     let diff_results = make_diff(expected, actual, context_size, stop_early);
     if diff_results.is_empty() {
         return Vec::new();
-    } else if stop_early {
+    }
+    if stop_early {
         return output;
     }
     for result in diff_results {
