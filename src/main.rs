@@ -28,10 +28,25 @@ fn main() -> ExitCode {
         to,
         context_count,
         format,
+        report_identical_files,
     } = parse_params(opts).unwrap_or_else(|error| {
         eprintln!("{error}");
         exit(2);
     });
+    // if from and to are the same file, no need to perform any comparison
+    let maybe_report_identical_files = || {
+        if report_identical_files {
+            println!(
+                "Files {} and {} are identical",
+                from.to_string_lossy(),
+                to.to_string_lossy(),
+            )
+        }
+    };
+    if same_file::is_same_file(&from, &to).unwrap_or(false) {
+        maybe_report_identical_files();
+        return ExitCode::SUCCESS;
+    }
     // read files
     let from_content = match fs::read(&from) {
         Ok(from_content) => from_content,
@@ -71,6 +86,7 @@ fn main() -> ExitCode {
     };
     io::stdout().write_all(&result).unwrap();
     if result.is_empty() {
+        maybe_report_identical_files();
         ExitCode::SUCCESS
     } else {
         ExitCode::from(1)

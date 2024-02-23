@@ -63,6 +63,47 @@ fn no_differences() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
+fn no_differences_report_identical_files() -> Result<(), Box<dyn std::error::Error>> {
+    // same file
+    let mut file1 = NamedTempFile::new()?;
+    file1.write_all("foo\n".as_bytes())?;
+    for option in ["", "-u", "-c", "-e"] {
+        let mut cmd = Command::cargo_bin("diffutils")?;
+        if !option.is_empty() {
+            cmd.arg(option);
+        }
+        cmd.arg("-s").arg(file1.path()).arg(file1.path());
+        cmd.assert()
+            .code(predicate::eq(0))
+            .success()
+            .stdout(predicate::eq(format!(
+                "Files {} and {} are identical\n",
+                file1.path().to_string_lossy(),
+                file1.path().to_string_lossy(),
+            )));
+    }
+    // two files with the same content
+    let mut file2 = NamedTempFile::new()?;
+    file2.write_all("foo\n".as_bytes())?;
+    for option in ["", "-u", "-c", "-e"] {
+        let mut cmd = Command::cargo_bin("diffutils")?;
+        if !option.is_empty() {
+            cmd.arg(option);
+        }
+        cmd.arg("-s").arg(file1.path()).arg(file2.path());
+        cmd.assert()
+            .code(predicate::eq(0))
+            .success()
+            .stdout(predicate::eq(format!(
+                "Files {} and {} are identical\n",
+                file1.path().to_string_lossy(),
+                file2.path().to_string_lossy(),
+            )));
+    }
+    Ok(())
+}
+
+#[test]
 fn differences() -> Result<(), Box<dyn std::error::Error>> {
     let mut file1 = NamedTempFile::new()?;
     file1.write_all("foo\n".as_bytes())?;
