@@ -15,7 +15,7 @@ name = "diffutils"
 path = "src/main.rs"
 
 [dependencies]
-diff = "0.1.10"
+diff = "0.1.13"
 same-file = "1.0.6"
 
 [dev-dependencies]
