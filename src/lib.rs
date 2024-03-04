@@ -2,6 +2,7 @@ pub mod context_diff;
 pub mod ed_diff;
 pub mod normal_diff;
 pub mod unified_diff;
+pub mod utils;
 
 // Re-export the public functions/types you need
 pub use context_diff::diff as context_diff;
