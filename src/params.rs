@@ -27,6 +27,7 @@ pub struct Params {
     pub context_count: usize,
     pub report_identical_files: bool,
     pub brief: bool,
+    pub expand_tabs: bool,
 }
 
 pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params, String> {
@@ -42,6 +43,7 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
     let mut context_count = 3;
     let mut report_identical_files = false;
     let mut brief = false;
+    let mut expand_tabs = false;
     while let Some(param) = opts.next() {
         if param == "--" {
             break;
@@ -62,6 +64,10 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
         }
         if param == "-q" || param == "--brief" {
             brief = true;
+            continue;
+        }
+        if param == "-t" || param == "--expand-tabs" {
+            expand_tabs = true;
             continue;
         }
         let p = osstr_bytes(&param);
@@ -147,6 +153,7 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
         context_count,
         report_identical_files,
         brief,
+        expand_tabs,
     })
 }
 
@@ -166,6 +173,7 @@ mod tests {
                 context_count: 3,
                 report_identical_files: false,
                 brief: false,
+                expand_tabs: false,
             }),
             parse_params([os("diff"), os("foo"), os("bar")].iter().cloned())
         );
@@ -180,6 +188,7 @@ mod tests {
                 context_count: 3,
                 report_identical_files: false,
                 brief: false,
+                expand_tabs: false,
             }),
             parse_params([os("diff"), os("-e"), os("foo"), os("bar")].iter().cloned())
         );
@@ -194,6 +203,7 @@ mod tests {
                 context_count: 54,
                 report_identical_files: false,
                 brief: false,
+                expand_tabs: false,
             }),
             parse_params(
                 [os("diff"), os("-u54"), os("foo"), os("bar")]
@@ -209,6 +219,7 @@ mod tests {
                 context_count: 54,
                 report_identical_files: false,
                 brief: false,
+                expand_tabs: false,
             }),
             parse_params(
                 [os("diff"), os("-U54"), os("foo"), os("bar")]
@@ -224,6 +235,7 @@ mod tests {
                 context_count: 54,
                 report_identical_files: false,
                 brief: false,
+                expand_tabs: false,
             }),
             parse_params(
                 [os("diff"), os("-U"), os("54"), os("foo"), os("bar")]
@@ -239,6 +251,7 @@ mod tests {
                 context_count: 54,
                 report_identical_files: false,
                 brief: false,
+                expand_tabs: false,
             }),
             parse_params(
                 [os("diff"), os("-c54"), os("foo"), os("bar")]
@@ -257,6 +270,7 @@ mod tests {
                 context_count: 3,
                 report_identical_files: false,
                 brief: false,
+                expand_tabs: false,
             }),
             parse_params([os("diff"), os("foo"), os("bar")].iter().cloned())
         );
@@ -268,6 +282,7 @@ mod tests {
                 context_count: 3,
                 report_identical_files: true,
                 brief: false,
+                expand_tabs: false,
             }),
             parse_params([os("diff"), os("-s"), os("foo"), os("bar")].iter().cloned())
         );
@@ -279,6 +294,7 @@ mod tests {
                 context_count: 3,
                 report_identical_files: true,
                 brief: false,
+                expand_tabs: false,
             }),
             parse_params(
                 [
@@ -302,6 +318,7 @@ mod tests {
                 context_count: 3,
                 report_identical_files: false,
                 brief: false,
+                expand_tabs: false,
             }),
             parse_params([os("diff"), os("foo"), os("bar")].iter().cloned())
         );
@@ -313,6 +330,7 @@ mod tests {
                 context_count: 3,
                 report_identical_files: false,
                 brief: true,
+                expand_tabs: false,
             }),
             parse_params([os("diff"), os("-q"), os("foo"), os("bar")].iter().cloned())
         );
@@ -324,6 +342,7 @@ mod tests {
                 context_count: 3,
                 report_identical_files: false,
                 brief: true,
+                expand_tabs: false,
             }),
             parse_params(
                 [os("diff"), os("--brief"), os("foo"), os("bar"),]
@@ -331,6 +350,39 @@ mod tests {
                     .cloned()
             )
         );
+    }
+    #[test]
+    fn expand_tabs() {
+        assert_eq!(
+            Ok(Params {
+                from: os("foo"),
+                to: os("bar"),
+                format: Format::Normal,
+                context_count: 3,
+                report_identical_files: false,
+                brief: false,
+                expand_tabs: false,
+            }),
+            parse_params([os("diff"), os("foo"), os("bar")].iter().cloned())
+        );
+        for option in ["-t", "--expand-tabs"] {
+            assert_eq!(
+                Ok(Params {
+                    from: os("foo"),
+                    to: os("bar"),
+                    format: Format::Normal,
+                    context_count: 3,
+                    report_identical_files: false,
+                    brief: false,
+                    expand_tabs: true,
+                }),
+                parse_params(
+                    [os("diff"), os(option), os("foo"), os("bar")]
+                        .iter()
+                        .cloned()
+                )
+            );
+        }
     }
     #[test]
     fn double_dash() {
@@ -342,6 +394,7 @@ mod tests {
                 context_count: 3,
                 report_identical_files: false,
                 brief: false,
+                expand_tabs: false,
             }),
             parse_params([os("diff"), os("--"), os("-g"), os("-h")].iter().cloned())
         );
