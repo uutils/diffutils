@@ -114,6 +114,7 @@ pub fn diff(
     actual: &[u8],
     stop_early: bool,
     expand_tabs: bool,
+    tabsize: usize,
 ) -> Result<Vec<u8>, DiffError> {
     let mut output = Vec::new();
     let diff_results = make_diff(expected, actual, stop_early)?;
@@ -152,7 +153,7 @@ pub fn diff(
                 if actual == b"." {
                     writeln!(&mut output, "..\n.\ns/.//\na").unwrap();
                 } else {
-                    do_write_line(&mut output, actual, expand_tabs).unwrap();
+                    do_write_line(&mut output, actual, expand_tabs, tabsize).unwrap();
                     writeln!(&mut output).unwrap();
                 }
             }
@@ -167,7 +168,7 @@ mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
     pub fn diff_w(expected: &[u8], actual: &[u8], filename: &str) -> Result<Vec<u8>, DiffError> {
-        let mut output = diff(expected, actual, false, false)?;
+        let mut output = diff(expected, actual, false, false, 8)?;
         writeln!(&mut output, "w {filename}").unwrap();
         Ok(output)
     }
@@ -176,7 +177,7 @@ mod tests {
     fn test_basic() {
         let from = b"a\n";
         let to = b"b\n";
-        let diff = diff(from, to, false, false).unwrap();
+        let diff = diff(from, to, false, false, 8).unwrap();
         let expected = ["1c", "b", ".", ""].join("\n");
         assert_eq!(diff, expected.as_bytes());
     }
@@ -411,18 +412,18 @@ mod tests {
         let from = ["a", "b", "c", ""].join("\n");
         let to = ["a", "d", "c", ""].join("\n");
 
-        let diff_full = diff(from.as_bytes(), to.as_bytes(), false, false).unwrap();
+        let diff_full = diff(from.as_bytes(), to.as_bytes(), false, false, 8).unwrap();
         let expected_full = ["2c", "d", ".", ""].join("\n");
         assert_eq!(diff_full, expected_full.as_bytes());
 
-        let diff_brief = diff(from.as_bytes(), to.as_bytes(), true, false).unwrap();
+        let diff_brief = diff(from.as_bytes(), to.as_bytes(), true, false, 8).unwrap();
         let expected_brief = "\0".as_bytes();
         assert_eq!(diff_brief, expected_brief);
 
-        let nodiff_full = diff(from.as_bytes(), from.as_bytes(), false, false).unwrap();
+        let nodiff_full = diff(from.as_bytes(), from.as_bytes(), false, false, 8).unwrap();
         assert!(nodiff_full.is_empty());
 
-        let nodiff_brief = diff(from.as_bytes(), from.as_bytes(), true, false).unwrap();
+        let nodiff_brief = diff(from.as_bytes(), from.as_bytes(), true, false, 8).unwrap();
         assert!(nodiff_brief.is_empty());
     }
 }

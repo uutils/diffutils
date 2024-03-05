@@ -116,7 +116,13 @@ fn make_diff(expected: &[u8], actual: &[u8], stop_early: bool) -> Vec<Mismatch> 
 }
 
 #[must_use]
-pub fn diff(expected: &[u8], actual: &[u8], stop_early: bool, expand_tabs: bool) -> Vec<u8> {
+pub fn diff(
+    expected: &[u8],
+    actual: &[u8],
+    stop_early: bool,
+    expand_tabs: bool,
+    tabsize: usize,
+) -> Vec<u8> {
     // See https://www.gnu.org/software/diffutils/manual/html_node/Detailed-Normal.html
     // for details on the syntax of the normal format.
     let mut output = Vec::new();
@@ -190,7 +196,7 @@ pub fn diff(expected: &[u8], actual: &[u8], stop_early: bool, expand_tabs: bool)
         }
         for expected in &result.expected {
             write!(&mut output, "< ").unwrap();
-            do_write_line(&mut output, expected, expand_tabs).unwrap();
+            do_write_line(&mut output, expected, expand_tabs, tabsize).unwrap();
             writeln!(&mut output).unwrap();
         }
         if result.expected_missing_nl {
@@ -201,7 +207,7 @@ pub fn diff(expected: &[u8], actual: &[u8], stop_early: bool, expand_tabs: bool)
         }
         for actual in &result.actual {
             write!(&mut output, "> ").unwrap();
-            do_write_line(&mut output, actual, expand_tabs).unwrap();
+            do_write_line(&mut output, actual, expand_tabs, tabsize).unwrap();
             writeln!(&mut output).unwrap();
         }
         if result.actual_missing_nl {
@@ -222,7 +228,7 @@ mod tests {
         a.write_all(b"a\n").unwrap();
         let mut b = Vec::new();
         b.write_all(b"b\n").unwrap();
-        let diff = diff(&a, &b, false, false);
+        let diff = diff(&a, &b, false, false, 8);
         let expected = b"1c1\n< a\n---\n> b\n".to_vec();
         assert_eq!(diff, expected);
     }
@@ -275,7 +281,7 @@ mod tests {
                                 }
                                 // This test diff is intentionally reversed.
                                 // We want it to turn the alef into bet.
-                                let diff = diff(&alef, &bet, false, false);
+                                let diff = diff(&alef, &bet, false, false, 8);
                                 File::create(&format!("{target}/ab.diff"))
                                     .unwrap()
                                     .write_all(&diff)
@@ -367,7 +373,7 @@ mod tests {
                                     }
                                     // This test diff is intentionally reversed.
                                     // We want it to turn the alef into bet.
-                                    let diff = diff(&alef, &bet, false, false);
+                                    let diff = diff(&alef, &bet, false, false, 8);
                                     File::create(&format!("{target}/abn.diff"))
                                         .unwrap()
                                         .write_all(&diff)
@@ -441,7 +447,7 @@ mod tests {
                                 }
                                 // This test diff is intentionally reversed.
                                 // We want it to turn the alef into bet.
-                                let diff = diff(&alef, &bet, false, false);
+                                let diff = diff(&alef, &bet, false, false, 8);
                                 File::create(&format!("{target}/ab_.diff"))
                                     .unwrap()
                                     .write_all(&diff)
@@ -519,7 +525,7 @@ mod tests {
                                 }
                                 // This test diff is intentionally reversed.
                                 // We want it to turn the alef into bet.
-                                let diff = diff(&alef, &bet, false, false);
+                                let diff = diff(&alef, &bet, false, false, 8);
                                 File::create(&format!("{target}/abr.diff"))
                                     .unwrap()
                                     .write_all(&diff)
@@ -554,18 +560,18 @@ mod tests {
         let from = ["a", "b", "c"].join("\n");
         let to = ["a", "d", "c"].join("\n");
 
-        let diff_full = diff(from.as_bytes(), to.as_bytes(), false, false);
+        let diff_full = diff(from.as_bytes(), to.as_bytes(), false, false, 8);
         let expected_full = ["2c2", "< b", "---", "> d", ""].join("\n");
         assert_eq!(diff_full, expected_full.as_bytes());
 
-        let diff_brief = diff(from.as_bytes(), to.as_bytes(), true, false);
+        let diff_brief = diff(from.as_bytes(), to.as_bytes(), true, false, 8);
         let expected_brief = "\0".as_bytes();
         assert_eq!(diff_brief, expected_brief);
 
-        let nodiff_full = diff(from.as_bytes(), from.as_bytes(), false, false);
+        let nodiff_full = diff(from.as_bytes(), from.as_bytes(), false, false, 8);
         assert!(nodiff_full.is_empty());
 
-        let nodiff_brief = diff(from.as_bytes(), from.as_bytes(), true, false);
+        let nodiff_brief = diff(from.as_bytes(), from.as_bytes(), true, false, 8);
         assert!(nodiff_brief.is_empty());
     }
 }

@@ -273,6 +273,7 @@ pub fn diff(
     context_size: usize,
     stop_early: bool,
     expand_tabs: bool,
+    tabsize: usize,
 ) -> Vec<u8> {
     let mut output = format!("*** {expected_filename}\t\n--- {actual_filename}\t\n").into_bytes();
     let diff_results = make_diff(expected, actual, context_size, stop_early);
@@ -317,19 +318,19 @@ pub fn diff(
                 match line {
                     DiffLine::Context(e) => {
                         write!(output, "  ").expect("write to Vec is infallible");
-                        do_write_line(&mut output, &e, expand_tabs)
+                        do_write_line(&mut output, &e, expand_tabs, tabsize)
                             .expect("write to Vec is infallible");
                         writeln!(output).unwrap();
                     }
                     DiffLine::Change(e) => {
                         write!(output, "! ").expect("write to Vec is infallible");
-                        do_write_line(&mut output, &e, expand_tabs)
+                        do_write_line(&mut output, &e, expand_tabs, tabsize)
                             .expect("write to Vec is infallible");
                         writeln!(output).unwrap();
                     }
                     DiffLine::Add(e) => {
                         write!(output, "- ").expect("write to Vec is infallible");
-                        do_write_line(&mut output, &e, expand_tabs)
+                        do_write_line(&mut output, &e, expand_tabs, tabsize)
                             .expect("write to Vec is infallible");
                         writeln!(output).unwrap();
                     }
@@ -347,19 +348,19 @@ pub fn diff(
                 match line {
                     DiffLine::Context(e) => {
                         write!(output, "  ").expect("write to Vec is infallible");
-                        do_write_line(&mut output, &e, expand_tabs)
+                        do_write_line(&mut output, &e, expand_tabs, tabsize)
                             .expect("write to Vec is infallible");
                         writeln!(output).unwrap();
                     }
                     DiffLine::Change(e) => {
                         write!(output, "! ").expect("write to Vec is infallible");
-                        do_write_line(&mut output, &e, expand_tabs)
+                        do_write_line(&mut output, &e, expand_tabs, tabsize)
                             .expect("write to Vec is infallible");
                         writeln!(output).unwrap();
                     }
                     DiffLine::Add(e) => {
                         write!(output, "+ ").expect("write to Vec is infallible");
-                        do_write_line(&mut output, &e, expand_tabs)
+                        do_write_line(&mut output, &e, expand_tabs, tabsize)
                             .expect("write to Vec is infallible");
                         writeln!(output).unwrap();
                     }
@@ -434,6 +435,7 @@ mod tests {
                                     2,
                                     false,
                                     false,
+                                    8,
                                 );
                                 File::create(&format!("{target}/ab.diff"))
                                     .unwrap()
@@ -514,6 +516,7 @@ mod tests {
                                     2,
                                     false,
                                     false,
+                                    8,
                                 );
                                 File::create(&format!("{target}/ab_.diff"))
                                     .unwrap()
@@ -597,6 +600,7 @@ mod tests {
                                     2,
                                     false,
                                     false,
+                                    8,
                                 );
                                 File::create(&format!("{target}/abx.diff"))
                                     .unwrap()
@@ -683,6 +687,7 @@ mod tests {
                                     2,
                                     false,
                                     false,
+                                    8,
                                 );
                                 File::create(&format!("{target}/abr.diff"))
                                     .unwrap()
@@ -729,6 +734,7 @@ mod tests {
             context_size,
             false,
             false,
+            8,
         );
         let expected_full = [
             "*** foo\t",
@@ -755,6 +761,7 @@ mod tests {
             context_size,
             true,
             false,
+            8,
         );
         let expected_brief = ["*** foo\t", "--- bar\t", ""].join("\n");
         assert_eq!(diff_brief, expected_brief.as_bytes());
@@ -767,6 +774,7 @@ mod tests {
             context_size,
             false,
             false,
+            8,
         );
         assert!(nodiff_full.is_empty());
 
@@ -778,6 +786,7 @@ mod tests {
             context_size,
             true,
             false,
+            8,
         );
         assert!(nodiff_brief.is_empty());
     }

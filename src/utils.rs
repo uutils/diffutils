@@ -38,9 +38,14 @@ pub fn do_expand_tabs(line: &[u8], tabsize: usize) -> Vec<u8> {
 /// Write a single line to an output stream, expanding tabs to space if necessary.
 /// This assumes that line does not contain any line breaks
 /// (if it does and tabs are to be expanded to spaces, the result is undefined).
-pub fn do_write_line(output: &mut Vec<u8>, line: &[u8], expand_tabs: bool) -> std::io::Result<()> {
+pub fn do_write_line(
+    output: &mut Vec<u8>,
+    line: &[u8],
+    expand_tabs: bool,
+    tabsize: usize,
+) -> std::io::Result<()> {
     if expand_tabs {
-        output.write_all(do_expand_tabs(line, 8).as_slice())
+        output.write_all(do_expand_tabs(line, tabsize).as_slice())
     } else {
         output.write_all(line)
     }
@@ -96,17 +101,17 @@ mod tests {
         use super::*;
         use pretty_assertions::assert_eq;
 
-        fn assert_line_written(line: &str, expand_tabs: bool, expected: &str) {
+        fn assert_line_written(line: &str, expand_tabs: bool, tabsize: usize, expected: &str) {
             let mut output: Vec<u8> = Vec::new();
-            assert!(do_write_line(&mut output, line.as_bytes(), expand_tabs).is_ok());
+            assert!(do_write_line(&mut output, line.as_bytes(), expand_tabs, tabsize).is_ok());
             assert_eq!(output, expected.as_bytes());
         }
 
         #[test]
         fn basics() {
-            assert_line_written("foo bar baz", false, "foo bar baz");
-            assert_line_written("foo bar\tbaz", false, "foo bar\tbaz");
-            assert_line_written("foo bar\tbaz", true, "foo bar baz");
+            assert_line_written("foo bar baz", false, 8, "foo bar baz");
+            assert_line_written("foo bar\tbaz", false, 8, "foo bar\tbaz");
+            assert_line_written("foo bar\tbaz", true, 8, "foo bar baz");
         }
     }
 }
