@@ -81,6 +81,7 @@ dependencies = [
  "diff",
  "predicates",
  "pretty_assertions",
+ "regex",
  "same-file",
  "tempfile",
  "unicode-width",
