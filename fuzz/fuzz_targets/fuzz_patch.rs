@@ -1,7 +1,7 @@
 #![no_main]
 #[macro_use]
 extern crate libfuzzer_sys;
-use diffutilslib::{normal_diff, unified_diff};
+use diffutilslib::unified_diff;
 use std::fs::{self, File};
 use std::io::Write;
 use std::process::Command;
