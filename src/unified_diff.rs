@@ -236,6 +236,7 @@ fn make_diff(
 }
 
 #[must_use]
+#[allow(clippy::too_many_arguments)]
 pub fn diff(
     expected: &[u8],
     expected_filename: &str,
