@@ -15,6 +15,7 @@ mod ed_diff;
 mod normal_diff;
 mod params;
 mod unified_diff;
+mod utils;
 
 // Exit codes are documented at
 // https://www.gnu.org/software/diffutils/manual/html_node/Invoking-diff.html.
@@ -30,6 +31,8 @@ fn main() -> ExitCode {
         format,
         report_identical_files,
         brief,
+        expand_tabs,
+        tabsize,
     } = parse_params(opts).unwrap_or_else(|error| {
         eprintln!("{error}");
         exit(2);
@@ -65,7 +68,9 @@ fn main() -> ExitCode {
     };
     // run diff
     let result: Vec<u8> = match format {
-        Format::Normal => normal_diff::diff(&from_content, &to_content, brief),
+        Format::Normal => {
+            normal_diff::diff(&from_content, &to_content, brief, expand_tabs, tabsize)
+        }
         Format::Unified => unified_diff::diff(
             &from_content,
             &from.to_string_lossy(),
@@ -73,6 +78,8 @@ fn main() -> ExitCode {
             &to.to_string_lossy(),
             context_count,
             brief,
+            expand_tabs,
+            tabsize,
         ),
         Format::Context => context_diff::diff(
             &from_content,
@@ -81,11 +88,14 @@ fn main() -> ExitCode {
             &to.to_string_lossy(),
             context_count,
             brief,
+            expand_tabs,
+            tabsize,
         ),
-        Format::Ed => ed_diff::diff(&from_content, &to_content, brief).unwrap_or_else(|error| {
-            eprintln!("{error}");
-            exit(2);
-        }),
+        Format::Ed => ed_diff::diff(&from_content, &to_content, brief, expand_tabs, tabsize)
+            .unwrap_or_else(|error| {
+                eprintln!("{error}");
+                exit(2);
+            }),
     };
     if brief && !result.is_empty() {
         println!(

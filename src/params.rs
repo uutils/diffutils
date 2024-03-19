@@ -1,5 +1,7 @@
 use std::ffi::{OsStr, OsString};
 
+use regex::Regex;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Format {
     Normal,
@@ -7,6 +9,8 @@ pub enum Format {
     Context,
     Ed,
 }
+
+const DEFAULT_TABSIZE: usize = 8;
 
 #[cfg(unix)]
 fn osstr_bytes(osstr: &OsStr) -> &[u8] {
@@ -27,6 +31,8 @@ pub struct Params {
     pub context_count: usize,
     pub report_identical_files: bool,
     pub brief: bool,
+    pub expand_tabs: bool,
+    pub tabsize: usize,
 }
 
 pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params, String> {
@@ -42,6 +48,9 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
     let mut context_count = 3;
     let mut report_identical_files = false;
     let mut brief = false;
+    let mut expand_tabs = false;
+    let tabsize_re = Regex::new(r"^--tabsize=(?<num>\d+)$").unwrap();
+    let mut tabsize = DEFAULT_TABSIZE;
     while let Some(param) = opts.next() {
         if param == "--" {
             break;
@@ -62,6 +71,26 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
         }
         if param == "-q" || param == "--brief" {
             brief = true;
+            continue;
+        }
+        if param == "-t" || param == "--expand-tabs" {
+            expand_tabs = true;
+            continue;
+        }
+        if tabsize_re.is_match(param.to_string_lossy().as_ref()) {
+            // Because param matches the regular expression,
+            // it is safe to assume it is valid UTF-8.
+            let param = param.into_string().unwrap();
+            let tabsize_str = tabsize_re
+                .captures(param.as_str())
+                .unwrap()
+                .name("num")
+                .unwrap()
+                .as_str();
+            tabsize = match tabsize_str.parse::<usize>() {
+                Ok(num) => num,
+                Err(_) => return Err(format!("invalid tabsize «{}»", tabsize_str)),
+            };
             continue;
         }
         let p = osstr_bytes(&param);
@@ -147,6 +176,8 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
         context_count,
         report_identical_files,
         brief,
+        expand_tabs,
+        tabsize,
     })
 }
 
@@ -166,6 +197,8 @@ mod tests {
                 context_count: 3,
                 report_identical_files: false,
                 brief: false,
+                expand_tabs: false,
+                tabsize: DEFAULT_TABSIZE,
             }),
             parse_params([os("diff"), os("foo"), os("bar")].iter().cloned())
         );
@@ -180,6 +213,8 @@ mod tests {
                 context_count: 3,
                 report_identical_files: false,
                 brief: false,
+                expand_tabs: false,
+                tabsize: DEFAULT_TABSIZE,
             }),
             parse_params([os("diff"), os("-e"), os("foo"), os("bar")].iter().cloned())
         );
@@ -194,6 +229,8 @@ mod tests {
                 context_count: 54,
                 report_identical_files: false,
                 brief: false,
+                expand_tabs: false,
+                tabsize: DEFAULT_TABSIZE,
             }),
             parse_params(
                 [os("diff"), os("-u54"), os("foo"), os("bar")]
@@ -209,6 +246,8 @@ mod tests {
                 context_count: 54,
                 report_identical_files: false,
                 brief: false,
+                expand_tabs: false,
+                tabsize: DEFAULT_TABSIZE,
             }),
             parse_params(
                 [os("diff"), os("-U54"), os("foo"), os("bar")]
@@ -224,6 +263,8 @@ mod tests {
                 context_count: 54,
                 report_identical_files: false,
                 brief: false,
+                expand_tabs: false,
+                tabsize: DEFAULT_TABSIZE,
             }),
             parse_params(
                 [os("diff"), os("-U"), os("54"), os("foo"), os("bar")]
@@ -239,6 +280,8 @@ mod tests {
                 context_count: 54,
                 report_identical_files: false,
                 brief: false,
+                expand_tabs: false,
+                tabsize: DEFAULT_TABSIZE,
             }),
             parse_params(
                 [os("diff"), os("-c54"), os("foo"), os("bar")]
@@ -257,6 +300,8 @@ mod tests {
                 context_count: 3,
                 report_identical_files: false,
                 brief: false,
+                expand_tabs: false,
+                tabsize: DEFAULT_TABSIZE,
             }),
             parse_params([os("diff"), os("foo"), os("bar")].iter().cloned())
         );
@@ -268,6 +313,8 @@ mod tests {
                 context_count: 3,
                 report_identical_files: true,
                 brief: false,
+                expand_tabs: false,
+                tabsize: DEFAULT_TABSIZE,
             }),
             parse_params([os("diff"), os("-s"), os("foo"), os("bar")].iter().cloned())
         );
@@ -279,6 +326,8 @@ mod tests {
                 context_count: 3,
                 report_identical_files: true,
                 brief: false,
+                expand_tabs: false,
+                tabsize: DEFAULT_TABSIZE,
             }),
             parse_params(
                 [
@@ -302,6 +351,8 @@ mod tests {
                 context_count: 3,
                 report_identical_files: false,
                 brief: false,
+                expand_tabs: false,
+                tabsize: 8,
             }),
             parse_params([os("diff"), os("foo"), os("bar")].iter().cloned())
         );
@@ -313,6 +364,8 @@ mod tests {
                 context_count: 3,
                 report_identical_files: false,
                 brief: true,
+                expand_tabs: false,
+                tabsize: 8,
             }),
             parse_params([os("diff"), os("-q"), os("foo"), os("bar")].iter().cloned())
         );
@@ -324,6 +377,8 @@ mod tests {
                 context_count: 3,
                 report_identical_files: false,
                 brief: true,
+                expand_tabs: false,
+                tabsize: 8,
             }),
             parse_params(
                 [os("diff"), os("--brief"), os("foo"), os("bar"),]
@@ -331,6 +386,132 @@ mod tests {
                     .cloned()
             )
         );
+    }
+    #[test]
+    fn expand_tabs() {
+        assert_eq!(
+            Ok(Params {
+                from: os("foo"),
+                to: os("bar"),
+                format: Format::Normal,
+                context_count: 3,
+                report_identical_files: false,
+                brief: false,
+                expand_tabs: false,
+                tabsize: DEFAULT_TABSIZE,
+            }),
+            parse_params([os("diff"), os("foo"), os("bar")].iter().cloned())
+        );
+        for option in ["-t", "--expand-tabs"] {
+            assert_eq!(
+                Ok(Params {
+                    from: os("foo"),
+                    to: os("bar"),
+                    format: Format::Normal,
+                    context_count: 3,
+                    report_identical_files: false,
+                    brief: false,
+                    expand_tabs: true,
+                    tabsize: DEFAULT_TABSIZE,
+                }),
+                parse_params(
+                    [os("diff"), os(option), os("foo"), os("bar")]
+                        .iter()
+                        .cloned()
+                )
+            );
+        }
+    }
+    #[test]
+    fn tabsize() {
+        assert_eq!(
+            Ok(Params {
+                from: os("foo"),
+                to: os("bar"),
+                format: Format::Normal,
+                context_count: 3,
+                report_identical_files: false,
+                brief: false,
+                expand_tabs: false,
+                tabsize: DEFAULT_TABSIZE,
+            }),
+            parse_params([os("diff"), os("foo"), os("bar")].iter().cloned())
+        );
+        assert_eq!(
+            Ok(Params {
+                from: os("foo"),
+                to: os("bar"),
+                format: Format::Normal,
+                context_count: 3,
+                report_identical_files: false,
+                brief: false,
+                expand_tabs: false,
+                tabsize: 0,
+            }),
+            parse_params(
+                [os("diff"), os("--tabsize=0"), os("foo"), os("bar")]
+                    .iter()
+                    .cloned()
+            )
+        );
+        assert_eq!(
+            Ok(Params {
+                from: os("foo"),
+                to: os("bar"),
+                format: Format::Normal,
+                context_count: 3,
+                report_identical_files: false,
+                brief: false,
+                expand_tabs: false,
+                tabsize: 42,
+            }),
+            parse_params(
+                [os("diff"), os("--tabsize=42"), os("foo"), os("bar")]
+                    .iter()
+                    .cloned()
+            )
+        );
+        assert!(parse_params(
+            [os("diff"), os("--tabsize"), os("foo"), os("bar")]
+                .iter()
+                .cloned()
+        )
+        .is_err());
+        assert!(parse_params(
+            [os("diff"), os("--tabsize="), os("foo"), os("bar")]
+                .iter()
+                .cloned()
+        )
+        .is_err());
+        assert!(parse_params(
+            [os("diff"), os("--tabsize=r2"), os("foo"), os("bar")]
+                .iter()
+                .cloned()
+        )
+        .is_err());
+        assert!(parse_params(
+            [os("diff"), os("--tabsize=-1"), os("foo"), os("bar")]
+                .iter()
+                .cloned()
+        )
+        .is_err());
+        assert!(parse_params(
+            [os("diff"), os("--tabsize=r2"), os("foo"), os("bar")]
+                .iter()
+                .cloned()
+        )
+        .is_err());
+        assert!(parse_params(
+            [
+                os("diff"),
+                os("--tabsize=92233720368547758088"),
+                os("foo"),
+                os("bar")
+            ]
+            .iter()
+            .cloned()
+        )
+        .is_err());
     }
     #[test]
     fn double_dash() {
@@ -342,6 +523,8 @@ mod tests {
                 context_count: 3,
                 report_identical_files: false,
                 brief: false,
+                expand_tabs: false,
+                tabsize: DEFAULT_TABSIZE,
             }),
             parse_params([os("diff"), os("--"), os("-g"), os("-h")].iter().cloned())
         );

@@ -21,7 +21,7 @@ fuzz_target!(|x: (Vec<u8>, Vec<u8>)| {
     } else {
         return
     }*/
-    let diff = normal_diff::diff(&from, &to);
+    let diff = normal_diff::diff(&from, &to, false, false, 8);
     File::create("target/fuzz.file.original")
         .unwrap()
         .write_all(&from)
