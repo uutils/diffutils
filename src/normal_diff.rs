@@ -549,11 +549,11 @@ mod tests {
 
     #[test]
     fn test_stop_early() {
-        let from = vec!["a", "b", "c"].join("\n");
-        let to = vec!["a", "d", "c"].join("\n");
+        let from = ["a", "b", "c"].join("\n");
+        let to = ["a", "d", "c"].join("\n");
 
         let diff_full = diff(from.as_bytes(), to.as_bytes(), false);
-        let expected_full = vec!["2c2", "< b", "---", "> d", ""].join("\n");
+        let expected_full = ["2c2", "< b", "---", "> d", ""].join("\n");
         assert_eq!(diff_full, expected_full.as_bytes());
 
         let diff_brief = diff(from.as_bytes(), to.as_bytes(), true);
