@@ -703,9 +703,9 @@ mod tests {
     #[test]
     fn test_stop_early() {
         let from_filename = "foo";
-        let from = vec!["a", "b", "c", ""].join("\n");
+        let from = ["a", "b", "c", ""].join("\n");
         let to_filename = "bar";
-        let to = vec!["a", "d", "c", ""].join("\n");
+        let to = ["a", "d", "c", ""].join("\n");
         let context_size: usize = 3;
 
         let diff_full = diff(
@@ -716,7 +716,7 @@ mod tests {
             context_size,
             false,
         );
-        let expected_full = vec![
+        let expected_full = [
             "*** foo\t",
             "--- bar\t",
             "***************",
@@ -741,7 +741,7 @@ mod tests {
             context_size,
             true,
         );
-        let expected_brief = vec!["*** foo\t", "--- bar\t", ""].join("\n");
+        let expected_brief = ["*** foo\t", "--- bar\t", ""].join("\n");
         assert_eq!(diff_brief, expected_brief.as_bytes());
 
         let nodiff_full = diff(

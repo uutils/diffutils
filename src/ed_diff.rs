@@ -170,7 +170,7 @@ mod tests {
         let from = b"a\n";
         let to = b"b\n";
         let diff = diff(from, to, false).unwrap();
-        let expected = vec!["1c", "b", ".", ""].join("\n");
+        let expected = ["1c", "b", ".", ""].join("\n");
         assert_eq!(diff, expected.as_bytes());
     }
 
@@ -401,11 +401,11 @@ mod tests {
 
     #[test]
     fn test_stop_early() {
-        let from = vec!["a", "b", "c", ""].join("\n");
-        let to = vec!["a", "d", "c", ""].join("\n");
+        let from = ["a", "b", "c", ""].join("\n");
+        let to = ["a", "d", "c", ""].join("\n");
 
         let diff_full = diff(from.as_bytes(), to.as_bytes(), false).unwrap();
-        let expected_full = vec!["2c", "d", ".", ""].join("\n");
+        let expected_full = ["2c", "d", ".", ""].join("\n");
         assert_eq!(diff_full, expected_full.as_bytes());
 
         let diff_brief = diff(from.as_bytes(), to.as_bytes(), true).unwrap();
