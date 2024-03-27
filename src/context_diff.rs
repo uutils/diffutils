@@ -262,6 +262,22 @@ fn make_diff(
     results
 }
 
+fn get_modification_time(file_path: &str) -> String {
+    use chrono::{DateTime, Local};
+    use std::fs;
+
+    let metadata = fs::metadata(file_path).expect("Failed to get metadata");
+    let modification_time = metadata
+        .modified()
+        .expect("Failed to get modification time");
+    let modification_time: DateTime<Local> = modification_time.into();
+    let modification_time: String = modification_time
+        .format("%Y-%m-%d %H:%M:%S%.9f %z")
+        .to_string();
+
+    modification_time
+}
+
 #[must_use]
 pub fn diff(
     expected: &[u8],
@@ -271,7 +287,9 @@ pub fn diff(
     context_size: usize,
     stop_early: bool,
 ) -> Vec<u8> {
-    let mut output = format!("*** {expected_filename}\t\n--- {actual_filename}\t\n").into_bytes();
+    let expected_file_modified_time = get_modification_time(expected_filename);
+    let actual_file_modified_time = get_modification_time(actual_filename);
+    let mut output = format!("*** {expected_filename}\t{expected_file_modified_time}\n--- {actual_filename}\t{actual_file_modified_time}\n").into_bytes();
     let diff_results = make_diff(expected, actual, context_size, stop_early);
     if diff_results.is_empty() {
         return Vec::new();
