@@ -50,7 +50,7 @@ impl Default for Params {
 }
 
 pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params, String> {
-    let mut opts = opts.into_iter();
+    let mut opts = opts.into_iter().peekable();
     // parse CLI
 
     let Some(exe) = opts.next() else {
@@ -60,7 +60,10 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
     let mut from = None;
     let mut to = None;
     let mut format = None;
+    let mut context_count = None;
     let tabsize_re = Regex::new(r"^--tabsize=(?<num>\d+)$").unwrap();
+    let unified_re =
+        Regex::new(r"^(-[uU](?<num1>\d*)|--unified(=(?<num2>\d*))?|-(?<num3>\d+)u)$").unwrap();
     while let Some(param) = opts.next() {
         if param == "--" {
             break;
@@ -103,6 +106,40 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
             };
             continue;
         }
+        if unified_re.is_match(param.to_string_lossy().as_ref()) {
+            if format.is_some() && format != Some(Format::Unified) {
+                return Err("Conflicting output style options".to_string());
+            }
+            format = Some(Format::Unified);
+            let captures = unified_re.captures(param.to_str().unwrap()).unwrap();
+            let num = captures
+                .name("num1")
+                .or(captures.name("num2"))
+                .or(captures.name("num3"));
+            if num.is_some() && !num.unwrap().as_str().is_empty() {
+                context_count = Some(num.unwrap().as_str().parse::<usize>().unwrap());
+            }
+            if param == "-U" {
+                let next_param = opts.peek();
+                if next_param.is_some() {
+                    let next_value = next_param
+                        .unwrap()
+                        .to_string_lossy()
+                        .as_ref()
+                        .parse::<usize>();
+                    if next_value.is_ok() {
+                        context_count = Some(next_value.unwrap());
+                        opts.next();
+                    } else {
+                        return Err(format!(
+                            "invalid context length '{}'",
+                            next_param.unwrap().to_string_lossy()
+                        ));
+                    }
+                }
+            }
+            continue;
+        }
         let p = osstr_bytes(&param);
         if p.first() == Some(&b'-') && p.get(1) != Some(&b'-') {
             let mut bit = p[1..].iter().copied().peekable();
@@ -111,10 +148,12 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
             while let Some(b) = bit.next() {
                 match b {
                     b'0'..=b'9' => {
-                        params.context_count = (b - b'0') as usize;
+                        context_count = Some((b - b'0') as usize);
                         while let Some(b'0'..=b'9') = bit.peek() {
-                            params.context_count *= 10;
-                            params.context_count += (bit.next().unwrap() - b'0') as usize;
+                            context_count = Some(context_count.unwrap() * 10);
+                            context_count = Some(
+                                context_count.unwrap() + (bit.next().unwrap() - b'0') as usize,
+                            );
                         }
                     }
                     b'c' => {
@@ -128,30 +167,6 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
                             return Err("Conflicting output style options".to_string());
                         }
                         format = Some(Format::Ed);
-                    }
-                    b'u' => {
-                        if format.is_some() && format != Some(Format::Unified) {
-                            return Err("Conflicting output style options".to_string());
-                        }
-                        format = Some(Format::Unified);
-                    }
-                    b'U' => {
-                        if format.is_some() && format != Some(Format::Unified) {
-                            return Err("Conflicting output style options".to_string());
-                        }
-                        format = Some(Format::Unified);
-                        let context_count_maybe = if bit.peek().is_some() {
-                            String::from_utf8(bit.collect::<Vec<u8>>()).ok()
-                        } else {
-                            opts.next().map(|x| x.to_string_lossy().into_owned())
-                        };
-                        if let Some(context_count_maybe) =
-                            context_count_maybe.and_then(|x| x.parse().ok())
-                        {
-                            params.context_count = context_count_maybe;
-                            break;
-                        }
-                        return Err("Invalid context count".to_string());
                     }
                     _ => return Err(format!("Unknown option: {}", String::from_utf8_lossy(&[b]))),
                 }
@@ -179,6 +194,9 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
         return Err(format!("Usage: {} <from> <to>", exe.to_string_lossy()));
     };
     params.format = format.unwrap_or(Format::default());
+    if context_count.is_some() {
+        params.context_count = context_count.unwrap();
+    }
     Ok(params)
 }
 
@@ -210,6 +228,63 @@ mod tests {
             }),
             parse_params([os("diff"), os("-e"), os("foo"), os("bar")].iter().cloned())
         );
+    }
+    #[test]
+    fn unified_valid() {
+        for args in [vec!["-u"], vec!["--unified"], vec!["--unified="]] {
+            let mut params = vec!["diff"];
+            params.extend(args);
+            params.extend(["foo", "bar"]);
+            assert_eq!(
+                Ok(Params {
+                    from: os("foo"),
+                    to: os("bar"),
+                    format: Format::Unified,
+                    ..Default::default()
+                }),
+                parse_params(params.iter().map(|x| os(x)))
+            );
+        }
+        for args in [
+            vec!["-u42"],
+            vec!["-U42"],
+            vec!["-U", "42"],
+            vec!["--unified=42"],
+            vec!["-42u"],
+        ] {
+            let mut params = vec!["diff"];
+            params.extend(args);
+            params.extend(["foo", "bar"]);
+            assert_eq!(
+                Ok(Params {
+                    from: os("foo"),
+                    to: os("bar"),
+                    format: Format::Unified,
+                    context_count: 42,
+                    ..Default::default()
+                }),
+                parse_params(params.iter().map(|x| os(x)))
+            );
+        }
+    }
+    #[test]
+    fn unified_invalid() {
+        for args in [
+            vec!["-u", "42"],
+            vec!["-u=42"],
+            vec!["-u="],
+            vec!["-U"],
+            vec!["-U=42"],
+            vec!["-U="],
+            vec!["--unified42"],
+            vec!["--unified", "42"],
+            vec!["-42U"],
+        ] {
+            let mut params = vec!["diff"];
+            params.extend(args);
+            params.extend(["foo", "bar"]);
+            assert!(parse_params(params.iter().map(|x| os(x))).is_err());
+        }
     }
     #[test]
     fn context_count() {
