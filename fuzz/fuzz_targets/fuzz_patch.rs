@@ -1,6 +1,7 @@
 #![no_main]
 #[macro_use]
 extern crate libfuzzer_sys;
+use diffutilslib::params::Params;
 use diffutilslib::unified_diff;
 use std::fs::{self, File};
 use std::io::Write;
@@ -22,13 +23,13 @@ fuzz_target!(|x: (Vec<u8>, Vec<u8>, u8)| {
     }*/
     let diff = unified_diff::diff(
         &from,
-        "a/fuzz.file",
         &to,
-        "target/fuzz.file",
-        context as usize,
-        false,
-        false,
-        8,
+        &Params {
+            from: "a/fuzz.file".into(),
+            to: "target/fuzz.file".into(),
+            context_count: context as usize,
+            ..Default::default()
+        }
     );
     File::create("target/fuzz.file.original")
         .unwrap()
