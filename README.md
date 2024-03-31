@@ -5,7 +5,7 @@
 
 [![CodeCov](https://codecov.io/gh/uutils/diffutils/branch/master/graph/badge.svg)](https://codecov.io/gh/uutils/diffutils)
 
-The goal of this package is to be a dropped in replacement for the [diffutils commands](https://www.gnu.org/software/diffutils/) in Rust.
+The goal of this package is to be a drop-in replacement for the [diffutils commands](https://www.gnu.org/software/diffutils/) in Rust.
 
 Based on the incomplete diff generator in https://github.com/rust-lang/rust/blob/master/src/tools/compiletest/src/runtest.rs, and made to be compatible with GNU's diff and patch tools.
 
