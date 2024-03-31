@@ -1,6 +1,7 @@
 pub mod context_diff;
 pub mod ed_diff;
 pub mod normal_diff;
+pub mod params;
 pub mod unified_diff;
 pub mod utils;
 
