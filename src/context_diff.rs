@@ -747,11 +747,14 @@ mod tests {
         use std::fs::File;
         use std::str;
 
-        let from_filename = "foo";
-        let _ = File::create(&format!("foo")).unwrap();
+        let target = "target/context-diff";
+        // test all possible six-line files.
+        let _ = std::fs::create_dir(target);
+        let from_filename = &format!("{target}/foo");
+        let _ = File::create(from_filename).unwrap();
         let from = ["a", "b", "c", ""].join("\n");
-        let to_filename = "bar";
-        let _ = File::create(&format!("bar")).unwrap();
+        let to_filename = &format!("{target}/bar");
+        let _ = File::create(to_filename).unwrap();
         let to = ["a", "d", "c", ""].join("\n");
         let context_size: usize = 3;
 
@@ -771,8 +774,8 @@ mod tests {
         let diff_full = re.replace_all(diff_full_text, "");
 
         let expected_full = [
-            "*** foo\t",
-            "--- bar\t",
+            "*** target/context-diff/foo\t",
+            "--- target/context-diff/bar\t",
             "***************",
             "*** 1,3 ****",
             "  a",
@@ -801,7 +804,7 @@ mod tests {
         let diff_brief_text = str::from_utf8(&diff_brief).unwrap();
         let re = Regex::new(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+ [+-]\d{4}").unwrap();
         let diff_brief = re.replace_all(diff_brief_text, "");
-        let expected_brief = ["*** foo\t", "--- bar\t", ""].join("\n");
+        let expected_brief = ["*** target/context-diff/foo\t", "--- target/context-diff/bar\t", ""].join("\n");
         assert_eq!(diff_brief, expected_brief);
 
         let nodiff_full = diff(
