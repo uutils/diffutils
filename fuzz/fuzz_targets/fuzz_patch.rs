@@ -26,6 +26,9 @@ fuzz_target!(|x: (Vec<u8>, Vec<u8>, u8)| {
         &to,
         "target/fuzz.file",
         context as usize,
+        false,
+        false,
+        8,
     );
     File::create("target/fuzz.file.original")
         .unwrap()

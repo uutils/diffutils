@@ -8,7 +8,7 @@ use std::io::Write;
 use std::process::Command;
 
 fn diff_w(expected: &[u8], actual: &[u8], filename: &str) -> Result<Vec<u8>, DiffError> {
-    let mut output = ed_diff::diff(expected, actual)?;
+    let mut output = ed_diff::diff(expected, actual, false, false, 8)?;
     writeln!(&mut output, "w {filename}").unwrap();
     Ok(output)
 }

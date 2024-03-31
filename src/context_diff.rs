@@ -6,6 +6,8 @@
 use std::collections::VecDeque;
 use std::io::Write;
 
+use crate::utils::do_write_line;
+
 #[derive(Debug, PartialEq)]
 pub enum DiffLine {
     Context(Vec<u8>),
@@ -279,6 +281,7 @@ fn get_modification_time(file_path: &str) -> String {
 }
 
 #[must_use]
+#[allow(clippy::too_many_arguments)]
 pub fn diff(
     expected: &[u8],
     expected_filename: &str,
@@ -286,6 +289,8 @@ pub fn diff(
     actual_filename: &str,
     context_size: usize,
     stop_early: bool,
+    expand_tabs: bool,
+    tabsize: usize,
 ) -> Vec<u8> {
     let expected_file_modified_time = get_modification_time(expected_filename);
     let actual_file_modified_time = get_modification_time(actual_filename);
@@ -332,17 +337,20 @@ pub fn diff(
                 match line {
                     DiffLine::Context(e) => {
                         write!(output, "  ").expect("write to Vec is infallible");
-                        output.write_all(&e).expect("write to Vec is infallible");
+                        do_write_line(&mut output, &e, expand_tabs, tabsize)
+                            .expect("write to Vec is infallible");
                         writeln!(output).unwrap();
                     }
                     DiffLine::Change(e) => {
                         write!(output, "! ").expect("write to Vec is infallible");
-                        output.write_all(&e).expect("write to Vec is infallible");
+                        do_write_line(&mut output, &e, expand_tabs, tabsize)
+                            .expect("write to Vec is infallible");
                         writeln!(output).unwrap();
                     }
                     DiffLine::Add(e) => {
                         write!(output, "- ").expect("write to Vec is infallible");
-                        output.write_all(&e).expect("write to Vec is infallible");
+                        do_write_line(&mut output, &e, expand_tabs, tabsize)
+                            .expect("write to Vec is infallible");
                         writeln!(output).unwrap();
                     }
                 }
@@ -359,17 +367,20 @@ pub fn diff(
                 match line {
                     DiffLine::Context(e) => {
                         write!(output, "  ").expect("write to Vec is infallible");
-                        output.write_all(&e).expect("write to Vec is infallible");
+                        do_write_line(&mut output, &e, expand_tabs, tabsize)
+                            .expect("write to Vec is infallible");
                         writeln!(output).unwrap();
                     }
                     DiffLine::Change(e) => {
                         write!(output, "! ").expect("write to Vec is infallible");
-                        output.write_all(&e).expect("write to Vec is infallible");
+                        do_write_line(&mut output, &e, expand_tabs, tabsize)
+                            .expect("write to Vec is infallible");
                         writeln!(output).unwrap();
                     }
                     DiffLine::Add(e) => {
                         write!(output, "+ ").expect("write to Vec is infallible");
-                        output.write_all(&e).expect("write to Vec is infallible");
+                        do_write_line(&mut output, &e, expand_tabs, tabsize)
+                            .expect("write to Vec is infallible");
                         writeln!(output).unwrap();
                     }
                 }
@@ -443,6 +454,8 @@ mod tests {
                                     &format!("{target}/alef"),
                                     2,
                                     false,
+                                    false,
+                                    8,
                                 );
                                 File::create(&format!("{target}/ab.diff"))
                                     .unwrap()
@@ -523,6 +536,8 @@ mod tests {
                                     &format!("{target}/alef_"),
                                     2,
                                     false,
+                                    false,
+                                    8,
                                 );
                                 File::create(&format!("{target}/ab_.diff"))
                                     .unwrap()
@@ -606,6 +621,8 @@ mod tests {
                                     &format!("{target}/alefx"),
                                     2,
                                     false,
+                                    false,
+                                    8,
                                 );
                                 File::create(&format!("{target}/abx.diff"))
                                     .unwrap()
@@ -692,6 +709,8 @@ mod tests {
                                     &format!("{target}/alefr"),
                                     2,
                                     false,
+                                    false,
+                                    8,
                                 );
                                 File::create(&format!("{target}/abr.diff"))
                                     .unwrap()
@@ -730,10 +749,10 @@ mod tests {
 
         let from_filename = "foo";
         let _ = File::create(&format!("foo")).unwrap();
-        let from = vec!["a", "b", "c", ""].join("\n");
+        let from = ["a", "b", "c", ""].join("\n");
         let to_filename = "bar";
         let _ = File::create(&format!("bar")).unwrap();
-        let to = vec!["a", "d", "c", ""].join("\n");
+        let to = ["a", "d", "c", ""].join("\n");
         let context_size: usize = 3;
 
         let diff_full = diff(
@@ -743,13 +762,15 @@ mod tests {
             to_filename,
             context_size,
             false,
+            false,
+            8,
         );
 
         let diff_full_text = str::from_utf8(&diff_full).unwrap();
         let re = Regex::new(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+ [+-]\d{4}").unwrap();
         let diff_full = re.replace_all(diff_full_text, "");
 
-        let expected_full = vec![
+        let expected_full = [
             "*** foo\t",
             "--- bar\t",
             "***************",
@@ -773,12 +794,14 @@ mod tests {
             to_filename,
             context_size,
             true,
+            false,
+            8,
         );
 
         let diff_brief_text = str::from_utf8(&diff_brief).unwrap();
         let re = Regex::new(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+ [+-]\d{4}").unwrap();
         let diff_brief = re.replace_all(diff_brief_text, "");
-        let expected_brief = vec!["*** foo\t", "--- bar\t", ""].join("\n");
+        let expected_brief = ["*** foo\t", "--- bar\t", ""].join("\n");
         assert_eq!(diff_brief, expected_brief);
 
         let nodiff_full = diff(
@@ -788,6 +811,8 @@ mod tests {
             to_filename,
             context_size,
             false,
+            false,
+            8,
         );
         assert!(nodiff_full.is_empty());
 
@@ -798,6 +823,8 @@ mod tests {
             to_filename,
             context_size,
             true,
+            false,
+            8,
         );
         assert!(nodiff_brief.is_empty());
     }
