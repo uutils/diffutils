@@ -6,6 +6,7 @@
 use std::collections::VecDeque;
 use std::io::Write;
 
+use crate::params::Params;
 use crate::utils::do_write_line;
 
 #[derive(Debug, PartialEq)]
@@ -265,23 +266,18 @@ fn make_diff(
 }
 
 #[must_use]
-#[allow(clippy::too_many_arguments)]
-pub fn diff(
-    expected: &[u8],
-    expected_filename: &str,
-    actual: &[u8],
-    actual_filename: &str,
-    context_size: usize,
-    stop_early: bool,
-    expand_tabs: bool,
-    tabsize: usize,
-) -> Vec<u8> {
-    let mut output = format!("*** {expected_filename}\t\n--- {actual_filename}\t\n").into_bytes();
-    let diff_results = make_diff(expected, actual, context_size, stop_early);
+pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
+    let mut output = format!(
+        "*** {0}\t\n--- {1}\t\n",
+        params.from.to_string_lossy(),
+        params.to.to_string_lossy()
+    )
+    .into_bytes();
+    let diff_results = make_diff(expected, actual, params.context_count, params.brief);
     if diff_results.is_empty() {
         return Vec::new();
     }
-    if stop_early {
+    if params.brief {
         return output;
     }
     for result in diff_results {
@@ -319,19 +315,19 @@ pub fn diff(
                 match line {
                     DiffLine::Context(e) => {
                         write!(output, "  ").expect("write to Vec is infallible");
-                        do_write_line(&mut output, &e, expand_tabs, tabsize)
+                        do_write_line(&mut output, &e, params.expand_tabs, params.tabsize)
                             .expect("write to Vec is infallible");
                         writeln!(output).unwrap();
                     }
                     DiffLine::Change(e) => {
                         write!(output, "! ").expect("write to Vec is infallible");
-                        do_write_line(&mut output, &e, expand_tabs, tabsize)
+                        do_write_line(&mut output, &e, params.expand_tabs, params.tabsize)
                             .expect("write to Vec is infallible");
                         writeln!(output).unwrap();
                     }
                     DiffLine::Add(e) => {
                         write!(output, "- ").expect("write to Vec is infallible");
-                        do_write_line(&mut output, &e, expand_tabs, tabsize)
+                        do_write_line(&mut output, &e, params.expand_tabs, params.tabsize)
                             .expect("write to Vec is infallible");
                         writeln!(output).unwrap();
                     }
@@ -349,19 +345,19 @@ pub fn diff(
                 match line {
                     DiffLine::Context(e) => {
                         write!(output, "  ").expect("write to Vec is infallible");
-                        do_write_line(&mut output, &e, expand_tabs, tabsize)
+                        do_write_line(&mut output, &e, params.expand_tabs, params.tabsize)
                             .expect("write to Vec is infallible");
                         writeln!(output).unwrap();
                     }
                     DiffLine::Change(e) => {
                         write!(output, "! ").expect("write to Vec is infallible");
-                        do_write_line(&mut output, &e, expand_tabs, tabsize)
+                        do_write_line(&mut output, &e, params.expand_tabs, params.tabsize)
                             .expect("write to Vec is infallible");
                         writeln!(output).unwrap();
                     }
                     DiffLine::Add(e) => {
                         write!(output, "+ ").expect("write to Vec is infallible");
-                        do_write_line(&mut output, &e, expand_tabs, tabsize)
+                        do_write_line(&mut output, &e, params.expand_tabs, params.tabsize)
                             .expect("write to Vec is infallible");
                         writeln!(output).unwrap();
                     }
@@ -430,13 +426,13 @@ mod tests {
                                 // We want it to turn the alef into bet.
                                 let diff = diff(
                                     &alef,
-                                    "a/alef",
                                     &bet,
-                                    &format!("{target}/alef"),
-                                    2,
-                                    false,
-                                    false,
-                                    8,
+                                    &Params {
+                                        from: "a/alef".into(),
+                                        to: (&format!("{target}/alef")).into(),
+                                        context_count: 2,
+                                        ..Default::default()
+                                    },
                                 );
                                 File::create(&format!("{target}/ab.diff"))
                                     .unwrap()
@@ -511,13 +507,13 @@ mod tests {
                                 // We want it to turn the alef into bet.
                                 let diff = diff(
                                     &alef,
-                                    "a/alef_",
                                     &bet,
-                                    &format!("{target}/alef_"),
-                                    2,
-                                    false,
-                                    false,
-                                    8,
+                                    &Params {
+                                        from: "a/alef_".into(),
+                                        to: (&format!("{target}/alef_")).into(),
+                                        context_count: 2,
+                                        ..Default::default()
+                                    },
                                 );
                                 File::create(&format!("{target}/ab_.diff"))
                                     .unwrap()
@@ -595,13 +591,13 @@ mod tests {
                                 // We want it to turn the alef into bet.
                                 let diff = diff(
                                     &alef,
-                                    "a/alefx",
                                     &bet,
-                                    &format!("{target}/alefx"),
-                                    2,
-                                    false,
-                                    false,
-                                    8,
+                                    &Params {
+                                        from: "a/alefx".into(),
+                                        to: (&format!("{target}/alefx")).into(),
+                                        context_count: 2,
+                                        ..Default::default()
+                                    },
                                 );
                                 File::create(&format!("{target}/abx.diff"))
                                     .unwrap()
@@ -682,13 +678,13 @@ mod tests {
                                 // We want it to turn the alef into bet.
                                 let diff = diff(
                                     &alef,
-                                    "a/alefr",
                                     &bet,
-                                    &format!("{target}/alefr"),
-                                    2,
-                                    false,
-                                    false,
-                                    8,
+                                    &Params {
+                                        from: "a/alefr".into(),
+                                        to: (&format!("{target}/alefr")).into(),
+                                        context_count: 2,
+                                        ..Default::default()
+                                    },
                                 );
                                 File::create(&format!("{target}/abr.diff"))
                                     .unwrap()
@@ -725,17 +721,15 @@ mod tests {
         let from = ["a", "b", "c", ""].join("\n");
         let to_filename = "bar";
         let to = ["a", "d", "c", ""].join("\n");
-        let context_size: usize = 3;
 
         let diff_full = diff(
             from.as_bytes(),
-            from_filename,
             to.as_bytes(),
-            to_filename,
-            context_size,
-            false,
-            false,
-            8,
+            &Params {
+                from: from_filename.into(),
+                to: to_filename.into(),
+                ..Default::default()
+            },
         );
         let expected_full = [
             "*** foo\t",
@@ -756,38 +750,37 @@ mod tests {
 
         let diff_brief = diff(
             from.as_bytes(),
-            from_filename,
             to.as_bytes(),
-            to_filename,
-            context_size,
-            true,
-            false,
-            8,
+            &Params {
+                from: from_filename.into(),
+                to: to_filename.into(),
+                brief: true,
+                ..Default::default()
+            },
         );
         let expected_brief = ["*** foo\t", "--- bar\t", ""].join("\n");
         assert_eq!(diff_brief, expected_brief.as_bytes());
 
         let nodiff_full = diff(
             from.as_bytes(),
-            from_filename,
             from.as_bytes(),
-            to_filename,
-            context_size,
-            false,
-            false,
-            8,
+            &Params {
+                from: from_filename.into(),
+                to: to_filename.into(),
+                ..Default::default()
+            },
         );
         assert!(nodiff_full.is_empty());
 
         let nodiff_brief = diff(
             from.as_bytes(),
-            from_filename,
             from.as_bytes(),
-            to_filename,
-            context_size,
-            true,
-            false,
-            8,
+            &Params {
+                from: from_filename.into(),
+                to: to_filename.into(),
+                brief: true,
+                ..Default::default()
+            },
         );
         assert!(nodiff_brief.is_empty());
     }
