@@ -10,6 +10,7 @@ jobs:
     name: cargo check
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macOS-latest, windows-latest]
     steps:
@@ -21,6 +22,7 @@ jobs:
     name: cargo test
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macOS-latest, windows-latest]
     steps:
@@ -41,6 +43,7 @@ jobs:
     name: cargo clippy -- -D warnings
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macOS-latest, windows-latest]
     steps:
@@ -70,6 +73,7 @@ jobs:
     name: Code Coverage
     runs-on: ${{ matrix.job.os }}
     strategy:
+      fail-fast: false
       matrix:
         job:
           - { os: ubuntu-latest  , features: unix }
