@@ -6,6 +6,7 @@
 use std::collections::VecDeque;
 use std::io::Write;
 
+use crate::params::Params;
 use crate::utils::do_write_line;
 
 #[derive(Debug, PartialEq)]
@@ -282,24 +283,22 @@ fn get_modification_time(file_path: &str) -> String {
 
 #[must_use]
 #[allow(clippy::too_many_arguments)]
-pub fn diff(
-    expected: &[u8],
-    expected_filename: &str,
-    actual: &[u8],
-    actual_filename: &str,
-    context_size: usize,
-    stop_early: bool,
-    expand_tabs: bool,
-    tabsize: usize,
-) -> Vec<u8> {
-    let expected_file_modified_time = get_modification_time(expected_filename);
-    let actual_file_modified_time = get_modification_time(actual_filename);
-    let mut output = format!("*** {expected_filename}\t{expected_file_modified_time}\n--- {actual_filename}\t{actual_file_modified_time}\n").into_bytes();
-    let diff_results = make_diff(expected, actual, context_size, stop_early);
+pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
+    let from_modified_time = get_modification_time(&params.from.to_string_lossy());
+    let to_modified_time = get_modification_time(&params.to.to_string_lossy());
+    let mut output = format!(
+        "*** {0}\t{1}\n--- {2}\t{3}\n",
+        params.from.to_string_lossy(),
+        from_modified_time,
+        params.to.to_string_lossy(),
+        to_modified_time
+    )
+    .into_bytes();
+    let diff_results = make_diff(expected, actual, params.context_count, params.brief);
     if diff_results.is_empty() {
         return Vec::new();
     }
-    if stop_early {
+    if params.brief {
         return output;
     }
     for result in diff_results {
@@ -337,19 +336,19 @@ pub fn diff(
                 match line {
                     DiffLine::Context(e) => {
                         write!(output, "  ").expect("write to Vec is infallible");
-                        do_write_line(&mut output, &e, expand_tabs, tabsize)
+                        do_write_line(&mut output, &e, params.expand_tabs, params.tabsize)
                             .expect("write to Vec is infallible");
                         writeln!(output).unwrap();
                     }
                     DiffLine::Change(e) => {
                         write!(output, "! ").expect("write to Vec is infallible");
-                        do_write_line(&mut output, &e, expand_tabs, tabsize)
+                        do_write_line(&mut output, &e, params.expand_tabs, params.tabsize)
                             .expect("write to Vec is infallible");
                         writeln!(output).unwrap();
                     }
                     DiffLine::Add(e) => {
                         write!(output, "- ").expect("write to Vec is infallible");
-                        do_write_line(&mut output, &e, expand_tabs, tabsize)
+                        do_write_line(&mut output, &e, params.expand_tabs, params.tabsize)
                             .expect("write to Vec is infallible");
                         writeln!(output).unwrap();
                     }
@@ -367,19 +366,19 @@ pub fn diff(
                 match line {
                     DiffLine::Context(e) => {
                         write!(output, "  ").expect("write to Vec is infallible");
-                        do_write_line(&mut output, &e, expand_tabs, tabsize)
+                        do_write_line(&mut output, &e, params.expand_tabs, params.tabsize)
                             .expect("write to Vec is infallible");
                         writeln!(output).unwrap();
                     }
                     DiffLine::Change(e) => {
                         write!(output, "! ").expect("write to Vec is infallible");
-                        do_write_line(&mut output, &e, expand_tabs, tabsize)
+                        do_write_line(&mut output, &e, params.expand_tabs, params.tabsize)
                             .expect("write to Vec is infallible");
                         writeln!(output).unwrap();
                     }
                     DiffLine::Add(e) => {
                         write!(output, "+ ").expect("write to Vec is infallible");
-                        do_write_line(&mut output, &e, expand_tabs, tabsize)
+                        do_write_line(&mut output, &e, params.expand_tabs, params.tabsize)
                             .expect("write to Vec is infallible");
                         writeln!(output).unwrap();
                     }
@@ -449,13 +448,13 @@ mod tests {
                                 // We want it to turn the alef into bet.
                                 let diff = diff(
                                     &alef,
-                                    &format!("{target}/aalef"),
                                     &bet,
-                                    &format!("{target}/alef"),
-                                    2,
-                                    false,
-                                    false,
-                                    8,
+                                    &Params {
+                                        from: (&format!("{target}/aalef")).into(),
+                                        to: (&format!("{target}/alef")).into(),
+                                        context_count: 2,
+                                        ..Default::default()
+                                    },
                                 );
                                 File::create(&format!("{target}/ab.diff"))
                                     .unwrap()
@@ -531,13 +530,13 @@ mod tests {
                                 // We want it to turn the alef into bet.
                                 let diff = diff(
                                     &alef,
-                                    &format!("{target}/aalef_"),
                                     &bet,
-                                    &format!("{target}/alef_"),
-                                    2,
-                                    false,
-                                    false,
-                                    8,
+                                    &Params {
+                                        from: (&format!("{target}/aalef_")).into(),
+                                        to: (&format!("{target}/alef_")).into(),
+                                        context_count: 2,
+                                        ..Default::default()
+                                    },
                                 );
                                 File::create(&format!("{target}/ab_.diff"))
                                     .unwrap()
@@ -616,13 +615,13 @@ mod tests {
                                 // We want it to turn the alef into bet.
                                 let diff = diff(
                                     &alef,
-                                    &format!("{target}/aalefx"),
                                     &bet,
-                                    &format!("{target}/alefx"),
-                                    2,
-                                    false,
-                                    false,
-                                    8,
+                                    &Params {
+                                        from: (&format!("{target}/aalefx")).into(),
+                                        to: (&format!("{target}/alefx")).into(),
+                                        context_count: 2,
+                                        ..Default::default()
+                                    },
                                 );
                                 File::create(&format!("{target}/abx.diff"))
                                     .unwrap()
@@ -704,13 +703,13 @@ mod tests {
                                 // We want it to turn the alef into bet.
                                 let diff = diff(
                                     &alef,
-                                    &format!("{target}/aalefr"),
                                     &bet,
-                                    &format!("{target}/alefr"),
-                                    2,
-                                    false,
-                                    false,
-                                    8,
+                                    &Params {
+                                        from: (&format!("{target}/aalefr")).into(),
+                                        to: (&format!("{target}/alefr")).into(),
+                                        context_count: 2,
+                                        ..Default::default()
+                                    },
                                 );
                                 File::create(&format!("{target}/abr.diff"))
                                     .unwrap()
@@ -756,17 +755,15 @@ mod tests {
         let to_filename = &format!("{target}/bar");
         let _ = File::create(to_filename).unwrap();
         let to = ["a", "d", "c", ""].join("\n");
-        let context_size: usize = 3;
 
         let diff_full = diff(
             from.as_bytes(),
-            from_filename,
             to.as_bytes(),
-            to_filename,
-            context_size,
-            false,
-            false,
-            8,
+            &Params {
+                from: from_filename.into(),
+                to: to_filename.into(),
+                ..Default::default()
+            },
         );
 
         let diff_full_text = str::from_utf8(&diff_full).unwrap();
@@ -792,42 +789,46 @@ mod tests {
 
         let diff_brief = diff(
             from.as_bytes(),
-            from_filename,
             to.as_bytes(),
-            to_filename,
-            context_size,
-            true,
-            false,
-            8,
+            &Params {
+                from: from_filename.into(),
+                to: to_filename.into(),
+                brief: true,
+                ..Default::default()
+            },
         );
 
         let diff_brief_text = str::from_utf8(&diff_brief).unwrap();
         let re = Regex::new(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+ [+-]\d{4}").unwrap();
         let diff_brief = re.replace_all(diff_brief_text, "");
-        let expected_brief = ["*** target/context-diff/foo\t", "--- target/context-diff/bar\t", ""].join("\n");
+        let expected_brief = [
+            "*** target/context-diff/foo\t",
+            "--- target/context-diff/bar\t",
+            "",
+        ]
+        .join("\n");
         assert_eq!(diff_brief, expected_brief);
 
         let nodiff_full = diff(
             from.as_bytes(),
-            from_filename,
             from.as_bytes(),
-            to_filename,
-            context_size,
-            false,
-            false,
-            8,
+            &Params {
+                from: from_filename.into(),
+                to: to_filename.into(),
+                ..Default::default()
+            },
         );
         assert!(nodiff_full.is_empty());
 
         let nodiff_brief = diff(
             from.as_bytes(),
-            from_filename,
             from.as_bytes(),
-            to_filename,
-            context_size,
-            true,
-            false,
-            8,
+            &Params {
+                from: from_filename.into(),
+                to: to_filename.into(),
+                brief: true,
+                ..Default::default()
+            },
         );
         assert!(nodiff_brief.is_empty());
     }
