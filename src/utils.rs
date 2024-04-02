@@ -51,6 +51,38 @@ pub fn do_write_line(
     }
 }
 
+pub(crate) fn split_at_win_eol(buf: &[u8]) -> Vec<&[u8]> {
+    let mut result = Vec::new();
+    let mut start = 0;
+    let mut i = 0;
+    while i < buf.len() {
+        match buf[i] {
+            b'\n' => {
+                result.push(&buf[start..i]);
+                i += 1;
+                start = i;
+            }
+            b'\r' => {
+                if i + 1 < buf.len() && buf[i + 1] == b'\n' {
+                    result.push(&buf[start..i]);
+                    i += 2;
+                    start = i;
+                } else {
+                    i += 1;
+                }
+            }
+            _ => {
+                i += 1;
+            }
+        }
+    }
+    if start <= buf.len() {
+        result.push(&buf[start..]);
+    }
+    result
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;

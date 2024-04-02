@@ -3,7 +3,10 @@
 // For the full copyright and license information, please view the LICENSE-*
 // files that was distributed with this source code.
 
-use crate::params::{parse_params, Format};
+#[macro_use]
+mod macros;
+
+use crate::params::{parse_params, Format, Params};
 use std::env;
 
 use std::fs;

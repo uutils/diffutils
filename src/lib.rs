@@ -1,3 +1,6 @@
+#[macro_use]
+mod macros;
+
 pub mod context_diff;
 pub mod ed_diff;
 pub mod normal_diff;

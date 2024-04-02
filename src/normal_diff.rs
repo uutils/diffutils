@@ -7,6 +7,8 @@ use std::io::Write;
 
 use crate::params::Params;
 use crate::utils::do_write_line;
+use crate::duwriteln as writeln;
+use crate::split_at_eol;
 
 #[derive(Debug, PartialEq)]
 struct Mismatch {
@@ -38,8 +40,8 @@ fn make_diff(expected: &[u8], actual: &[u8], stop_early: bool) -> Vec<Mismatch> 
     let mut results = Vec::new();
     let mut mismatch = Mismatch::new(line_number_expected, line_number_actual);
 
-    let mut expected_lines: Vec<&[u8]> = expected.split(|&c| c == b'\n').collect();
-    let mut actual_lines: Vec<&[u8]> = actual.split(|&c| c == b'\n').collect();
+    let mut expected_lines: Vec<&[u8]> = split_at_eol!(expected);
+    let mut actual_lines: Vec<&[u8]> = split_at_eol!(actual);
 
     debug_assert_eq!(b"".split(|&c| c == b'\n').count(), 1);
     // ^ means that underflow here is impossible
@@ -214,17 +216,30 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
+    use crate::duwriteln as writeln;
+    use crate::multiwriteln;
     use super::*;
     use pretty_assertions::assert_eq;
+
+    #[cfg(windows)]
+    macro_rules! pop_eol {
+        ($buf:expr) => ($buf.pop(); $buf.pop());
+    }
+
+    #[cfg(not(windows))]
+    macro_rules! pop_eol {
+    ($buf:expr) => ($buf.pop());
+    }
 
     #[test]
     fn test_basic() {
         let mut a = Vec::new();
-        a.write_all(b"a\n").unwrap();
+        writeln!(a, "a").unwrap();
         let mut b = Vec::new();
-        b.write_all(b"b\n").unwrap();
+        writeln!(b, "b").unwrap();
         let diff = diff(&a, &b, &Params::default());
-        let expected = b"1c1\n< a\n---\n> b\n".to_vec();
+        let mut expected = Vec::new();
+        multiwriteln!(expected, "1c1", "< a", "---", "> b");
         assert_eq!(diff, expected);
     }
 
@@ -244,35 +259,29 @@ mod tests {
                                 use std::process::Command;
                                 let mut alef = Vec::new();
                                 let mut bet = Vec::new();
-                                alef.write_all(if a == 0 { b"a\n" } else { b"b\n" })
-                                    .unwrap();
+                                writeln!(alef, "{}", if a == 0 { "a" } else { "b" }).unwrap();
                                 if a != 2 {
-                                    bet.write_all(b"b\n").unwrap();
+                                    writeln!(bet, "b").unwrap();
                                 }
-                                alef.write_all(if b == 0 { b"c\n" } else { b"d\n" })
-                                    .unwrap();
+                                writeln!(alef, "{}", if b == 0 { "c" } else { "d" }).unwrap();
                                 if b != 2 {
-                                    bet.write_all(b"d\n").unwrap();
+                                    writeln!(bet, "d").unwrap();
                                 }
-                                alef.write_all(if c == 0 { b"e\n" } else { b"f\n" })
-                                    .unwrap();
+                                writeln!(alef, "{}", if c == 0 { "e" } else { "f" }).unwrap();
                                 if c != 2 {
-                                    bet.write_all(b"f\n").unwrap();
+                                    writeln!(bet, "f").unwrap();
                                 }
-                                alef.write_all(if d == 0 { b"g\n" } else { b"h\n" })
-                                    .unwrap();
+                                writeln!(alef, "{}", if d == 0 { "g" } else { "h" }).unwrap();
                                 if d != 2 {
-                                    bet.write_all(b"h\n").unwrap();
+                                    writeln!(bet, "h").unwrap();
                                 }
-                                alef.write_all(if e == 0 { b"i\n" } else { b"j\n" })
-                                    .unwrap();
+                                writeln!(alef, "{}", if e == 0 { "i" } else { "j" }).unwrap();
                                 if e != 2 {
-                                    bet.write_all(b"j\n").unwrap();
+                                    writeln!(bet, "j").unwrap();
                                 }
-                                alef.write_all(if f == 0 { b"k\n" } else { b"l\n" })
-                                    .unwrap();
+                                writeln!(alef, "{}", if f == 0 { "k" } else { "l" }).unwrap();
                                 if f != 2 {
-                                    bet.write_all(b"l\n").unwrap();
+                                    writeln!(bet, "l").unwrap();
                                 }
                                 // This test diff is intentionally reversed.
                                 // We want it to turn the alef into bet.
@@ -307,7 +316,7 @@ mod tests {
     }
 
     #[test]
-    fn test_permutations_missing_line_ending() {
+    fn test_permutations_missing_line_endinga() {
         let target = "target/normal-diff/";
         // test all possible six-line files with missing newlines.
         let _ = std::fs::create_dir(target);
@@ -323,46 +332,40 @@ mod tests {
                                     use std::process::Command;
                                     let mut alef = Vec::new();
                                     let mut bet = Vec::new();
-                                    alef.write_all(if a == 0 { b"a\n" } else { b"b\n" })
-                                        .unwrap();
+                                    writeln!(alef, "{}", if a == 0 { "a" } else { "b" }).unwrap();
                                     if a != 2 {
-                                        bet.write_all(b"b\n").unwrap();
+                                        writeln!(bet, "b").unwrap();
                                     }
-                                    alef.write_all(if b == 0 { b"c\n" } else { b"d\n" })
-                                        .unwrap();
+                                    writeln!(alef, "{}", if b == 0 { "c" } else { "d" }).unwrap();
                                     if b != 2 {
-                                        bet.write_all(b"d\n").unwrap();
+                                        writeln!(bet, "d").unwrap();
                                     }
-                                    alef.write_all(if c == 0 { b"e\n" } else { b"f\n" })
-                                        .unwrap();
+                                    writeln!(alef, "{}", if c == 0 { "e" } else { "f" }).unwrap();
                                     if c != 2 {
-                                        bet.write_all(b"f\n").unwrap();
+                                        writeln!(bet, "f").unwrap();
                                     }
-                                    alef.write_all(if d == 0 { b"g\n" } else { b"h\n" })
-                                        .unwrap();
+                                    writeln!(alef, "{}", if d == 0 { "g" } else { "h" }).unwrap();
                                     if d != 2 {
-                                        bet.write_all(b"h\n").unwrap();
+                                        writeln!(bet, "h").unwrap();
                                     }
-                                    alef.write_all(if e == 0 { b"i\n" } else { b"j\n" })
-                                        .unwrap();
+                                    writeln!(alef, "{}", if e == 0 { "i" } else { "j" }).unwrap();
                                     if e != 2 {
-                                        bet.write_all(b"j\n").unwrap();
+                                        writeln!(bet, "j").unwrap();
                                     }
-                                    alef.write_all(if f == 0 { b"k\n" } else { b"l\n" })
-                                        .unwrap();
+                                    writeln!(alef, "{}", if f == 0 { "k" } else { "l" }).unwrap();
                                     if f != 2 {
-                                        bet.write_all(b"l\n").unwrap();
+                                        writeln!(bet, "l").unwrap();
                                     }
                                     match g {
                                         0 => {
-                                            alef.pop();
+                                            pop_eol!(alef);
                                         }
                                         1 => {
-                                            bet.pop();
+                                            pop_eol!(bet);
                                         }
                                         2 => {
-                                            alef.pop();
-                                            bet.pop();
+                                            pop_eol!(alef);
+                                            pop_eol!(bet);
                                         }
                                         _ => unreachable!(),
                                     }
@@ -416,29 +419,29 @@ mod tests {
                                 use std::process::Command;
                                 let mut alef = Vec::new();
                                 let mut bet = Vec::new();
-                                alef.write_all(if a == 0 { b"\n" } else { b"b\n" }).unwrap();
+                                writeln!(alef, "{}", if a == 0 { "" } else { "b" }).unwrap();
                                 if a != 2 {
-                                    bet.write_all(b"b\n").unwrap();
+                                    writeln!(bet, "b").unwrap();
                                 }
-                                alef.write_all(if b == 0 { b"\n" } else { b"d\n" }).unwrap();
+                                writeln!(alef, "{}", if b == 0 { "" } else { "d" }).unwrap();
                                 if b != 2 {
-                                    bet.write_all(b"d\n").unwrap();
+                                    writeln!(bet, "d").unwrap();
                                 }
-                                alef.write_all(if c == 0 { b"\n" } else { b"f\n" }).unwrap();
+                                writeln!(alef, "{}", if c == 0 { "" } else { "f" }).unwrap();
                                 if c != 2 {
-                                    bet.write_all(b"f\n").unwrap();
+                                    writeln!(bet, "f").unwrap();
                                 }
-                                alef.write_all(if d == 0 { b"\n" } else { b"h\n" }).unwrap();
+                                writeln!(alef, "{}", if d == 0 { "" } else { "h" }).unwrap();
                                 if d != 2 {
-                                    bet.write_all(b"h\n").unwrap();
+                                    writeln!(bet, "h").unwrap();
                                 }
-                                alef.write_all(if e == 0 { b"\n" } else { b"j\n" }).unwrap();
+                                writeln!(alef, "{}", if e == 0 { "" } else { "j" }).unwrap();
                                 if e != 2 {
-                                    bet.write_all(b"j\n").unwrap();
+                                    writeln!(bet, "j").unwrap();
                                 }
-                                alef.write_all(if f == 0 { b"\n" } else { b"l\n" }).unwrap();
+                                writeln!(alef, "{}", if f == 0 { "" } else { "l" }).unwrap();
                                 if f != 2 {
-                                    bet.write_all(b"l\n").unwrap();
+                                    writeln!(bet, "l").unwrap();
                                 }
                                 // This test diff is intentionally reversed.
                                 // We want it to turn the alef into bet.
@@ -488,35 +491,29 @@ mod tests {
                                 use std::process::Command;
                                 let mut alef = Vec::new();
                                 let mut bet = Vec::new();
-                                alef.write_all(if a == 0 { b"a\n" } else { b"f\n" })
-                                    .unwrap();
+                                writeln!(alef, "{}", if a == 0 { "a" } else { "f" }).unwrap();
                                 if a != 2 {
-                                    bet.write_all(b"a\n").unwrap();
+                                    writeln!(bet, "a").unwrap();
                                 }
-                                alef.write_all(if b == 0 { b"b\n" } else { b"e\n" })
-                                    .unwrap();
+                                writeln!(alef, "{}", if b == 0 { "b" } else { "e" }).unwrap();
                                 if b != 2 {
-                                    bet.write_all(b"b\n").unwrap();
+                                    writeln!(bet, "b").unwrap();
                                 }
-                                alef.write_all(if c == 0 { b"c\n" } else { b"d\n" })
-                                    .unwrap();
+                                writeln!(alef, "{}", if c == 0 { "c" } else { "d" }).unwrap();
                                 if c != 2 {
-                                    bet.write_all(b"c\n").unwrap();
+                                    writeln!(bet, "c").unwrap();
                                 }
-                                alef.write_all(if d == 0 { b"d\n" } else { b"c\n" })
-                                    .unwrap();
+                                writeln!(alef, "{}", if d == 0 { "d" } else { "c" }).unwrap();
                                 if d != 2 {
-                                    bet.write_all(b"d\n").unwrap();
+                                    writeln!(bet, "d").unwrap();
                                 }
-                                alef.write_all(if e == 0 { b"e\n" } else { b"b\n" })
-                                    .unwrap();
+                                writeln!(alef, "{}", if e == 0 { "e" } else { "b" }).unwrap();
                                 if e != 2 {
-                                    bet.write_all(b"e\n").unwrap();
+                                    writeln!(bet, "e").unwrap();
                                 }
-                                alef.write_all(if f == 0 { b"f\n" } else { b"a\n" })
-                                    .unwrap();
+                                writeln!(alef, "{}", if f == 0 { "f" } else { "a" }).unwrap();
                                 if f != 2 {
-                                    bet.write_all(b"f\n").unwrap();
+                                    writeln!(bet, "f").unwrap();
                                 }
                                 // This test diff is intentionally reversed.
                                 // We want it to turn the alef into bet.
