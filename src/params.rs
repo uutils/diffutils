@@ -457,6 +457,35 @@ mod tests {
         );
     }
     #[test]
+    fn default_to_stdin() {
+        assert_eq!(
+            Ok(Params {
+                from: os("foo"),
+                to: os("/dev/stdin"),
+                ..Default::default()
+            }),
+            parse_params([os("diff"), os("foo"), os("-")].iter().cloned())
+        );
+        assert_eq!(
+            Ok(Params {
+                from: os("/dev/stdin"),
+                to: os("bar"),
+                ..Default::default()
+            }),
+            parse_params([os("diff"), os("-"), os("bar")].iter().cloned())
+        );
+        assert_eq!(
+            Ok(Params {
+                from: os("/dev/stdin"),
+                to: os("/dev/stdin"),
+                ..Default::default()
+            }),
+            parse_params([os("diff"), os("-"), os("-")].iter().cloned())
+        );
+        assert!(parse_params([os("diff"), os("foo"), os("bar"), os("-")].iter().cloned()).is_err());
+        assert!(parse_params([os("diff"), os("-"), os("-"), os("-")].iter().cloned()).is_err());
+    }
+    #[test]
     fn unknown_argument() {
         assert!(
             parse_params([os("diff"), os("-g"), os("foo"), os("bar")].iter().cloned()).is_err()
