@@ -486,6 +486,11 @@ mod tests {
         assert!(parse_params([os("diff"), os("-"), os("-"), os("-")].iter().cloned()).is_err());
     }
     #[test]
+    fn missing_arguments() {
+        assert!(parse_params([os("diff")].iter().cloned()).is_err());
+        assert!(parse_params([os("diff"), os("foo")].iter().cloned()).is_err());
+    }
+    #[test]
     fn unknown_argument() {
         assert!(
             parse_params([os("diff"), os("-g"), os("foo"), os("bar")].iter().cloned()).is_err()
