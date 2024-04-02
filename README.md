@@ -3,7 +3,7 @@
 [![License](http://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/uutils/diffutils/blob/main/LICENSE)
 [![dependency status](https://deps.rs/repo/github/uutils/diffutils/status.svg)](https://deps.rs/repo/github/uutils/diffutils)
 
-[![CodeCov](https://codecov.io/gh/uutils/diffutils/branch/master/graph/badge.svg)](https://codecov.io/gh/uutils/diffutils)
+[![CodeCov](https://codecov.io/gh/uutils/diffutils/branch/main/graph/badge.svg)](https://codecov.io/gh/uutils/diffutils)
 
 The goal of this package is to be a drop-in replacement for the [diffutils commands](https://www.gnu.org/software/diffutils/) in Rust.
 
