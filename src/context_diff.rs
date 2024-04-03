@@ -444,6 +444,7 @@ mod tests {
                                     bet.write_all(b"l\n").unwrap();
                                 }
                                 let _ = File::create(&format!("{target}/aalef")).unwrap();
+                                let mut fa = File::create(&format!("{target}/alef")).unwrap();
                                 // This test diff is intentionally reversed.
                                 // We want it to turn the alef into bet.
                                 let diff = diff(
@@ -460,7 +461,6 @@ mod tests {
                                     .unwrap()
                                     .write_all(&diff)
                                     .unwrap();
-                                let mut fa = File::create(&format!("{target}/alef")).unwrap();
                                 fa.write_all(&alef[..]).unwrap();
                                 let mut fb = File::create(&format!("{target}/bet")).unwrap();
                                 fb.write_all(&bet[..]).unwrap();
@@ -526,6 +526,7 @@ mod tests {
                                     bet.write_all(b"l\n").unwrap();
                                 }
                                 let _ = File::create(&format!("{target}/aalef_")).unwrap();
+                                let mut fa = File::create(&format!("{target}/alef_")).unwrap();
                                 // This test diff is intentionally reversed.
                                 // We want it to turn the alef into bet.
                                 let diff = diff(
@@ -542,7 +543,6 @@ mod tests {
                                     .unwrap()
                                     .write_all(&diff)
                                     .unwrap();
-                                let mut fa = File::create(&format!("{target}/alef_")).unwrap();
                                 fa.write_all(&alef[..]).unwrap();
                                 let mut fb = File::create(&format!("{target}/bet_")).unwrap();
                                 fb.write_all(&bet[..]).unwrap();
@@ -611,6 +611,7 @@ mod tests {
                                     continue;
                                 };
                                 let _ = File::create(&format!("{target}/aalefx")).unwrap();
+                                let mut fa = File::create(&format!("{target}/alefx")).unwrap();
                                 // This test diff is intentionally reversed.
                                 // We want it to turn the alef into bet.
                                 let diff = diff(
@@ -627,7 +628,6 @@ mod tests {
                                     .unwrap()
                                     .write_all(&diff)
                                     .unwrap();
-                                let mut fa = File::create(&format!("{target}/alefx")).unwrap();
                                 fa.write_all(&alef[..]).unwrap();
                                 let mut fb = File::create(&format!("{target}/betx")).unwrap();
                                 fb.write_all(&bet[..]).unwrap();
@@ -699,6 +699,7 @@ mod tests {
                                     bet.write_all(b"f\n").unwrap();
                                 }
                                 let _ = File::create(&format!("{target}/aalefr")).unwrap();
+                                let mut fa = File::create(&format!("{target}/alefr")).unwrap();
                                 // This test diff is intentionally reversed.
                                 // We want it to turn the alef into bet.
                                 let diff = diff(
@@ -715,7 +716,6 @@ mod tests {
                                     .unwrap()
                                     .write_all(&diff)
                                     .unwrap();
-                                let mut fa = File::create(&format!("{target}/alefr")).unwrap();
                                 fa.write_all(&alef[..]).unwrap();
                                 let mut fb = File::create(&format!("{target}/betr")).unwrap();
                                 fb.write_all(&bet[..]).unwrap();
