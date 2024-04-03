@@ -8,6 +8,7 @@ use std::io::Write;
 
 use crate::params::Params;
 use crate::utils::do_write_line;
+use crate::utils::get_modification_time;
 
 #[derive(Debug, PartialEq)]
 pub enum DiffLine {
@@ -265,24 +266,7 @@ fn make_diff(
     results
 }
 
-fn get_modification_time(file_path: &str) -> String {
-    use chrono::{DateTime, Local};
-    use std::fs;
-
-    let metadata = fs::metadata(file_path).expect("Failed to get metadata");
-    let modification_time = metadata
-        .modified()
-        .expect("Failed to get modification time");
-    let modification_time: DateTime<Local> = modification_time.into();
-    let modification_time: String = modification_time
-        .format("%Y-%m-%d %H:%M:%S%.9f %z")
-        .to_string();
-
-    modification_time
-}
-
 #[must_use]
-#[allow(clippy::too_many_arguments)]
 pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
     let from_modified_time = get_modification_time(&params.from.to_string_lossy());
     let to_modified_time = get_modification_time(&params.to.to_string_lossy());
@@ -747,7 +731,6 @@ mod tests {
         use std::str;
 
         let target = "target/context-diff";
-        // test all possible six-line files.
         let _ = std::fs::create_dir(target);
         let from_filename = &format!("{target}/foo");
         let _ = File::create(from_filename).unwrap();

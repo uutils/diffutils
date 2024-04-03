@@ -51,6 +51,22 @@ pub fn do_write_line(
     }
 }
 
+pub fn get_modification_time(file_path: &str) -> String {
+    use chrono::{DateTime, Local};
+    use std::fs;
+
+    let metadata = fs::metadata(file_path).expect("Failed to get metadata");
+    let modification_time = metadata
+        .modified()
+        .expect("Failed to get modification time");
+    let modification_time: DateTime<Local> = modification_time.into();
+    let modification_time: String = modification_time
+        .format("%Y-%m-%d %H:%M:%S%.9f %z")
+        .to_string();
+
+    modification_time
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

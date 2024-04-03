@@ -8,6 +8,7 @@ use std::io::Write;
 
 use crate::params::Params;
 use crate::utils::do_write_line;
+use crate::utils::get_modification_time;
 
 #[derive(Debug, PartialEq)]
 pub enum DiffLine {
@@ -238,10 +239,14 @@ fn make_diff(
 
 #[must_use]
 pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
+    let from_modified_time = get_modification_time(&params.from.to_string_lossy());
+    let to_modified_time = get_modification_time(&params.to.to_string_lossy());
     let mut output = format!(
-        "--- {0}\t\n+++ {1}\t\n",
+        "--- {0}\t{1}\n+++ {2}\t{3}\n",
         params.from.to_string_lossy(),
-        params.to.to_string_lossy()
+        from_modified_time,
+        params.to.to_string_lossy(),
+        to_modified_time
     )
     .into_bytes();
     let diff_results = make_diff(expected, actual, params.context_count, params.brief);
@@ -449,13 +454,15 @@ mod tests {
                                 if f != 2 {
                                     bet.write_all(b"l\n").unwrap();
                                 }
+                                let _ = File::create(&format!("{target}/aalef")).unwrap();
+                                let mut fa = File::create(&format!("{target}/alef")).unwrap();
                                 // This test diff is intentionally reversed.
                                 // We want it to turn the alef into bet.
                                 let diff = diff(
                                     &alef,
                                     &bet,
                                     &Params {
-                                        from: "a/alef".into(),
+                                        from: (&format!("{target}/aalef")).into(),
                                         to: (&format!("{target}/alef")).into(),
                                         context_count: 2,
                                         ..Default::default()
@@ -465,7 +472,6 @@ mod tests {
                                     .unwrap()
                                     .write_all(&diff)
                                     .unwrap();
-                                let mut fa = File::create(&format!("{target}/alef")).unwrap();
                                 fa.write_all(&alef[..]).unwrap();
                                 let mut fb = File::create(&format!("{target}/bet")).unwrap();
                                 fb.write_all(&bet[..]).unwrap();
@@ -565,13 +571,15 @@ mod tests {
                                         }
                                         _ => unreachable!(),
                                     }
+                                    let _ = File::create(&format!("{target}/aalefn")).unwrap();
+                                    let mut fa = File::create(&format!("{target}/alefn")).unwrap();
                                     // This test diff is intentionally reversed.
                                     // We want it to turn the alef into bet.
                                     let diff = diff(
                                         &alef,
                                         &bet,
                                         &Params {
-                                            from: "a/alefn".into(),
+                                            from: (&format!("{target}/aalefn")).into(),
                                             to: (&format!("{target}/alefn")).into(),
                                             context_count: 2,
                                             ..Default::default()
@@ -581,7 +589,6 @@ mod tests {
                                         .unwrap()
                                         .write_all(&diff)
                                         .unwrap();
-                                    let mut fa = File::create(&format!("{target}/alefn")).unwrap();
                                     fa.write_all(&alef[..]).unwrap();
                                     let mut fb = File::create(&format!("{target}/betn")).unwrap();
                                     fb.write_all(&bet[..]).unwrap();
@@ -661,13 +668,15 @@ mod tests {
                                         3 => {}
                                         _ => unreachable!(),
                                     }
+                                    let _ = File::create(&format!("{target}/aalef_")).unwrap();
+                                    let mut fa = File::create(&format!("{target}/alef_")).unwrap();
                                     // This test diff is intentionally reversed.
                                     // We want it to turn the alef into bet.
                                     let diff = diff(
                                         &alef,
                                         &bet,
                                         &Params {
-                                            from: "a/alef_".into(),
+                                            from: (&format!("{target}/aalef_")).into(),
                                             to: (&format!("{target}/alef_")).into(),
                                             context_count: 2,
                                             ..Default::default()
@@ -677,7 +686,6 @@ mod tests {
                                         .unwrap()
                                         .write_all(&diff)
                                         .unwrap();
-                                    let mut fa = File::create(&format!("{target}/alef_")).unwrap();
                                     fa.write_all(&alef[..]).unwrap();
                                     let mut fb = File::create(&format!("{target}/bet_")).unwrap();
                                     fb.write_all(&bet[..]).unwrap();
@@ -742,13 +750,15 @@ mod tests {
                                 if f != 2 {
                                     bet.write_all(b"l\n").unwrap();
                                 }
+                                let _ = File::create(&format!("{target}/aalefx")).unwrap();
+                                let mut fa = File::create(&format!("{target}/alefx")).unwrap();
                                 // This test diff is intentionally reversed.
                                 // We want it to turn the alef into bet.
                                 let diff = diff(
                                     &alef,
                                     &bet,
                                     &Params {
-                                        from: "a/alefx".into(),
+                                        from: (&format!("{target}/aalefx")).into(),
                                         to: (&format!("{target}/alefx")).into(),
                                         context_count: 2,
                                         ..Default::default()
@@ -758,7 +768,6 @@ mod tests {
                                     .unwrap()
                                     .write_all(&diff)
                                     .unwrap();
-                                let mut fa = File::create(&format!("{target}/alefx")).unwrap();
                                 fa.write_all(&alef[..]).unwrap();
                                 let mut fb = File::create(&format!("{target}/betx")).unwrap();
                                 fb.write_all(&bet[..]).unwrap();
@@ -828,13 +837,15 @@ mod tests {
                                 if f != 2 {
                                     bet.write_all(b"f\n").unwrap();
                                 }
+                                let _ = File::create(&format!("{target}/aalefr")).unwrap();
+                                let mut fa = File::create(&format!("{target}/alefr")).unwrap();
                                 // This test diff is intentionally reversed.
                                 // We want it to turn the alef into bet.
                                 let diff = diff(
                                     &alef,
                                     &bet,
                                     &Params {
-                                        from: "a/alefr".into(),
+                                        from: (&format!("{target}/aalefr")).into(),
                                         to: (&format!("{target}/alefr")).into(),
                                         context_count: 2,
                                         ..Default::default()
@@ -844,7 +855,6 @@ mod tests {
                                     .unwrap()
                                     .write_all(&diff)
                                     .unwrap();
-                                let mut fa = File::create(&format!("{target}/alefr")).unwrap();
                                 fa.write_all(&alef[..]).unwrap();
                                 let mut fb = File::create(&format!("{target}/betr")).unwrap();
                                 fb.write_all(&bet[..]).unwrap();
@@ -870,9 +880,17 @@ mod tests {
 
     #[test]
     fn test_stop_early() {
-        let from_filename = "foo";
+        use regex::Regex;
+        use std::fs::File;
+        use std::str;
+
+        let target = "target/context-diff";
+        let _ = std::fs::create_dir(target);
+        let from_filename = &format!("{target}/foo");
+        let _ = File::create(from_filename).unwrap();
         let from = ["a", "b", "c", ""].join("\n");
-        let to_filename = "bar";
+        let to_filename = &format!("{target}/bar");
+        let _ = File::create(to_filename).unwrap();
         let to = ["a", "d", "c", ""].join("\n");
 
         let diff_full = diff(
@@ -884,9 +902,14 @@ mod tests {
                 ..Default::default()
             },
         );
+
+        let diff_full_text = str::from_utf8(&diff_full).unwrap();
+        let re = Regex::new(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+ [+-]\d{4}").unwrap();
+        let diff_full = re.replace_all(diff_full_text, "");
+
         let expected_full = [
-            "--- foo\t",
-            "+++ bar\t",
+            "--- target/context-diff/foo\t",
+            "+++ target/context-diff/bar\t",
             "@@ -1,3 +1,3 @@",
             " a",
             "-b",
@@ -895,7 +918,7 @@ mod tests {
             "",
         ]
         .join("\n");
-        assert_eq!(diff_full, expected_full.as_bytes());
+        assert_eq!(diff_full, expected_full);
 
         let diff_brief = diff(
             from.as_bytes(),
@@ -907,8 +930,17 @@ mod tests {
                 ..Default::default()
             },
         );
-        let expected_brief = ["--- foo\t", "+++ bar\t", ""].join("\n");
-        assert_eq!(diff_brief, expected_brief.as_bytes());
+
+        let diff_brief_text = str::from_utf8(&diff_brief).unwrap();
+        let re = Regex::new(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+ [+-]\d{4}").unwrap();
+        let diff_brief = re.replace_all(diff_brief_text, "");
+        let expected_brief = [
+            "--- target/context-diff/foo\t",
+            "+++ target/context-diff/bar\t",
+            "",
+        ]
+        .join("\n");
+        assert_eq!(diff_brief, expected_brief);
 
         let nodiff_full = diff(
             from.as_bytes(),
