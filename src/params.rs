@@ -99,7 +99,7 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
                 .as_str();
             params.tabsize = match tabsize_str.parse::<usize>() {
                 Ok(num) => num,
-                Err(_) => return Err(format!("invalid tabsize «{}»", tabsize_str)),
+                Err(_) => return Err(format!("invalid tabsize «{tabsize_str}»")),
             };
             continue;
         }
