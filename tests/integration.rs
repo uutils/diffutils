@@ -22,25 +22,30 @@ fn unknown_param() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn cannot_read_from_file() -> Result<(), Box<dyn std::error::Error>> {
+fn cannot_read_files() -> Result<(), Box<dyn std::error::Error>> {
+    let file = NamedTempFile::new()?;
+
     let mut cmd = Command::cargo_bin("diffutils")?;
-    cmd.arg("foo.txt").arg("bar.txt");
+    cmd.arg("foo.txt").arg(file.path());
     cmd.assert()
         .code(predicate::eq(2))
         .failure()
         .stderr(predicate::str::starts_with("Failed to read from-file"));
-    Ok(())
-}
 
-#[test]
-fn cannot_read_to_file() -> Result<(), Box<dyn std::error::Error>> {
-    let file = NamedTempFile::new()?;
     let mut cmd = Command::cargo_bin("diffutils")?;
-    cmd.arg(file.path()).arg("bar.txt");
+    cmd.arg(file.path()).arg("foo.txt");
     cmd.assert()
         .code(predicate::eq(2))
         .failure()
         .stderr(predicate::str::starts_with("Failed to read to-file"));
+
+    let mut cmd = Command::cargo_bin("diffutils")?;
+    cmd.arg("foo.txt").arg("foo.txt");
+    cmd.assert()
+        .code(predicate::eq(2))
+        .failure()
+        .stderr(predicate::str::starts_with("Failed to read from-file"));
+
     Ok(())
 }
 
@@ -177,7 +182,7 @@ fn read_from_stdin() -> Result<(), Box<dyn std::error::Error>> {
         .code(predicate::eq(1))
         .failure()
         .stdout(predicate::eq(format!(
-            "--- {}\t\n+++ /dev/stdin\t\n@@ -1 +1 @@\n-foo\n+bar\n",
+            "--- {}\t\n+++ -\t\n@@ -1 +1 @@\n-foo\n+bar\n",
             file1.path().to_string_lossy()
         )));
 
@@ -190,12 +195,12 @@ fn read_from_stdin() -> Result<(), Box<dyn std::error::Error>> {
         .code(predicate::eq(1))
         .failure()
         .stdout(predicate::eq(format!(
-            "--- /dev/stdin\t\n+++ {}\t\n@@ -1 +1 @@\n-foo\n+bar\n",
+            "--- -\t\n+++ {}\t\n@@ -1 +1 @@\n-foo\n+bar\n",
             file2.path().to_string_lossy()
         )));
 
     let mut cmd = Command::cargo_bin("diffutils")?;
-    cmd.arg("-u").arg("-").arg("-").write_stdin("foo\n");
+    cmd.arg("-u").arg("-").arg("-");
     cmd.assert()
         .code(predicate::eq(0))
         .success()
