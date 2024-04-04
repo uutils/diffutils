@@ -236,12 +236,15 @@ mod tests {
                                 fb.write_all(&bet[..]).unwrap();
                                 let _ = fa;
                                 let _ = fb;
-                                let output = Command::new("ed")
-                                    .arg(&format!("{target}/alef"))
-                                    .stdin(File::open("target/ab.ed").unwrap())
-                                    .output()
-                                    .unwrap();
-                                assert!(output.status.success(), "{output:?}");
+                                #[cfg(not(windows))] // there's no ed on windows
+                                {
+                                    let output = Command::new("ed")
+                                        .arg(&format!("{target}/alef"))
+                                        .stdin(File::open("target/ab.ed").unwrap())
+                                        .output()
+                                        .unwrap();
+                                    assert!(output.status.success(), "{output:?}");
+                                }
                                 //println!("{}", String::from_utf8_lossy(&output.stdout));
                                 //println!("{}", String::from_utf8_lossy(&output.stderr));
                                 let alef = fs::read(&format!("{target}/alef")).unwrap();
@@ -307,12 +310,15 @@ mod tests {
                                 fb.write_all(&bet[..]).unwrap();
                                 let _ = fa;
                                 let _ = fb;
-                                let output = Command::new("ed")
-                                    .arg("target/alef_")
-                                    .stdin(File::open("target/ab_.ed").unwrap())
-                                    .output()
-                                    .unwrap();
-                                assert!(output.status.success(), "{output:?}");
+                                #[cfg(not(windows))] // there's no ed on windows
+                                {
+                                    let output = Command::new("ed")
+                                        .arg("target/alef_")
+                                        .stdin(File::open("target/ab_.ed").unwrap())
+                                        .output()
+                                        .unwrap();
+                                    assert!(output.status.success(), "{output:?}");
+                                }
                                 //println!("{}", String::from_utf8_lossy(&output.stdout));
                                 //println!("{}", String::from_utf8_lossy(&output.stderr));
                                 let alef = fs::read("target/alef_").unwrap();
@@ -384,12 +390,15 @@ mod tests {
                                 fb.write_all(&bet[..]).unwrap();
                                 let _ = fa;
                                 let _ = fb;
-                                let output = Command::new("ed")
-                                    .arg(&format!("{target}/alefr"))
-                                    .stdin(File::open("target/abr.ed").unwrap())
-                                    .output()
-                                    .unwrap();
-                                assert!(output.status.success(), "{output:?}");
+                                #[cfg(not(windows))] // there's no ed on windows
+                                {
+                                    let output = Command::new("ed")
+                                        .arg(&format!("{target}/alefr"))
+                                        .stdin(File::open("target/abr.ed").unwrap())
+                                        .output()
+                                        .unwrap();
+                                    assert!(output.status.success(), "{output:?}");
+                                }
                                 //println!("{}", String::from_utf8_lossy(&output.stdout));
                                 //println!("{}", String::from_utf8_lossy(&output.stderr));
                                 let alef = fs::read(&format!("{target}/alefr")).unwrap();
