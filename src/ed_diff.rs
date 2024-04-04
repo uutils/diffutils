@@ -133,7 +133,7 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Result<Vec<u8>, 
                 expected_count + line_number_expected - 1
             )
             .unwrap(),
-            (1, _) => writeln!(&mut output, "{}c", line_number_expected).unwrap(),
+            (1, _) => writeln!(&mut output, "{line_number_expected}c").unwrap(),
             _ => writeln!(
                 &mut output,
                 "{},{}c",
@@ -236,12 +236,15 @@ mod tests {
                                 fb.write_all(&bet[..]).unwrap();
                                 let _ = fa;
                                 let _ = fb;
-                                let output = Command::new("ed")
-                                    .arg(&format!("{target}/alef"))
-                                    .stdin(File::open("target/ab.ed").unwrap())
-                                    .output()
-                                    .unwrap();
-                                assert!(output.status.success(), "{:?}", output);
+                                #[cfg(not(windows))] // there's no ed on windows
+                                {
+                                    let output = Command::new("ed")
+                                        .arg(&format!("{target}/alef"))
+                                        .stdin(File::open("target/ab.ed").unwrap())
+                                        .output()
+                                        .unwrap();
+                                    assert!(output.status.success(), "{output:?}");
+                                }
                                 //println!("{}", String::from_utf8_lossy(&output.stdout));
                                 //println!("{}", String::from_utf8_lossy(&output.stderr));
                                 let alef = fs::read(&format!("{target}/alef")).unwrap();
@@ -307,12 +310,15 @@ mod tests {
                                 fb.write_all(&bet[..]).unwrap();
                                 let _ = fa;
                                 let _ = fb;
-                                let output = Command::new("ed")
-                                    .arg("target/alef_")
-                                    .stdin(File::open("target/ab_.ed").unwrap())
-                                    .output()
-                                    .unwrap();
-                                assert!(output.status.success(), "{:?}", output);
+                                #[cfg(not(windows))] // there's no ed on windows
+                                {
+                                    let output = Command::new("ed")
+                                        .arg("target/alef_")
+                                        .stdin(File::open("target/ab_.ed").unwrap())
+                                        .output()
+                                        .unwrap();
+                                    assert!(output.status.success(), "{output:?}");
+                                }
                                 //println!("{}", String::from_utf8_lossy(&output.stdout));
                                 //println!("{}", String::from_utf8_lossy(&output.stderr));
                                 let alef = fs::read("target/alef_").unwrap();
@@ -384,12 +390,15 @@ mod tests {
                                 fb.write_all(&bet[..]).unwrap();
                                 let _ = fa;
                                 let _ = fb;
-                                let output = Command::new("ed")
-                                    .arg(&format!("{target}/alefr"))
-                                    .stdin(File::open("target/abr.ed").unwrap())
-                                    .output()
-                                    .unwrap();
-                                assert!(output.status.success(), "{:?}", output);
+                                #[cfg(not(windows))] // there's no ed on windows
+                                {
+                                    let output = Command::new("ed")
+                                        .arg(&format!("{target}/alefr"))
+                                        .stdin(File::open("target/abr.ed").unwrap())
+                                        .output()
+                                        .unwrap();
+                                    assert!(output.status.success(), "{output:?}");
+                                }
                                 //println!("{}", String::from_utf8_lossy(&output.stdout));
                                 //println!("{}", String::from_utf8_lossy(&output.stderr));
                                 let alef = fs::read(&format!("{target}/alefr")).unwrap();

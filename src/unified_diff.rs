@@ -500,7 +500,7 @@ mod tests {
                                     .unwrap();
                                 println!("{}", String::from_utf8_lossy(&output.stdout));
                                 println!("{}", String::from_utf8_lossy(&output.stderr));
-                                assert!(output.status.success(), "{:?}", output);
+                                assert!(output.status.success(), "{output:?}");
                                 let alef = fs::read(&format!("{target}/alef")).unwrap();
                                 assert_eq!(alef, bet);
                             }
@@ -599,7 +599,7 @@ mod tests {
                                         .stdin(File::open(&format!("{target}/abn.diff")).unwrap())
                                         .output()
                                         .unwrap();
-                                    assert!(output.status.success(), "{:?}", output);
+                                    assert!(output.status.success(), "{output:?}");
                                     //println!("{}", String::from_utf8_lossy(&output.stdout));
                                     //println!("{}", String::from_utf8_lossy(&output.stderr));
                                     let alef = fs::read(&format!("{target}/alefn")).unwrap();
@@ -696,7 +696,7 @@ mod tests {
                                         .stdin(File::open(&format!("{target}/ab_.diff")).unwrap())
                                         .output()
                                         .unwrap();
-                                    assert!(output.status.success(), "{:?}", output);
+                                    assert!(output.status.success(), "{output:?}");
                                     //println!("{}", String::from_utf8_lossy(&output.stdout));
                                     //println!("{}", String::from_utf8_lossy(&output.stderr));
                                     let alef = fs::read(&format!("{target}/alef_")).unwrap();
@@ -778,7 +778,7 @@ mod tests {
                                     .stdin(File::open(&format!("{target}/abx.diff")).unwrap())
                                     .output()
                                     .unwrap();
-                                assert!(output.status.success(), "{:?}", output);
+                                assert!(output.status.success(), "{output:?}");
                                 //println!("{}", String::from_utf8_lossy(&output.stdout));
                                 //println!("{}", String::from_utf8_lossy(&output.stderr));
                                 let alef = fs::read(&format!("{target}/alefx")).unwrap();
@@ -865,7 +865,7 @@ mod tests {
                                     .stdin(File::open(&format!("{target}/abr.diff")).unwrap())
                                     .output()
                                     .unwrap();
-                                assert!(output.status.success(), "{:?}", output);
+                                assert!(output.status.success(), "{output:?}");
                                 //println!("{}", String::from_utf8_lossy(&output.stdout));
                                 //println!("{}", String::from_utf8_lossy(&output.stderr));
                                 let alef = fs::read(&format!("{target}/alefr")).unwrap();

@@ -10,6 +10,7 @@ use unicode_width::UnicodeWidthStr;
 /// Replace tabs by spaces in the input line.
 /// Correctly handle multi-bytes characters.
 /// This assumes that line does not contain any line breaks (if it does, the result is undefined).
+#[must_use]
 pub fn do_expand_tabs(line: &[u8], tabsize: usize) -> Vec<u8> {
     let tab = b'\t';
     let ntabs = line.iter().filter(|c| **c == tab).count();

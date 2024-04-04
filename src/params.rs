@@ -99,7 +99,7 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
                 .as_str();
             params.tabsize = match tabsize_str.parse::<usize>() {
                 Ok(num) => num,
-                Err(_) => return Err(format!("invalid tabsize «{}»", tabsize_str)),
+                Err(_) => return Err(format!("invalid tabsize «{tabsize_str}»")),
             };
             continue;
         }
@@ -455,6 +455,40 @@ mod tests {
             }),
             parse_params([os("diff"), os("--"), os("-g"), os("-h")].iter().cloned())
         );
+    }
+    #[test]
+    fn default_to_stdin() {
+        assert_eq!(
+            Ok(Params {
+                from: os("foo"),
+                to: os("/dev/stdin"),
+                ..Default::default()
+            }),
+            parse_params([os("diff"), os("foo"), os("-")].iter().cloned())
+        );
+        assert_eq!(
+            Ok(Params {
+                from: os("/dev/stdin"),
+                to: os("bar"),
+                ..Default::default()
+            }),
+            parse_params([os("diff"), os("-"), os("bar")].iter().cloned())
+        );
+        assert_eq!(
+            Ok(Params {
+                from: os("/dev/stdin"),
+                to: os("/dev/stdin"),
+                ..Default::default()
+            }),
+            parse_params([os("diff"), os("-"), os("-")].iter().cloned())
+        );
+        assert!(parse_params([os("diff"), os("foo"), os("bar"), os("-")].iter().cloned()).is_err());
+        assert!(parse_params([os("diff"), os("-"), os("-"), os("-")].iter().cloned()).is_err());
+    }
+    #[test]
+    fn missing_arguments() {
+        assert!(parse_params([os("diff")].iter().cloned()).is_err());
+        assert!(parse_params([os("diff"), os("foo")].iter().cloned()).is_err());
     }
     #[test]
     fn unknown_argument() {
