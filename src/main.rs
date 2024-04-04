@@ -7,7 +7,7 @@ use crate::params::{parse_params, Format};
 use std::env;
 use std::ffi::OsString;
 use std::fs;
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::process::{exit, ExitCode};
 
 mod context_diff;
@@ -46,8 +46,12 @@ fn main() -> ExitCode {
     }
     // read files
     fn read_file_contents(filepath: &OsString) -> io::Result<Vec<u8>> {
-        let stdin = OsString::from("/dev/stdin");
-        fs::read(if filepath == "-" { &stdin } else { filepath })
+        if filepath == "-" {
+            let mut content = Vec::new();
+            io::stdin().read_to_end(&mut content).and(Ok(content))
+        } else {
+            fs::read(filepath)
+        }
     }
     let from_content = match read_file_contents(&params.from) {
         Ok(from_content) => from_content,
