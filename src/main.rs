@@ -35,7 +35,7 @@ fn main() -> ExitCode {
                 "Files {} and {} are identical",
                 params.from.to_string_lossy(),
                 params.to.to_string_lossy(),
-            )
+            );
         }
     };
     if same_file::is_same_file(&params.from, &params.to).unwrap_or(false) {
