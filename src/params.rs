@@ -502,4 +502,15 @@ mod tests {
     fn empty() {
         assert!(parse_params([].iter().cloned()).is_err());
     }
+    #[test]
+    fn conflicting_output_styles() {
+        for (arg1, arg2) in [("-u", "-c"), ("-u", "-e"), ("-c", "-u"), ("-c", "-U42")] {
+            assert!(parse_params(
+                [os("diff"), os(arg1), os(arg2), os("foo"), os("bar")]
+                    .iter()
+                    .cloned()
+            )
+            .is_err());
+        }
+    }
 }
