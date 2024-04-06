@@ -110,6 +110,7 @@ jobs:
 
     - name: rust toolchain ~ install
       uses: dtolnay/rust-toolchain@nightly
+    - run: rustup component add llvm-tools-preview
     - name: install GNU patch on MacOS
       if: runner.os == 'macOS'
       run: brew install gpatch
@@ -122,8 +123,9 @@ jobs:
       env:
         CARGO_INCREMENTAL: "0"
         RUSTC_WRAPPER: ""
-        RUSTFLAGS: "-Zprofile -Ccodegen-units=1 -Copt-level=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests -Cpanic=abort"
+        RUSTFLAGS: "-Cinstrument-coverage -Zcoverage-options=branch -Ccodegen-units=1 -Copt-level=0 -Coverflow-checks=off -Zpanic_abort_tests -Cpanic=abort"
         RUSTDOCFLAGS: "-Cpanic=abort"
+        LLVM_PROFILE_FILE: "diffutils-%p-%m.profraw"
     - name: "`grcov` ~ install"
       id: build_grcov
       shell: bash
@@ -151,9 +153,9 @@ jobs:
         COVERAGE_REPORT_FILE="${COVERAGE_REPORT_DIR}/lcov.info"
         mkdir -p "${COVERAGE_REPORT_DIR}"
         # display coverage files
-        grcov . --output-type files --ignore build.rs --ignore "vendor/*" --ignore "/*" --ignore "[a-zA-Z]:/*" --excl-br-line "^\s*((debug_)?assert(_eq|_ne)?!|#\[derive\()" | sort --unique
+        grcov . --output-type files --binary-path "${COVERAGE_REPORT_DIR}" | sort --unique
         # generate coverage report
-        grcov . --output-type lcov --output-path "${COVERAGE_REPORT_FILE}" --branch --ignore build.rs --ignore "vendor/*" --ignore "/*" --ignore "[a-zA-Z]:/*" --excl-br-line "^\s*((debug_)?assert(_eq|_ne)?!|#\[derive\()"
+        grcov . --output-type lcov --output-path "${COVERAGE_REPORT_FILE}" --binary-path "${COVERAGE_REPORT_DIR}" --branch
         echo "report=${COVERAGE_REPORT_FILE}" >> $GITHUB_OUTPUT
     - name: Upload coverage results (to Codecov.io)
       uses: codecov/codecov-action@v4
