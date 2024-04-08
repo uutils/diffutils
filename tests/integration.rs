@@ -206,5 +206,21 @@ fn read_from_stdin() -> Result<(), Box<dyn std::error::Error>> {
         .success()
         .stdout(predicate::str::is_empty());
 
+    #[cfg(unix)]
+    {
+        let mut cmd = Command::cargo_bin("diffutils")?;
+        cmd.arg("-u")
+            .arg(file1.path())
+            .arg("/dev/stdin")
+            .write_stdin("bar\n");
+        cmd.assert()
+            .code(predicate::eq(1))
+            .failure()
+            .stdout(predicate::eq(format!(
+                "--- {}\t\n+++ /dev/stdin\t\n@@ -1 +1 @@\n-foo\n+bar\n",
+                file1.path().to_string_lossy()
+            )));
+    }
+
     Ok(())
 }
