@@ -1,4 +1,4 @@
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsString;
 
 use regex::Regex;
 
@@ -9,17 +9,6 @@ pub enum Format {
     Unified,
     Context,
     Ed,
-}
-
-#[cfg(unix)]
-fn osstr_bytes(osstr: &OsStr) -> &[u8] {
-    use std::os::unix::ffi::OsStrExt;
-    osstr.as_bytes()
-}
-
-#[cfg(not(unix))]
-fn osstr_bytes(osstr: &OsStr) -> Vec<u8> {
-    osstr.to_string_lossy().bytes().collect()
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -90,6 +79,20 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
         }
         if param == "-t" || param == "--expand-tabs" {
             params.expand_tabs = true;
+            continue;
+        }
+        if param == "--normal" {
+            if format.is_some() && format != Some(Format::Normal) {
+                return Err("Conflicting output style options".to_string());
+            }
+            format = Some(Format::Normal);
+            continue;
+        }
+        if param == "-e" || param == "--ed" {
+            if format.is_some() && format != Some(Format::Ed) {
+                return Err("Conflicting output style options".to_string());
+            }
+            format = Some(Format::Ed);
             continue;
         }
         if tabsize_re.is_match(param.to_string_lossy().as_ref()) {
@@ -176,21 +179,10 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
             }
             continue;
         }
-        let p = osstr_bytes(&param);
-        if p.first() == Some(&b'-') && p.get(1) != Some(&b'-') {
-            let mut bit = p[1..].iter().copied().peekable();
-            while let Some(b) = bit.next() {
-                match b {
-                    b'e' => {
-                        if format.is_some() && format != Some(Format::Ed) {
-                            return Err("Conflicting output style options".to_string());
-                        }
-                        format = Some(Format::Ed);
-                    }
-                    _ => return Err(format!("Unknown option: {}", String::from_utf8_lossy(&[b]))),
-                }
-            }
-        } else if from.is_none() {
+        if param.to_string_lossy().starts_with('-') {
+            return Err(format!("Unknown option: {:?}", param));
+        }
+        if from.is_none() {
             from = Some(param);
         } else if to.is_none() {
             to = Some(param);
@@ -235,18 +227,32 @@ mod tests {
             }),
             parse_params([os("diff"), os("foo"), os("bar")].iter().cloned())
         );
-    }
-    #[test]
-    fn basics_ed() {
         assert_eq!(
             Ok(Params {
                 from: os("foo"),
                 to: os("bar"),
-                format: Format::Ed,
                 ..Default::default()
             }),
-            parse_params([os("diff"), os("-e"), os("foo"), os("bar")].iter().cloned())
+            parse_params(
+                [os("diff"), os("--normal"), os("foo"), os("bar")]
+                    .iter()
+                    .cloned()
+            )
         );
+    }
+    #[test]
+    fn basics_ed() {
+        for arg in ["-e", "--ed"] {
+            assert_eq!(
+                Ok(Params {
+                    from: os("foo"),
+                    to: os("bar"),
+                    format: Format::Ed,
+                    ..Default::default()
+                }),
+                parse_params([os("diff"), os(arg), os("foo"), os("bar")].iter().cloned())
+            );
+        }
     }
     #[test]
     fn context_valid() {
@@ -655,7 +661,15 @@ mod tests {
     }
     #[test]
     fn conflicting_output_styles() {
-        for (arg1, arg2) in [("-u", "-c"), ("-u", "-e"), ("-c", "-u"), ("-c", "-U42")] {
+        for (arg1, arg2) in [
+            ("-u", "-c"),
+            ("-u", "-e"),
+            ("-c", "-u"),
+            ("-c", "-U42"),
+            ("-u", "--normal"),
+            ("--normal", "-e"),
+            ("--context", "--normal"),
+        ] {
             assert!(parse_params(
                 [os("diff"), os(arg1), os(arg2), os("foo"), os("bar")]
                     .iter()
