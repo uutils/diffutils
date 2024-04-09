@@ -62,6 +62,8 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
     let mut format = None;
     let mut context_count = None;
     let tabsize_re = Regex::new(r"^--tabsize=(?<num>\d+)$").unwrap();
+    let context_re =
+        Regex::new(r"^(-[cC](?<num1>\d*)|--context(=(?<num2>\d*))?|-(?<num3>\d+)c)$").unwrap();
     let unified_re =
         Regex::new(r"^(-[uU](?<num1>\d*)|--unified(=(?<num2>\d*))?|-(?<num3>\d+)u)$").unwrap();
     while let Some(param) = opts.next() {
@@ -106,6 +108,40 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
             };
             continue;
         }
+        if context_re.is_match(param.to_string_lossy().as_ref()) {
+            if format.is_some() && format != Some(Format::Context) {
+                return Err("Conflicting output style options".to_string());
+            }
+            format = Some(Format::Context);
+            let captures = context_re.captures(param.to_str().unwrap()).unwrap();
+            let num = captures
+                .name("num1")
+                .or(captures.name("num2"))
+                .or(captures.name("num3"));
+            if num.is_some() && !num.unwrap().as_str().is_empty() {
+                context_count = Some(num.unwrap().as_str().parse::<usize>().unwrap());
+            }
+            if param == "-C" {
+                let next_param = opts.peek();
+                if next_param.is_some() {
+                    let next_value = next_param
+                        .unwrap()
+                        .to_string_lossy()
+                        .as_ref()
+                        .parse::<usize>();
+                    if next_value.is_ok() {
+                        context_count = Some(next_value.unwrap());
+                        opts.next();
+                    } else {
+                        return Err(format!(
+                            "invalid context length '{}'",
+                            next_param.unwrap().to_string_lossy()
+                        ));
+                    }
+                }
+            }
+            continue;
+        }
         if unified_re.is_match(param.to_string_lossy().as_ref()) {
             if format.is_some() && format != Some(Format::Unified) {
                 return Err("Conflicting output style options".to_string());
@@ -143,25 +179,8 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
         let p = osstr_bytes(&param);
         if p.first() == Some(&b'-') && p.get(1) != Some(&b'-') {
             let mut bit = p[1..].iter().copied().peekable();
-            // Can't use a for loop because `diff -30u` is supposed to make a diff
-            // with 30 lines of context.
             while let Some(b) = bit.next() {
                 match b {
-                    b'0'..=b'9' => {
-                        context_count = Some((b - b'0') as usize);
-                        while let Some(b'0'..=b'9') = bit.peek() {
-                            context_count = Some(context_count.unwrap() * 10);
-                            context_count = Some(
-                                context_count.unwrap() + (bit.next().unwrap() - b'0') as usize,
-                            );
-                        }
-                    }
-                    b'c' => {
-                        if format.is_some() && format != Some(Format::Context) {
-                            return Err("Conflicting output style options".to_string());
-                        }
-                        format = Some(Format::Context);
-                    }
                     b'e' => {
                         if format.is_some() && format != Some(Format::Ed) {
                             return Err("Conflicting output style options".to_string());
@@ -228,6 +247,63 @@ mod tests {
             }),
             parse_params([os("diff"), os("-e"), os("foo"), os("bar")].iter().cloned())
         );
+    }
+    #[test]
+    fn context_valid() {
+        for args in [vec!["-c"], vec!["--context"], vec!["--context="]] {
+            let mut params = vec!["diff"];
+            params.extend(args);
+            params.extend(["foo", "bar"]);
+            assert_eq!(
+                Ok(Params {
+                    from: os("foo"),
+                    to: os("bar"),
+                    format: Format::Context,
+                    ..Default::default()
+                }),
+                parse_params(params.iter().map(|x| os(x)))
+            );
+        }
+        for args in [
+            vec!["-c42"],
+            vec!["-C42"],
+            vec!["-C", "42"],
+            vec!["--context=42"],
+            vec!["-42c"],
+        ] {
+            let mut params = vec!["diff"];
+            params.extend(args);
+            params.extend(["foo", "bar"]);
+            assert_eq!(
+                Ok(Params {
+                    from: os("foo"),
+                    to: os("bar"),
+                    format: Format::Context,
+                    context_count: 42,
+                    ..Default::default()
+                }),
+                parse_params(params.iter().map(|x| os(x)))
+            );
+        }
+    }
+    #[test]
+    fn context_invalid() {
+        for args in [
+            vec!["-c", "42"],
+            vec!["-c=42"],
+            vec!["-c="],
+            vec!["-C"],
+            vec!["-C=42"],
+            vec!["-C="],
+            vec!["--context42"],
+            vec!["--context", "42"],
+            vec!["-42C"],
+        ] {
+            let mut params = vec!["diff"];
+            params.extend(args);
+            params.extend(["foo", "bar"]);
+            assert!(parse_params(params.iter().map(|x| os(x))).is_err());
+        }
     }
     #[test]
     fn unified_valid() {
