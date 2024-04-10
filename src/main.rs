@@ -12,6 +12,7 @@ use std::process::{exit, ExitCode};
 
 mod context_diff;
 mod ed_diff;
+mod macros;
 mod normal_diff;
 mod params;
 mod unified_diff;

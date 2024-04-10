@@ -726,9 +726,8 @@ mod tests {
 
     #[test]
     fn test_stop_early() {
-        use regex::Regex;
+        use crate::assert_diff_eq;
         use std::fs::File;
-        use std::str;
 
         let target = "target/context-diff";
         let _ = std::fs::create_dir(target);
@@ -749,10 +748,6 @@ mod tests {
             },
         );
 
-        let diff_full_text = str::from_utf8(&diff_full).unwrap();
-        let re = Regex::new(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+ [+-]\d{4}").unwrap();
-        let diff_full = re.replace_all(diff_full_text, "");
-
         let expected_full = [
             "*** target/context-diff/foo\t",
             "--- target/context-diff/bar\t",
@@ -768,7 +763,7 @@ mod tests {
             "",
         ]
         .join("\n");
-        assert_eq!(diff_full, expected_full);
+        assert_diff_eq!(diff_full, expected_full);
 
         let diff_brief = diff(
             from.as_bytes(),
@@ -781,16 +776,13 @@ mod tests {
             },
         );
 
-        let diff_brief_text = str::from_utf8(&diff_brief).unwrap();
-        let re = Regex::new(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+ [+-]\d{4}").unwrap();
-        let diff_brief = re.replace_all(diff_brief_text, "");
         let expected_brief = [
             "*** target/context-diff/foo\t",
             "--- target/context-diff/bar\t",
             "",
         ]
         .join("\n");
-        assert_eq!(diff_brief, expected_brief);
+        assert_diff_eq!(diff_brief, expected_brief);
 
         let nodiff_full = diff(
             from.as_bytes(),
