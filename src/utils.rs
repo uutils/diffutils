@@ -52,6 +52,8 @@ pub fn do_write_line(
     }
 }
 
+/// Retrieves the modification time of the input file specified by file path
+/// If an error occurs, it returns the current system time
 pub fn get_modification_time(file_path: &str) -> String {
     use chrono::{DateTime, Local};
     use std::fs;
@@ -130,6 +132,42 @@ mod tests {
             assert_line_written("foo bar baz", false, 8, "foo bar baz");
             assert_line_written("foo bar\tbaz", false, 8, "foo bar\tbaz");
             assert_line_written("foo bar\tbaz", true, 8, "foo bar baz");
+        }
+    }
+
+    mod modification_time {
+        use super::*;
+
+        #[test]
+        fn set_time() {
+            use chrono::{DateTime, Local};
+            use std::fs::File;
+            use std::time::SystemTime;
+
+            let target = "target/utils";
+            let _ = std::fs::create_dir(target);
+            let filename = &format!("{target}/foo");
+            let temp = File::create(filename).unwrap();
+
+            // set file modification time equal to current time
+            let current = SystemTime::now();
+            let _ = temp.set_modified(current);
+
+            // format current time
+            let current: DateTime<Local> = current.into();
+            let current: String = current.format("%Y-%m-%d %H:%M:%S%.9f %z").to_string();
+
+            // verify
+            assert_eq!(current, get_modification_time(filename));
+        }
+
+        #[test]
+        fn invalid_file() {
+            let invalid_file = "target/utils/invalid-file";
+
+            let m_time = get_modification_time(invalid_file);
+
+            assert!(!m_time.is_empty());
         }
     }
 }
