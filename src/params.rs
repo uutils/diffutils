@@ -67,9 +67,9 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
         }
         if param == "-" {
             if from.is_none() {
-                from = Some(OsString::from("/dev/stdin"));
+                from = Some(param);
             } else if to.is_none() {
-                to = Some(OsString::from("/dev/stdin"));
+                to = Some(param);
             } else {
                 return Err(format!("Usage: {} <from> <to>", exe.to_string_lossy()));
             }
@@ -461,14 +461,14 @@ mod tests {
         assert_eq!(
             Ok(Params {
                 from: os("foo"),
-                to: os("/dev/stdin"),
+                to: os("-"),
                 ..Default::default()
             }),
             parse_params([os("diff"), os("foo"), os("-")].iter().cloned())
         );
         assert_eq!(
             Ok(Params {
-                from: os("/dev/stdin"),
+                from: os("-"),
                 to: os("bar"),
                 ..Default::default()
             }),
@@ -476,8 +476,8 @@ mod tests {
         );
         assert_eq!(
             Ok(Params {
-                from: os("/dev/stdin"),
-                to: os("/dev/stdin"),
+                from: os("-"),
+                to: os("-"),
                 ..Default::default()
             }),
             parse_params([os("diff"), os("-"), os("-")].iter().cloned())
@@ -501,5 +501,16 @@ mod tests {
     #[test]
     fn empty() {
         assert!(parse_params([].iter().cloned()).is_err());
+    }
+    #[test]
+    fn conflicting_output_styles() {
+        for (arg1, arg2) in [("-u", "-c"), ("-u", "-e"), ("-c", "-u"), ("-c", "-U42")] {
+            assert!(parse_params(
+                [os("diff"), os(arg1), os(arg2), os("foo"), os("bar")]
+                    .iter()
+                    .cloned()
+            )
+            .is_err());
+        }
     }
 }
