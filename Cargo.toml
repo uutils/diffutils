@@ -25,7 +25,7 @@ unicode-width = "0.1.11"
 pretty_assertions = "1"
 assert_cmd = "2.0.14"
 predicates = "3.1.0"
-tempfile = "3.10.0"
+tempfile = "3.10.1"
 
 # The profile that 'cargo dist' will build with
 [profile.dist]
