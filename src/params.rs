@@ -49,13 +49,10 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
     let mut from = None;
     let mut to = None;
     let mut format = None;
-    let mut context_count = None;
+    let mut context = None;
     let tabsize_re = Regex::new(r"^--tabsize=(?<num>\d+)$").unwrap();
-    let context_re =
-        Regex::new(r"^(-[cC](?<num1>\d*)|--context(=(?<num2>\d*))?|-(?<num3>\d+)c)$").unwrap();
-    let unified_re =
-        Regex::new(r"^(-[uU](?<num1>\d*)|--unified(=(?<num2>\d*))?|-(?<num3>\d+)u)$").unwrap();
     while let Some(param) = opts.next() {
+        let next_param = opts.peek();
         if param == "--" {
             break;
         }
@@ -111,73 +108,43 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
             };
             continue;
         }
-        if context_re.is_match(param.to_string_lossy().as_ref()) {
-            if format.is_some() && format != Some(Format::Context) {
-                return Err("Conflicting output style options".to_string());
-            }
-            format = Some(Format::Context);
-            let captures = context_re.captures(param.to_str().unwrap()).unwrap();
-            let num = captures
-                .name("num1")
-                .or(captures.name("num2"))
-                .or(captures.name("num3"));
-            if num.is_some() && !num.unwrap().as_str().is_empty() {
-                context_count = Some(num.unwrap().as_str().parse::<usize>().unwrap());
-            }
-            if param == "-C" {
-                let next_param = opts.peek();
-                if next_param.is_some() {
-                    let next_value = next_param
-                        .unwrap()
-                        .to_string_lossy()
-                        .as_ref()
-                        .parse::<usize>();
-                    if next_value.is_ok() {
-                        context_count = Some(next_value.unwrap());
-                        opts.next();
-                    } else {
-                        return Err(format!(
-                            "invalid context length '{}'",
-                            next_param.unwrap().to_string_lossy()
-                        ));
+        match match_context_diff_params(&param, next_param, format) {
+            Ok(DiffStyleMatch {
+                is_match,
+                context_count,
+                next_param_consumed,
+            }) => {
+                if is_match {
+                    format = Some(Format::Context);
+                    if context_count.is_some() {
+                        context = context_count;
                     }
+                    if next_param_consumed {
+                        opts.next();
+                    }
+                    continue;
                 }
             }
-            continue;
+            Err(error) => return Err(error),
         }
-        if unified_re.is_match(param.to_string_lossy().as_ref()) {
-            if format.is_some() && format != Some(Format::Unified) {
-                return Err("Conflicting output style options".to_string());
-            }
-            format = Some(Format::Unified);
-            let captures = unified_re.captures(param.to_str().unwrap()).unwrap();
-            let num = captures
-                .name("num1")
-                .or(captures.name("num2"))
-                .or(captures.name("num3"));
-            if num.is_some() && !num.unwrap().as_str().is_empty() {
-                context_count = Some(num.unwrap().as_str().parse::<usize>().unwrap());
-            }
-            if param == "-U" {
-                let next_param = opts.peek();
-                if next_param.is_some() {
-                    let next_value = next_param
-                        .unwrap()
-                        .to_string_lossy()
-                        .as_ref()
-                        .parse::<usize>();
-                    if next_value.is_ok() {
-                        context_count = Some(next_value.unwrap());
-                        opts.next();
-                    } else {
-                        return Err(format!(
-                            "invalid context length '{}'",
-                            next_param.unwrap().to_string_lossy()
-                        ));
+        match match_unified_diff_params(&param, next_param, format) {
+            Ok(DiffStyleMatch {
+                is_match,
+                context_count,
+                next_param_consumed,
+            }) => {
+                if is_match {
+                    format = Some(Format::Unified);
+                    if context_count.is_some() {
+                        context = context_count;
                     }
+                    if next_param_consumed {
+                        opts.next();
+                    }
+                    continue;
                 }
             }
-            continue;
+            Err(error) => return Err(error),
         }
         if param.to_string_lossy().starts_with('-') {
             return Err(format!("Unknown option: {:?}", param));
@@ -205,10 +172,108 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
         return Err(format!("Usage: {} <from> <to>", exe.to_string_lossy()));
     };
     params.format = format.unwrap_or(Format::default());
-    if context_count.is_some() {
-        params.context_count = context_count.unwrap();
+    if let Some(context_count) = context {
+        params.context_count = context_count;
     }
     Ok(params)
+}
+
+struct DiffStyleMatch {
+    is_match: bool,
+    context_count: Option<usize>,
+    next_param_consumed: bool,
+}
+
+fn match_context_diff_params(
+    param: &OsString,
+    next_param: Option<&OsString>,
+    format: Option<Format>,
+) -> Result<DiffStyleMatch, String> {
+    const CONTEXT_RE: &str = r"^(-[cC](?<num1>\d*)|--context(=(?<num2>\d*))?|-(?<num3>\d+)c)$";
+    let regex = Regex::new(CONTEXT_RE).unwrap();
+    let is_match = regex.is_match(param.to_string_lossy().as_ref());
+    let mut context_count = None;
+    let mut next_param_consumed = false;
+    if is_match {
+        if format.is_some() && format != Some(Format::Context) {
+            return Err("Conflicting output style options".to_string());
+        }
+        let captures = regex.captures(param.to_str().unwrap()).unwrap();
+        let num = captures
+            .name("num1")
+            .or(captures.name("num2"))
+            .or(captures.name("num3"));
+        if let Some(numvalue) = num {
+            if !numvalue.as_str().is_empty() {
+                context_count = Some(numvalue.as_str().parse::<usize>().unwrap());
+            }
+        }
+        if param == "-C" && next_param.is_some() {
+            match next_param.unwrap().to_string_lossy().parse::<usize>() {
+                Ok(context_size) => {
+                    context_count = Some(context_size);
+                    next_param_consumed = true;
+                }
+                Err(_) => {
+                    return Err(format!(
+                        "invalid context length '{}'",
+                        next_param.unwrap().to_string_lossy()
+                    ))
+                }
+            }
+        }
+    }
+    Ok(DiffStyleMatch {
+        is_match,
+        context_count,
+        next_param_consumed,
+    })
+}
+
+fn match_unified_diff_params(
+    param: &OsString,
+    next_param: Option<&OsString>,
+    format: Option<Format>,
+) -> Result<DiffStyleMatch, String> {
+    const UNIFIED_RE: &str = r"^(-[uU](?<num1>\d*)|--unified(=(?<num2>\d*))?|-(?<num3>\d+)u)$";
+    let regex = Regex::new(UNIFIED_RE).unwrap();
+    let is_match = regex.is_match(param.to_string_lossy().as_ref());
+    let mut context_count = None;
+    let mut next_param_consumed = false;
+    if is_match {
+        if format.is_some() && format != Some(Format::Unified) {
+            return Err("Conflicting output style options".to_string());
+        }
+        let captures = regex.captures(param.to_str().unwrap()).unwrap();
+        let num = captures
+            .name("num1")
+            .or(captures.name("num2"))
+            .or(captures.name("num3"));
+        if let Some(numvalue) = num {
+            if !numvalue.as_str().is_empty() {
+                context_count = Some(numvalue.as_str().parse::<usize>().unwrap());
+            }
+        }
+        if param == "-U" && next_param.is_some() {
+            match next_param.unwrap().to_string_lossy().parse::<usize>() {
+                Ok(context_size) => {
+                    context_count = Some(context_size);
+                    next_param_consumed = true;
+                }
+                Err(_) => {
+                    return Err(format!(
+                        "invalid context length '{}'",
+                        next_param.unwrap().to_string_lossy()
+                    ))
+                }
+            }
+        }
+    }
+    Ok(DiffStyleMatch {
+        is_match,
+        context_count,
+        next_param_consumed,
+    })
 }
 
 #[cfg(test)]
