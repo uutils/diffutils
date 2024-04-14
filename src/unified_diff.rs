@@ -903,8 +903,8 @@ mod tests {
         );
 
         let expected_full = [
-            "--- target/context-diff/foo\t",
-            "+++ target/context-diff/bar\t",
+            "--- target/context-diff/foo\tTIMESTAMP",
+            "+++ target/context-diff/bar\tTIMESTAMP",
             "@@ -1,3 +1,3 @@",
             " a",
             "-b",
@@ -927,8 +927,8 @@ mod tests {
         );
 
         let expected_brief = [
-            "--- target/context-diff/foo\t",
-            "+++ target/context-diff/bar\t",
+            "--- target/context-diff/foo\tTIMESTAMP",
+            "+++ target/context-diff/bar\tTIMESTAMP",
             "",
         ]
         .join("\n");

@@ -185,7 +185,7 @@ fn read_from_stdin() -> Result<(), Box<dyn std::error::Error>> {
     assert_diff_eq!(
         output,
         format!(
-            "--- {}\t\n+++ -\t\n@@ -1 +1 @@\n-foo\n+bar\n",
+            "--- {}\tTIMESTAMP\n+++ -\tTIMESTAMP\n@@ -1 +1 @@\n-foo\n+bar\n",
             file1.path().to_string_lossy()
         )
     );
@@ -201,7 +201,7 @@ fn read_from_stdin() -> Result<(), Box<dyn std::error::Error>> {
     assert_diff_eq!(
         output,
         format!(
-            "--- -\t\n+++ {}\t\n@@ -1 +1 @@\n-foo\n+bar\n",
+            "--- -\tTIMESTAMP\n+++ {}\tTIMESTAMP\n@@ -1 +1 @@\n-foo\n+bar\n",
             file2.path().to_string_lossy()
         )
     );
@@ -226,7 +226,7 @@ fn read_from_stdin() -> Result<(), Box<dyn std::error::Error>> {
         assert_diff_eq!(
             output,
             format!(
-                "--- {}\t\n+++ /dev/stdin\t\n@@ -1 +1 @@\n-foo\n+bar\n",
+                "--- {}\tTIMESTAMP\n+++ /dev/stdin\tTIMESTAMP\n@@ -1 +1 @@\n-foo\n+bar\n",
                 file1.path().to_string_lossy()
             )
         );
