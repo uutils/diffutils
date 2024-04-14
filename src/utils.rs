@@ -163,11 +163,18 @@ mod tests {
 
         #[test]
         fn invalid_file() {
+            use chrono::{DateTime, Local};
+            use std::time::SystemTime;
+
             let invalid_file = "target/utils/invalid-file";
 
-            let m_time = get_modification_time(invalid_file);
+            // store current time before calling `get_modification_time`
+            // Because the file is invalid, it will return SystemTime::now()
+            // which will be greater than previously saved time
+            let current_time: DateTime<Local> = SystemTime::now().into();
+            let m_time: DateTime<Local> = get_modification_time(invalid_file).parse().unwrap();
 
-            assert!(!m_time.is_empty());
+            assert!(m_time > current_time);
         }
     }
 }
