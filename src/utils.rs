@@ -141,24 +141,20 @@ mod tests {
         #[test]
         fn set_time() {
             use chrono::{DateTime, Local};
-            use std::fs::File;
             use std::time::SystemTime;
+            use tempfile::NamedTempFile;
 
-            let target = "target/utils";
-            let _ = std::fs::create_dir(target);
-            let filename = &format!("{target}/foo");
-            let temp = File::create(filename).unwrap();
-
+            let temp = NamedTempFile::new().unwrap();
             // set file modification time equal to current time
             let current = SystemTime::now();
-            let _ = temp.set_modified(current);
+            let _ = temp.as_file().set_modified(current);
 
             // format current time
             let current: DateTime<Local> = current.into();
             let current: String = current.format("%Y-%m-%d %H:%M:%S%.9f %z").to_string();
 
             // verify
-            assert_eq!(current, get_modification_time(filename));
+            assert_eq!(current, get_modification_time(&temp.path().to_string_lossy()));
         }
 
         #[test]
