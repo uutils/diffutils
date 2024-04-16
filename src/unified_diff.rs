@@ -8,6 +8,7 @@ use std::io::Write;
 
 use crate::params::Params;
 use crate::utils::do_write_line;
+use crate::utils::get_modification_time;
 
 #[derive(Debug, PartialEq)]
 pub enum DiffLine {
@@ -238,10 +239,14 @@ fn make_diff(
 
 #[must_use]
 pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
+    let from_modified_time = get_modification_time(&params.from.to_string_lossy());
+    let to_modified_time = get_modification_time(&params.to.to_string_lossy());
     let mut output = format!(
-        "--- {0}\t\n+++ {1}\t\n",
+        "--- {0}\t{1}\n+++ {2}\t{3}\n",
         params.from.to_string_lossy(),
-        params.to.to_string_lossy()
+        from_modified_time,
+        params.to.to_string_lossy(),
+        to_modified_time
     )
     .into_bytes();
     let diff_results = make_diff(expected, actual, params.context_count, params.brief);
@@ -870,6 +875,8 @@ mod tests {
 
     #[test]
     fn test_stop_early() {
+        use crate::assert_diff_eq;
+
         let from_filename = "foo";
         let from = ["a", "b", "c", ""].join("\n");
         let to_filename = "bar";
@@ -884,9 +891,10 @@ mod tests {
                 ..Default::default()
             },
         );
+
         let expected_full = [
-            "--- foo\t",
-            "+++ bar\t",
+            "--- foo\tTIMESTAMP",
+            "+++ bar\tTIMESTAMP",
             "@@ -1,3 +1,3 @@",
             " a",
             "-b",
@@ -895,7 +903,7 @@ mod tests {
             "",
         ]
         .join("\n");
-        assert_eq!(diff_full, expected_full.as_bytes());
+        assert_diff_eq!(diff_full, expected_full);
 
         let diff_brief = diff(
             from.as_bytes(),
@@ -907,8 +915,9 @@ mod tests {
                 ..Default::default()
             },
         );
-        let expected_brief = ["--- foo\t", "+++ bar\t", ""].join("\n");
-        assert_eq!(diff_brief, expected_brief.as_bytes());
+
+        let expected_brief = ["--- foo\tTIMESTAMP", "+++ bar\tTIMESTAMP", ""].join("\n");
+        assert_diff_eq!(diff_brief, expected_brief);
 
         let nodiff_full = diff(
             from.as_bytes(),

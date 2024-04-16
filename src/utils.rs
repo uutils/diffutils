@@ -52,6 +52,25 @@ pub fn do_write_line(
     }
 }
 
+/// Retrieves the modification time of the input file specified by file path
+/// If an error occurs, it returns the current system time
+pub fn get_modification_time(file_path: &str) -> String {
+    use chrono::{DateTime, Local};
+    use std::fs;
+    use std::time::SystemTime;
+
+    let modification_time: SystemTime = fs::metadata(file_path)
+        .and_then(|m| m.modified())
+        .unwrap_or(SystemTime::now());
+
+    let modification_time: DateTime<Local> = modification_time.into();
+    let modification_time: String = modification_time
+        .format("%Y-%m-%d %H:%M:%S%.9f %z")
+        .to_string();
+
+    modification_time
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -113,6 +132,48 @@ mod tests {
             assert_line_written("foo bar baz", false, 8, "foo bar baz");
             assert_line_written("foo bar\tbaz", false, 8, "foo bar\tbaz");
             assert_line_written("foo bar\tbaz", true, 8, "foo bar baz");
+        }
+    }
+
+    mod modification_time {
+        use super::*;
+
+        #[test]
+        fn set_time() {
+            use chrono::{DateTime, Local};
+            use std::time::SystemTime;
+            use tempfile::NamedTempFile;
+
+            let temp = NamedTempFile::new().unwrap();
+            // set file modification time equal to current time
+            let current = SystemTime::now();
+            let _ = temp.as_file().set_modified(current);
+
+            // format current time
+            let current: DateTime<Local> = current.into();
+            let current: String = current.format("%Y-%m-%d %H:%M:%S%.9f %z").to_string();
+
+            // verify
+            assert_eq!(
+                current,
+                get_modification_time(&temp.path().to_string_lossy())
+            );
+        }
+
+        #[test]
+        fn invalid_file() {
+            use chrono::{DateTime, Local};
+            use std::time::SystemTime;
+
+            let invalid_file = "target/utils/invalid-file";
+
+            // store current time before calling `get_modification_time`
+            // Because the file is invalid, it will return SystemTime::now()
+            // which will be greater than previously saved time
+            let current_time: DateTime<Local> = SystemTime::now().into();
+            let m_time: DateTime<Local> = get_modification_time(invalid_file).parse().unwrap();
+
+            assert!(m_time > current_time);
         }
     }
 }

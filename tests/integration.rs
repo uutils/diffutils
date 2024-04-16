@@ -4,6 +4,7 @@
 // files that was distributed with this source code.
 
 use assert_cmd::cmd::Command;
+use diffutilslib::assert_diff_eq;
 use predicates::prelude::*;
 use std::io::Write;
 use tempfile::NamedTempFile;
@@ -178,26 +179,32 @@ fn read_from_stdin() -> Result<(), Box<dyn std::error::Error>> {
         .arg(file1.path())
         .arg("-")
         .write_stdin("bar\n");
-    cmd.assert()
-        .code(predicate::eq(1))
-        .failure()
-        .stdout(predicate::eq(format!(
-            "--- {}\t\n+++ -\t\n@@ -1 +1 @@\n-foo\n+bar\n",
+    cmd.assert().code(predicate::eq(1)).failure();
+
+    let output = cmd.output().unwrap().stdout;
+    assert_diff_eq!(
+        output,
+        format!(
+            "--- {}\tTIMESTAMP\n+++ -\tTIMESTAMP\n@@ -1 +1 @@\n-foo\n+bar\n",
             file1.path().to_string_lossy()
-        )));
+        )
+    );
 
     let mut cmd = Command::cargo_bin("diffutils")?;
     cmd.arg("-u")
         .arg("-")
         .arg(file2.path())
         .write_stdin("foo\n");
-    cmd.assert()
-        .code(predicate::eq(1))
-        .failure()
-        .stdout(predicate::eq(format!(
-            "--- -\t\n+++ {}\t\n@@ -1 +1 @@\n-foo\n+bar\n",
+    cmd.assert().code(predicate::eq(1)).failure();
+
+    let output = cmd.output().unwrap().stdout;
+    assert_diff_eq!(
+        output,
+        format!(
+            "--- -\tTIMESTAMP\n+++ {}\tTIMESTAMP\n@@ -1 +1 @@\n-foo\n+bar\n",
             file2.path().to_string_lossy()
-        )));
+        )
+    );
 
     let mut cmd = Command::cargo_bin("diffutils")?;
     cmd.arg("-u").arg("-").arg("-");
@@ -213,13 +220,16 @@ fn read_from_stdin() -> Result<(), Box<dyn std::error::Error>> {
             .arg(file1.path())
             .arg("/dev/stdin")
             .write_stdin("bar\n");
-        cmd.assert()
-            .code(predicate::eq(1))
-            .failure()
-            .stdout(predicate::eq(format!(
-                "--- {}\t\n+++ /dev/stdin\t\n@@ -1 +1 @@\n-foo\n+bar\n",
+        cmd.assert().code(predicate::eq(1)).failure();
+
+        let output = cmd.output().unwrap().stdout;
+        assert_diff_eq!(
+            output,
+            format!(
+                "--- {}\tTIMESTAMP\n+++ /dev/stdin\tTIMESTAMP\n@@ -1 +1 @@\n-foo\n+bar\n",
                 file1.path().to_string_lossy()
-            )));
+            )
+        );
     }
 
     Ok(())
