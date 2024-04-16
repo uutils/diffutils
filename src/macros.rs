@@ -18,7 +18,7 @@ macro_rules! assert_diff_eq {
 
         let diff = str::from_utf8(&$actual).unwrap();
         let re = Regex::new(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+ [+-]\d{4}").unwrap();
-        let actual = re.replace_all(diff, "TIMESTAMP");
+        let actual = re.replacen(diff, 2, "TIMESTAMP");
 
         assert_eq!(actual, $expected);
     }};

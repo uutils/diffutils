@@ -154,7 +154,10 @@ mod tests {
             let current: String = current.format("%Y-%m-%d %H:%M:%S%.9f %z").to_string();
 
             // verify
-            assert_eq!(current, get_modification_time(&temp.path().to_string_lossy()));
+            assert_eq!(
+                current,
+                get_modification_time(&temp.path().to_string_lossy())
+            );
         }
 
         #[test]
