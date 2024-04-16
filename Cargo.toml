@@ -15,7 +15,7 @@ name = "diffutils"
 path = "src/main.rs"
 
 [dependencies]
-chrono = "0.4.35"
+chrono = "0.4.38"
 diff = "0.1.10"
 regex = "1.10.3"
 same-file = "1.0.6"
