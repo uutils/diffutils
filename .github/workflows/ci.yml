@@ -28,6 +28,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: set up PATH on Windows
+        # Needed to use GNU's patch.exe instead of Strawberry Perl patch
+        if: runner.os == 'Windows'
+        run: echo "C:\Program Files\Git\usr\bin" >> $env:GITHUB_PATH
       - run: cargo test
 
   fmt:
@@ -103,6 +107,10 @@ jobs:
 
     - name: rust toolchain ~ install
       uses: dtolnay/rust-toolchain@nightly
+    - name: set up PATH on Windows
+      # Needed to use GNU's patch.exe instead of Strawberry Perl patch
+      if: runner.os == 'Windows'
+      run: echo "C:\Program Files\Git\usr\bin" >> $env:GITHUB_PATH
     - name: Test
       run: cargo test ${{ steps.vars.outputs.CARGO_FEATURES_OPTION }} --no-fail-fast
       env:
