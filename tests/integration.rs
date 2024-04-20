@@ -6,6 +6,7 @@
 use assert_cmd::cmd::Command;
 use diffutilslib::assert_diff_eq;
 use predicates::prelude::*;
+use std::fs::File;
 use std::io::Write;
 use tempfile::NamedTempFile;
 
@@ -231,6 +232,36 @@ fn read_from_stdin() -> Result<(), Box<dyn std::error::Error>> {
             )
         );
     }
+
+    Ok(())
+}
+
+#[test]
+fn read_from_directory() -> Result<(), Box<dyn std::error::Error>> {
+    let mut cmd = Command::cargo_bin("diffutils")?;
+
+    let target = "target/integration";
+    let _ = std::fs::create_dir(target);
+    let directory = &format!("{target}/d");
+    let _ = std::fs::create_dir(directory);
+    let mut a = File::create(&format!("{target}/a")).unwrap();
+    a.write_all(b"a\n").unwrap();
+    let mut da = File::create(&format!("{directory}/a")).unwrap();
+    da.write_all(b"da\n").unwrap();
+
+    cmd.arg("-u")
+        .arg(&format!("{target}/d"))
+        .arg(&format!("{target}/a"));
+    cmd.assert().code(predicate::eq(1)).failure();
+
+    let output = cmd.output().unwrap().stdout;
+    assert_diff_eq!(
+        output,
+        format!(
+            "--- {}/d/a\tTIMESTAMP\n+++ {}/a\tTIMESTAMP\n@@ -1 +1 @@\n-da\n+a\n",
+            target, target
+        )
+    );
 
     Ok(())
 }
