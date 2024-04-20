@@ -226,7 +226,7 @@ mod tests {
                                 // This test diff is intentionally reversed.
                                 // We want it to turn the alef into bet.
                                 let diff = diff_w(&alef, &bet, &format!("{target}/alef")).unwrap();
-                                File::create("target/ab.ed")
+                                File::create(&format!("{target}/ab.ed"))
                                     .unwrap()
                                     .write_all(&diff)
                                     .unwrap();
@@ -240,7 +240,7 @@ mod tests {
                                 {
                                     let output = Command::new("ed")
                                         .arg(&format!("{target}/alef"))
-                                        .stdin(File::open("target/ab.ed").unwrap())
+                                        .stdin(File::open(&format!("{target}/ab.ed")).unwrap())
                                         .output()
                                         .unwrap();
                                     assert!(output.status.success(), "{output:?}");
@@ -299,12 +299,12 @@ mod tests {
                                 }
                                 // This test diff is intentionally reversed.
                                 // We want it to turn the alef into bet.
-                                let diff = diff_w(&alef, &bet, "target/alef_").unwrap();
-                                File::create("target/ab_.ed")
+                                let diff = diff_w(&alef, &bet, &format!("{target}/alef_")).unwrap();
+                                File::create(&format!("{target}/ab_.ed"))
                                     .unwrap()
                                     .write_all(&diff)
                                     .unwrap();
-                                let mut fa = File::create("target/alef_").unwrap();
+                                let mut fa = File::create(&format!("{target}/alef_")).unwrap();
                                 fa.write_all(&alef[..]).unwrap();
                                 let mut fb = File::create(&format!("{target}/bet_")).unwrap();
                                 fb.write_all(&bet[..]).unwrap();
@@ -313,15 +313,15 @@ mod tests {
                                 #[cfg(not(windows))] // there's no ed on windows
                                 {
                                     let output = Command::new("ed")
-                                        .arg("target/alef_")
-                                        .stdin(File::open("target/ab_.ed").unwrap())
+                                        .arg(&format!("{target}/alef_"))
+                                        .stdin(File::open(&format!("{target}/ab_.ed")).unwrap())
                                         .output()
                                         .unwrap();
                                     assert!(output.status.success(), "{output:?}");
                                 }
                                 //println!("{}", String::from_utf8_lossy(&output.stdout));
                                 //println!("{}", String::from_utf8_lossy(&output.stderr));
-                                let alef = fs::read("target/alef_").unwrap();
+                                let alef = fs::read(&format!("{target}/alef_")).unwrap();
                                 assert_eq!(alef, bet);
                             }
                         }
@@ -380,7 +380,7 @@ mod tests {
                                 // This test diff is intentionally reversed.
                                 // We want it to turn the alef into bet.
                                 let diff = diff_w(&alef, &bet, &format!("{target}/alefr")).unwrap();
-                                File::create("target/abr.ed")
+                                File::create(&format!("{target}/abr.ed"))
                                     .unwrap()
                                     .write_all(&diff)
                                     .unwrap();
@@ -394,7 +394,7 @@ mod tests {
                                 {
                                     let output = Command::new("ed")
                                         .arg(&format!("{target}/alefr"))
-                                        .stdin(File::open("target/abr.ed").unwrap())
+                                        .stdin(File::open(&format!("{target}/abr.ed")).unwrap())
                                         .output()
                                         .unwrap();
                                     assert!(output.status.success(), "{output:?}");
