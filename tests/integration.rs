@@ -238,8 +238,6 @@ fn read_from_stdin() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn read_from_directory() -> Result<(), Box<dyn std::error::Error>> {
-    let mut cmd = Command::cargo_bin("diffutils")?;
-
     let target = "target/integration";
     let _ = std::fs::create_dir(target);
     let directory = &format!("{target}/d");
@@ -249,6 +247,7 @@ fn read_from_directory() -> Result<(), Box<dyn std::error::Error>> {
     let mut da = File::create(&format!("{directory}/a")).unwrap();
     da.write_all(b"da\n").unwrap();
 
+    let mut cmd = Command::cargo_bin("diffutils")?;
     cmd.arg("-u")
         .arg(&format!("{target}/d"))
         .arg(&format!("{target}/a"));
@@ -259,6 +258,21 @@ fn read_from_directory() -> Result<(), Box<dyn std::error::Error>> {
         output,
         format!(
             "--- {}/d/a\tTIMESTAMP\n+++ {}/a\tTIMESTAMP\n@@ -1 +1 @@\n-da\n+a\n",
+            target, target
+        )
+    );
+
+    let mut cmd = Command::cargo_bin("diffutils")?;
+    cmd.arg("-u")
+        .arg(&format!("{target}/a"))
+        .arg(&format!("{target}/d"));
+    cmd.assert().code(predicate::eq(1)).failure();
+
+    let output = cmd.output().unwrap().stdout;
+    assert_diff_eq!(
+        output,
+        format!(
+            "--- {}/a\tTIMESTAMP\n+++ {}/d/a\tTIMESTAMP\n@@ -1 +1 @@\n-a\n+da\n",
             target, target
         )
     );
