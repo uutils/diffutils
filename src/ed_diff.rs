@@ -188,9 +188,8 @@ mod tests {
                     for &d in &[0, 1, 2] {
                         for &e in &[0, 1, 2] {
                             for &f in &[0, 1, 2] {
-                                use std::fs::{self, File};
+                                use std::fs::File;
                                 use std::io::Write;
-                                use std::process::Command;
                                 let mut alef = Vec::new();
                                 let mut bet = Vec::new();
                                 alef.write_all(if a == 0 { b"a\n" } else { b"b\n" })
@@ -238,17 +237,18 @@ mod tests {
                                 let _ = fb;
                                 #[cfg(not(windows))] // there's no ed on windows
                                 {
+                                    use std::process::Command;
                                     let output = Command::new("ed")
                                         .arg(&format!("{target}/alef"))
                                         .stdin(File::open(&format!("{target}/ab.ed")).unwrap())
                                         .output()
                                         .unwrap();
                                     assert!(output.status.success(), "{output:?}");
+                                    //println!("{}", String::from_utf8_lossy(&output.stdout));
+                                    //println!("{}", String::from_utf8_lossy(&output.stderr));
+                                    let alef = std::fs::read(&format!("{target}/alef")).unwrap();
+                                    assert_eq!(alef, bet);
                                 }
-                                //println!("{}", String::from_utf8_lossy(&output.stdout));
-                                //println!("{}", String::from_utf8_lossy(&output.stderr));
-                                let alef = fs::read(&format!("{target}/alef")).unwrap();
-                                assert_eq!(alef, bet);
                             }
                         }
                     }
@@ -268,9 +268,8 @@ mod tests {
                     for &d in &[0, 1, 2] {
                         for &e in &[0, 1, 2] {
                             for &f in &[0, 1, 2] {
-                                use std::fs::{self, File};
+                                use std::fs::File;
                                 use std::io::Write;
-                                use std::process::Command;
                                 let mut alef = Vec::new();
                                 let mut bet = Vec::new();
                                 alef.write_all(if a == 0 { b"\n" } else { b"b\n" }).unwrap();
@@ -312,17 +311,18 @@ mod tests {
                                 let _ = fb;
                                 #[cfg(not(windows))] // there's no ed on windows
                                 {
+                                    use std::process::Command;
                                     let output = Command::new("ed")
                                         .arg(&format!("{target}/alef_"))
                                         .stdin(File::open(&format!("{target}/ab_.ed")).unwrap())
                                         .output()
                                         .unwrap();
                                     assert!(output.status.success(), "{output:?}");
+                                    //println!("{}", String::from_utf8_lossy(&output.stdout));
+                                    //println!("{}", String::from_utf8_lossy(&output.stderr));
+                                    let alef = std::fs::read(&format!("{target}/alef_")).unwrap();
+                                    assert_eq!(alef, bet);
                                 }
-                                //println!("{}", String::from_utf8_lossy(&output.stdout));
-                                //println!("{}", String::from_utf8_lossy(&output.stderr));
-                                let alef = fs::read(&format!("{target}/alef_")).unwrap();
-                                assert_eq!(alef, bet);
                             }
                         }
                     }
@@ -342,9 +342,8 @@ mod tests {
                     for &d in &[0, 1, 2] {
                         for &e in &[0, 1, 2] {
                             for &f in &[0, 1, 2] {
-                                use std::fs::{self, File};
+                                use std::fs::File;
                                 use std::io::Write;
-                                use std::process::Command;
                                 let mut alef = Vec::new();
                                 let mut bet = Vec::new();
                                 alef.write_all(if a == 0 { b"a\n" } else { b"f\n" })
@@ -392,17 +391,18 @@ mod tests {
                                 let _ = fb;
                                 #[cfg(not(windows))] // there's no ed on windows
                                 {
+                                    use std::process::Command;
                                     let output = Command::new("ed")
                                         .arg(&format!("{target}/alefr"))
                                         .stdin(File::open(&format!("{target}/abr.ed")).unwrap())
                                         .output()
                                         .unwrap();
                                     assert!(output.status.success(), "{output:?}");
+                                    //println!("{}", String::from_utf8_lossy(&output.stdout));
+                                    //println!("{}", String::from_utf8_lossy(&output.stderr));
+                                    let alef = std::fs::read(&format!("{target}/alefr")).unwrap();
+                                    assert_eq!(alef, bet);
                                 }
-                                //println!("{}", String::from_utf8_lossy(&output.stdout));
-                                //println!("{}", String::from_utf8_lossy(&output.stderr));
-                                let alef = fs::read(&format!("{target}/alefr")).unwrap();
-                                assert_eq!(alef, bet);
                             }
                         }
                     }
