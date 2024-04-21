@@ -188,9 +188,8 @@ mod tests {
                     for &d in &[0, 1, 2] {
                         for &e in &[0, 1, 2] {
                             for &f in &[0, 1, 2] {
-                                use std::fs::{self, File};
+                                use std::fs::File;
                                 use std::io::Write;
-                                use std::process::Command;
                                 let mut alef = Vec::new();
                                 let mut bet = Vec::new();
                                 alef.write_all(if a == 0 { b"a\n" } else { b"b\n" })
@@ -226,7 +225,7 @@ mod tests {
                                 // This test diff is intentionally reversed.
                                 // We want it to turn the alef into bet.
                                 let diff = diff_w(&alef, &bet, &format!("{target}/alef")).unwrap();
-                                File::create("target/ab.ed")
+                                File::create(&format!("{target}/ab.ed"))
                                     .unwrap()
                                     .write_all(&diff)
                                     .unwrap();
@@ -238,17 +237,18 @@ mod tests {
                                 let _ = fb;
                                 #[cfg(not(windows))] // there's no ed on windows
                                 {
+                                    use std::process::Command;
                                     let output = Command::new("ed")
                                         .arg(&format!("{target}/alef"))
-                                        .stdin(File::open("target/ab.ed").unwrap())
+                                        .stdin(File::open(&format!("{target}/ab.ed")).unwrap())
                                         .output()
                                         .unwrap();
                                     assert!(output.status.success(), "{output:?}");
+                                    //println!("{}", String::from_utf8_lossy(&output.stdout));
+                                    //println!("{}", String::from_utf8_lossy(&output.stderr));
+                                    let alef = std::fs::read(&format!("{target}/alef")).unwrap();
+                                    assert_eq!(alef, bet);
                                 }
-                                //println!("{}", String::from_utf8_lossy(&output.stdout));
-                                //println!("{}", String::from_utf8_lossy(&output.stderr));
-                                let alef = fs::read(&format!("{target}/alef")).unwrap();
-                                assert_eq!(alef, bet);
                             }
                         }
                     }
@@ -268,9 +268,8 @@ mod tests {
                     for &d in &[0, 1, 2] {
                         for &e in &[0, 1, 2] {
                             for &f in &[0, 1, 2] {
-                                use std::fs::{self, File};
+                                use std::fs::File;
                                 use std::io::Write;
-                                use std::process::Command;
                                 let mut alef = Vec::new();
                                 let mut bet = Vec::new();
                                 alef.write_all(if a == 0 { b"\n" } else { b"b\n" }).unwrap();
@@ -299,12 +298,12 @@ mod tests {
                                 }
                                 // This test diff is intentionally reversed.
                                 // We want it to turn the alef into bet.
-                                let diff = diff_w(&alef, &bet, "target/alef_").unwrap();
-                                File::create("target/ab_.ed")
+                                let diff = diff_w(&alef, &bet, &format!("{target}/alef_")).unwrap();
+                                File::create(&format!("{target}/ab_.ed"))
                                     .unwrap()
                                     .write_all(&diff)
                                     .unwrap();
-                                let mut fa = File::create("target/alef_").unwrap();
+                                let mut fa = File::create(&format!("{target}/alef_")).unwrap();
                                 fa.write_all(&alef[..]).unwrap();
                                 let mut fb = File::create(&format!("{target}/bet_")).unwrap();
                                 fb.write_all(&bet[..]).unwrap();
@@ -312,17 +311,18 @@ mod tests {
                                 let _ = fb;
                                 #[cfg(not(windows))] // there's no ed on windows
                                 {
+                                    use std::process::Command;
                                     let output = Command::new("ed")
-                                        .arg("target/alef_")
-                                        .stdin(File::open("target/ab_.ed").unwrap())
+                                        .arg(&format!("{target}/alef_"))
+                                        .stdin(File::open(&format!("{target}/ab_.ed")).unwrap())
                                         .output()
                                         .unwrap();
                                     assert!(output.status.success(), "{output:?}");
+                                    //println!("{}", String::from_utf8_lossy(&output.stdout));
+                                    //println!("{}", String::from_utf8_lossy(&output.stderr));
+                                    let alef = std::fs::read(&format!("{target}/alef_")).unwrap();
+                                    assert_eq!(alef, bet);
                                 }
-                                //println!("{}", String::from_utf8_lossy(&output.stdout));
-                                //println!("{}", String::from_utf8_lossy(&output.stderr));
-                                let alef = fs::read("target/alef_").unwrap();
-                                assert_eq!(alef, bet);
                             }
                         }
                     }
@@ -342,9 +342,8 @@ mod tests {
                     for &d in &[0, 1, 2] {
                         for &e in &[0, 1, 2] {
                             for &f in &[0, 1, 2] {
-                                use std::fs::{self, File};
+                                use std::fs::File;
                                 use std::io::Write;
-                                use std::process::Command;
                                 let mut alef = Vec::new();
                                 let mut bet = Vec::new();
                                 alef.write_all(if a == 0 { b"a\n" } else { b"f\n" })
@@ -380,7 +379,7 @@ mod tests {
                                 // This test diff is intentionally reversed.
                                 // We want it to turn the alef into bet.
                                 let diff = diff_w(&alef, &bet, &format!("{target}/alefr")).unwrap();
-                                File::create("target/abr.ed")
+                                File::create(&format!("{target}/abr.ed"))
                                     .unwrap()
                                     .write_all(&diff)
                                     .unwrap();
@@ -392,17 +391,18 @@ mod tests {
                                 let _ = fb;
                                 #[cfg(not(windows))] // there's no ed on windows
                                 {
+                                    use std::process::Command;
                                     let output = Command::new("ed")
                                         .arg(&format!("{target}/alefr"))
-                                        .stdin(File::open("target/abr.ed").unwrap())
+                                        .stdin(File::open(&format!("{target}/abr.ed")).unwrap())
                                         .output()
                                         .unwrap();
                                     assert!(output.status.success(), "{output:?}");
+                                    //println!("{}", String::from_utf8_lossy(&output.stdout));
+                                    //println!("{}", String::from_utf8_lossy(&output.stderr));
+                                    let alef = std::fs::read(&format!("{target}/alefr")).unwrap();
+                                    assert_eq!(alef, bet);
                                 }
-                                //println!("{}", String::from_utf8_lossy(&output.stdout));
-                                //println!("{}", String::from_utf8_lossy(&output.stderr));
-                                let alef = fs::read(&format!("{target}/alefr")).unwrap();
-                                assert_eq!(alef, bet);
                             }
                         }
                     }
