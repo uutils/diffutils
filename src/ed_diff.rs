@@ -178,6 +178,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(windows))]
     fn test_permutations() {
         let target = "target/ed-diff/";
         // test all possible six-line files.
@@ -258,6 +259,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(windows))]
     fn test_permutations_empty_lines() {
         let target = "target/ed-diff/";
         // test all possible six-line files with missing newlines.
@@ -332,6 +334,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(windows))]
     fn test_permutations_reverse() {
         let target = "target/ed-diff/";
         // test all possible six-line files.
