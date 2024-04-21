@@ -8,6 +8,7 @@ use diffutilslib::assert_diff_eq;
 use predicates::prelude::*;
 use std::fs::File;
 use std::io::Write;
+use std::path::PathBuf;
 use tempfile::NamedTempFile;
 
 // Integration tests for the diffutils command
@@ -238,42 +239,45 @@ fn read_from_stdin() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn read_from_directory() -> Result<(), Box<dyn std::error::Error>> {
-    let target = "target/integration";
-    let _ = std::fs::create_dir(target);
-    let directory = &format!("{target}/d");
-    let _ = std::fs::create_dir(directory);
-    let mut a = File::create(&format!("{target}/a")).unwrap();
+    let target = PathBuf::from("target/integration");
+    let _ = std::fs::create_dir(&target);
+
+    let directory = target.join("d");
+    let _ = std::fs::create_dir(&directory);
+
+    let a_path = target.join("a");
+    let mut a = File::create(&a_path).unwrap();
     a.write_all(b"a\n").unwrap();
-    let mut da = File::create(&format!("{directory}/a")).unwrap();
+
+    let da_path = directory.join("a");
+    let mut da = File::create(&da_path).unwrap();
     da.write_all(b"da\n").unwrap();
 
     let mut cmd = Command::cargo_bin("diffutils")?;
-    cmd.arg("-u")
-        .arg(&format!("{target}/d"))
-        .arg(&format!("{target}/a"));
+    cmd.arg("-u").arg(&directory).arg(&a_path);
     cmd.assert().code(predicate::eq(1)).failure();
 
     let output = cmd.output().unwrap().stdout;
     assert_diff_eq!(
         output,
         format!(
-            "--- {}/d/a\tTIMESTAMP\n+++ {}/a\tTIMESTAMP\n@@ -1 +1 @@\n-da\n+a\n",
-            target, target
+            "--- {}\tTIMESTAMP\n+++ {}\tTIMESTAMP\n@@ -1 +1 @@\n-da\n+a\n",
+            da_path.display(),
+            a_path.display()
         )
     );
 
     let mut cmd = Command::cargo_bin("diffutils")?;
-    cmd.arg("-u")
-        .arg(&format!("{target}/a"))
-        .arg(&format!("{target}/d"));
+    cmd.arg("-u").arg(&a_path).arg(&directory);
     cmd.assert().code(predicate::eq(1)).failure();
 
     let output = cmd.output().unwrap().stdout;
     assert_diff_eq!(
         output,
         format!(
-            "--- {}/a\tTIMESTAMP\n+++ {}/d/a\tTIMESTAMP\n@@ -1 +1 @@\n-a\n+da\n",
-            target, target
+            "--- {}\tTIMESTAMP\n+++ {}\tTIMESTAMP\n@@ -1 +1 @@\n-a\n+da\n",
+            a_path.display(),
+            da_path.display()
         )
     );
 
