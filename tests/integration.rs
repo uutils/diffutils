@@ -31,13 +31,18 @@ fn cannot_read_files() -> Result<(), Box<dyn std::error::Error>> {
     let nopath = nofile.into_temp_path();
     std::fs::remove_file(&nopath)?;
 
+    #[cfg(not(windows))]
+    let error_message = "No such file or directory";
+    #[cfg(windows)]
+    let error_message = "The system cannot find the file specified.";
+
     let mut cmd = Command::cargo_bin("diffutils")?;
     cmd.arg(&nopath).arg(file.path());
     cmd.assert()
         .code(predicate::eq(2))
         .failure()
         .stderr(predicate::str::ends_with(format!(
-            ": {}: No such file or directory\n",
+            ": {}: {error_message}\n",
             &nopath.as_os_str().to_string_lossy()
         )));
 
@@ -47,7 +52,7 @@ fn cannot_read_files() -> Result<(), Box<dyn std::error::Error>> {
         .code(predicate::eq(2))
         .failure()
         .stderr(predicate::str::ends_with(format!(
-            ": {}: No such file or directory\n",
+            ": {}: {error_message}\n",
             &nopath.as_os_str().to_string_lossy()
         )));
 
@@ -55,7 +60,7 @@ fn cannot_read_files() -> Result<(), Box<dyn std::error::Error>> {
     cmd.arg(&nopath).arg(&nopath);
     cmd.assert().code(predicate::eq(2)).failure().stderr(
         predicate::str::contains(format!(
-            ": {}: No such file or directory\n",
+            ": {}: {error_message}\n",
             &nopath.as_os_str().to_string_lossy()
         ))
         .count(2),
