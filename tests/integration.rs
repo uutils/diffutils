@@ -19,7 +19,7 @@ fn unknown_param() -> Result<(), Box<dyn std::error::Error>> {
     cmd.assert()
         .code(predicate::eq(2))
         .failure()
-        .stderr(predicate::str::starts_with("Usage: "));
+        .stderr(predicate::str::starts_with("Unknown option: \"--foobar\""));
     Ok(())
 }
 
@@ -27,22 +27,26 @@ fn unknown_param() -> Result<(), Box<dyn std::error::Error>> {
 fn cannot_read_files() -> Result<(), Box<dyn std::error::Error>> {
     let file = NamedTempFile::new()?;
 
+    let nofile = NamedTempFile::new()?;
+    let nopath = nofile.into_temp_path();
+    std::fs::remove_file(&nopath)?;
+
     let mut cmd = Command::cargo_bin("diffutils")?;
-    cmd.arg("foo.txt").arg(file.path());
+    cmd.arg(&nopath).arg(file.path());
     cmd.assert()
         .code(predicate::eq(2))
         .failure()
         .stderr(predicate::str::starts_with("Failed to read from-file"));
 
     let mut cmd = Command::cargo_bin("diffutils")?;
-    cmd.arg(file.path()).arg("foo.txt");
+    cmd.arg(file.path()).arg(&nopath);
     cmd.assert()
         .code(predicate::eq(2))
         .failure()
         .stderr(predicate::str::starts_with("Failed to read to-file"));
 
     let mut cmd = Command::cargo_bin("diffutils")?;
-    cmd.arg("foo.txt").arg("foo.txt");
+    cmd.arg(&nopath).arg(&nopath);
     cmd.assert()
         .code(predicate::eq(2))
         .failure()

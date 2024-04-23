@@ -19,7 +19,7 @@
 # By default it expects a release build of the diffutils binary, but a
 # different build profile can be specified as an argument
 # (e.g. 'dev' or 'test').
-# Unless overriden by the $TESTS environment variable, all tests in the test
+# Unless overridden by the $TESTS environment variable, all tests in the test
 # suite will be run. Tests targeting a command that is not yet implemented
 # (e.g. cmp, diff3 or sdiff) are skipped.
 

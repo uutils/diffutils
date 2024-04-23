@@ -2,7 +2,7 @@
 // considering datetime varitations
 //
 // It replaces the modification time in the actual diff
-// with placeholer "TIMESTAMP" and then asserts the equality
+// with placeholder "TIMESTAMP" and then asserts the equality
 //
 // For eg.
 // let brief = "*** fruits_old.txt\t2024-03-24 23:43:05.189597645 +0530\n
