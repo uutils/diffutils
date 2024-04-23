@@ -1,4 +1,4 @@
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsString;
 
 use regex::Regex;
 
@@ -9,17 +9,6 @@ pub enum Format {
     Unified,
     Context,
     Ed,
-}
-
-#[cfg(unix)]
-fn osstr_bytes(osstr: &OsStr) -> &[u8] {
-    use std::os::unix::ffi::OsStrExt;
-    osstr.as_bytes()
-}
-
-#[cfg(not(unix))]
-fn osstr_bytes(osstr: &OsStr) -> Vec<u8> {
-    osstr.to_string_lossy().bytes().collect()
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -50,7 +39,7 @@ impl Default for Params {
 }
 
 pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params, String> {
-    let mut opts = opts.into_iter();
+    let mut opts = opts.into_iter().peekable();
     // parse CLI
 
     let Some(exe) = opts.next() else {
@@ -60,8 +49,10 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
     let mut from = None;
     let mut to = None;
     let mut format = None;
+    let mut context = None;
     let tabsize_re = Regex::new(r"^--tabsize=(?<num>\d+)$").unwrap();
     while let Some(param) = opts.next() {
+        let next_param = opts.peek();
         if param == "--" {
             break;
         }
@@ -87,6 +78,20 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
             params.expand_tabs = true;
             continue;
         }
+        if param == "--normal" {
+            if format.is_some() && format != Some(Format::Normal) {
+                return Err("Conflicting output style options".to_string());
+            }
+            format = Some(Format::Normal);
+            continue;
+        }
+        if param == "-e" || param == "--ed" {
+            if format.is_some() && format != Some(Format::Ed) {
+                return Err("Conflicting output style options".to_string());
+            }
+            format = Some(Format::Ed);
+            continue;
+        }
         if tabsize_re.is_match(param.to_string_lossy().as_ref()) {
             // Because param matches the regular expression,
             // it is safe to assume it is valid UTF-8.
@@ -103,60 +108,48 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
             };
             continue;
         }
-        let p = osstr_bytes(&param);
-        if p.first() == Some(&b'-') && p.get(1) != Some(&b'-') {
-            let mut bit = p[1..].iter().copied().peekable();
-            // Can't use a for loop because `diff -30u` is supposed to make a diff
-            // with 30 lines of context.
-            while let Some(b) = bit.next() {
-                match b {
-                    b'0'..=b'9' => {
-                        params.context_count = (b - b'0') as usize;
-                        while let Some(b'0'..=b'9') = bit.peek() {
-                            params.context_count *= 10;
-                            params.context_count += (bit.next().unwrap() - b'0') as usize;
-                        }
+        match match_context_diff_params(&param, next_param, format) {
+            Ok(DiffStyleMatch {
+                is_match,
+                context_count,
+                next_param_consumed,
+            }) => {
+                if is_match {
+                    format = Some(Format::Context);
+                    if context_count.is_some() {
+                        context = context_count;
                     }
-                    b'c' => {
-                        if format.is_some() && format != Some(Format::Context) {
-                            return Err("Conflicting output style options".to_string());
-                        }
-                        format = Some(Format::Context);
+                    if next_param_consumed {
+                        opts.next();
                     }
-                    b'e' => {
-                        if format.is_some() && format != Some(Format::Ed) {
-                            return Err("Conflicting output style options".to_string());
-                        }
-                        format = Some(Format::Ed);
-                    }
-                    b'u' => {
-                        if format.is_some() && format != Some(Format::Unified) {
-                            return Err("Conflicting output style options".to_string());
-                        }
-                        format = Some(Format::Unified);
-                    }
-                    b'U' => {
-                        if format.is_some() && format != Some(Format::Unified) {
-                            return Err("Conflicting output style options".to_string());
-                        }
-                        format = Some(Format::Unified);
-                        let context_count_maybe = if bit.peek().is_some() {
-                            String::from_utf8(bit.collect::<Vec<u8>>()).ok()
-                        } else {
-                            opts.next().map(|x| x.to_string_lossy().into_owned())
-                        };
-                        if let Some(context_count_maybe) =
-                            context_count_maybe.and_then(|x| x.parse().ok())
-                        {
-                            params.context_count = context_count_maybe;
-                            break;
-                        }
-                        return Err("Invalid context count".to_string());
-                    }
-                    _ => return Err(format!("Unknown option: {}", String::from_utf8_lossy(&[b]))),
+                    continue;
                 }
             }
-        } else if from.is_none() {
+            Err(error) => return Err(error),
+        }
+        match match_unified_diff_params(&param, next_param, format) {
+            Ok(DiffStyleMatch {
+                is_match,
+                context_count,
+                next_param_consumed,
+            }) => {
+                if is_match {
+                    format = Some(Format::Unified);
+                    if context_count.is_some() {
+                        context = context_count;
+                    }
+                    if next_param_consumed {
+                        opts.next();
+                    }
+                    continue;
+                }
+            }
+            Err(error) => return Err(error),
+        }
+        if param.to_string_lossy().starts_with('-') {
+            return Err(format!("Unknown option: {:?}", param));
+        }
+        if from.is_none() {
             from = Some(param);
         } else if to.is_none() {
             to = Some(param);
@@ -179,7 +172,108 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
         return Err(format!("Usage: {} <from> <to>", exe.to_string_lossy()));
     };
     params.format = format.unwrap_or(Format::default());
+    if let Some(context_count) = context {
+        params.context_count = context_count;
+    }
     Ok(params)
+}
+
+struct DiffStyleMatch {
+    is_match: bool,
+    context_count: Option<usize>,
+    next_param_consumed: bool,
+}
+
+fn match_context_diff_params(
+    param: &OsString,
+    next_param: Option<&OsString>,
+    format: Option<Format>,
+) -> Result<DiffStyleMatch, String> {
+    const CONTEXT_RE: &str = r"^(-[cC](?<num1>\d*)|--context(=(?<num2>\d*))?|-(?<num3>\d+)c)$";
+    let regex = Regex::new(CONTEXT_RE).unwrap();
+    let is_match = regex.is_match(param.to_string_lossy().as_ref());
+    let mut context_count = None;
+    let mut next_param_consumed = false;
+    if is_match {
+        if format.is_some() && format != Some(Format::Context) {
+            return Err("Conflicting output style options".to_string());
+        }
+        let captures = regex.captures(param.to_str().unwrap()).unwrap();
+        let num = captures
+            .name("num1")
+            .or(captures.name("num2"))
+            .or(captures.name("num3"));
+        if let Some(numvalue) = num {
+            if !numvalue.as_str().is_empty() {
+                context_count = Some(numvalue.as_str().parse::<usize>().unwrap());
+            }
+        }
+        if param == "-C" && next_param.is_some() {
+            match next_param.unwrap().to_string_lossy().parse::<usize>() {
+                Ok(context_size) => {
+                    context_count = Some(context_size);
+                    next_param_consumed = true;
+                }
+                Err(_) => {
+                    return Err(format!(
+                        "invalid context length '{}'",
+                        next_param.unwrap().to_string_lossy()
+                    ))
+                }
+            }
+        }
+    }
+    Ok(DiffStyleMatch {
+        is_match,
+        context_count,
+        next_param_consumed,
+    })
+}
+
+fn match_unified_diff_params(
+    param: &OsString,
+    next_param: Option<&OsString>,
+    format: Option<Format>,
+) -> Result<DiffStyleMatch, String> {
+    const UNIFIED_RE: &str = r"^(-[uU](?<num1>\d*)|--unified(=(?<num2>\d*))?|-(?<num3>\d+)u)$";
+    let regex = Regex::new(UNIFIED_RE).unwrap();
+    let is_match = regex.is_match(param.to_string_lossy().as_ref());
+    let mut context_count = None;
+    let mut next_param_consumed = false;
+    if is_match {
+        if format.is_some() && format != Some(Format::Unified) {
+            return Err("Conflicting output style options".to_string());
+        }
+        let captures = regex.captures(param.to_str().unwrap()).unwrap();
+        let num = captures
+            .name("num1")
+            .or(captures.name("num2"))
+            .or(captures.name("num3"));
+        if let Some(numvalue) = num {
+            if !numvalue.as_str().is_empty() {
+                context_count = Some(numvalue.as_str().parse::<usize>().unwrap());
+            }
+        }
+        if param == "-U" && next_param.is_some() {
+            match next_param.unwrap().to_string_lossy().parse::<usize>() {
+                Ok(context_size) => {
+                    context_count = Some(context_size);
+                    next_param_consumed = true;
+                }
+                Err(_) => {
+                    return Err(format!(
+                        "invalid context length '{}'",
+                        next_param.unwrap().to_string_lossy()
+                    ))
+                }
+            }
+        }
+    }
+    Ok(DiffStyleMatch {
+        is_match,
+        context_count,
+        next_param_consumed,
+    })
 }
 
 #[cfg(test)]
@@ -198,18 +292,146 @@ mod tests {
             }),
             parse_params([os("diff"), os("foo"), os("bar")].iter().cloned())
         );
-    }
-    #[test]
-    fn basics_ed() {
         assert_eq!(
             Ok(Params {
                 from: os("foo"),
                 to: os("bar"),
-                format: Format::Ed,
                 ..Default::default()
             }),
-            parse_params([os("diff"), os("-e"), os("foo"), os("bar")].iter().cloned())
+            parse_params(
+                [os("diff"), os("--normal"), os("foo"), os("bar")]
+                    .iter()
+                    .cloned()
+            )
         );
+    }
+    #[test]
+    fn basics_ed() {
+        for arg in ["-e", "--ed"] {
+            assert_eq!(
+                Ok(Params {
+                    from: os("foo"),
+                    to: os("bar"),
+                    format: Format::Ed,
+                    ..Default::default()
+                }),
+                parse_params([os("diff"), os(arg), os("foo"), os("bar")].iter().cloned())
+            );
+        }
+    }
+    #[test]
+    fn context_valid() {
+        for args in [vec!["-c"], vec!["--context"], vec!["--context="]] {
+            let mut params = vec!["diff"];
+            params.extend(args);
+            params.extend(["foo", "bar"]);
+            assert_eq!(
+                Ok(Params {
+                    from: os("foo"),
+                    to: os("bar"),
+                    format: Format::Context,
+                    ..Default::default()
+                }),
+                parse_params(params.iter().map(|x| os(x)))
+            );
+        }
+        for args in [
+            vec!["-c42"],
+            vec!["-C42"],
+            vec!["-C", "42"],
+            vec!["--context=42"],
+            vec!["-42c"],
+        ] {
+            let mut params = vec!["diff"];
+            params.extend(args);
+            params.extend(["foo", "bar"]);
+            assert_eq!(
+                Ok(Params {
+                    from: os("foo"),
+                    to: os("bar"),
+                    format: Format::Context,
+                    context_count: 42,
+                    ..Default::default()
+                }),
+                parse_params(params.iter().map(|x| os(x)))
+            );
+        }
+    }
+    #[test]
+    fn context_invalid() {
+        for args in [
+            vec!["-c", "42"],
+            vec!["-c=42"],
+            vec!["-c="],
+            vec!["-C"],
+            vec!["-C=42"],
+            vec!["-C="],
+            vec!["--context42"],
+            vec!["--context", "42"],
+            vec!["-42C"],
+        ] {
+            let mut params = vec!["diff"];
+            params.extend(args);
+            params.extend(["foo", "bar"]);
+            assert!(parse_params(params.iter().map(|x| os(x))).is_err());
+        }
+    }
+    #[test]
+    fn unified_valid() {
+        for args in [vec!["-u"], vec!["--unified"], vec!["--unified="]] {
+            let mut params = vec!["diff"];
+            params.extend(args);
+            params.extend(["foo", "bar"]);
+            assert_eq!(
+                Ok(Params {
+                    from: os("foo"),
+                    to: os("bar"),
+                    format: Format::Unified,
+                    ..Default::default()
+                }),
+                parse_params(params.iter().map(|x| os(x)))
+            );
+        }
+        for args in [
+            vec!["-u42"],
+            vec!["-U42"],
+            vec!["-U", "42"],
+            vec!["--unified=42"],
+            vec!["-42u"],
+        ] {
+            let mut params = vec!["diff"];
+            params.extend(args);
+            params.extend(["foo", "bar"]);
+            assert_eq!(
+                Ok(Params {
+                    from: os("foo"),
+                    to: os("bar"),
+                    format: Format::Unified,
+                    context_count: 42,
+                    ..Default::default()
+                }),
+                parse_params(params.iter().map(|x| os(x)))
+            );
+        }
+    }
+    #[test]
+    fn unified_invalid() {
+        for args in [
+            vec!["-u", "42"],
+            vec!["-u=42"],
+            vec!["-u="],
+            vec!["-U"],
+            vec!["-U=42"],
+            vec!["-U="],
+            vec!["--unified42"],
+            vec!["--unified", "42"],
+            vec!["-42U"],
+        ] {
+            let mut params = vec!["diff"];
+            params.extend(args);
+            params.extend(["foo", "bar"]);
+            assert!(parse_params(params.iter().map(|x| os(x))).is_err());
+        }
     }
     #[test]
     fn context_count() {
@@ -504,7 +726,15 @@ mod tests {
     }
     #[test]
     fn conflicting_output_styles() {
-        for (arg1, arg2) in [("-u", "-c"), ("-u", "-e"), ("-c", "-u"), ("-c", "-U42")] {
+        for (arg1, arg2) in [
+            ("-u", "-c"),
+            ("-u", "-e"),
+            ("-c", "-u"),
+            ("-c", "-U42"),
+            ("-u", "--normal"),
+            ("--normal", "-e"),
+            ("--context", "--normal"),
+        ] {
             assert!(parse_params(
                 [os("diff"), os(arg1), os(arg2), os("foo"), os("bar")]
                     .iter()

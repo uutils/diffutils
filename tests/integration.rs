@@ -18,7 +18,7 @@ fn unknown_param() -> Result<(), Box<dyn std::error::Error>> {
     cmd.assert()
         .code(predicate::eq(2))
         .failure()
-        .stderr(predicate::str::starts_with("Usage: "));
+        .stderr(predicate::str::starts_with("Unknown option: \"--foobar\""));
     Ok(())
 }
 
