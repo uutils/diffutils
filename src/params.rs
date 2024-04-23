@@ -1,4 +1,5 @@
 use std::ffi::OsString;
+use std::path::PathBuf;
 
 use regex::Regex;
 
@@ -171,6 +172,20 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
     } else {
         return Err(format!("Usage: {} <from> <to>", exe.to_string_lossy()));
     };
+
+    // diff DIRECTORY FILE => diff DIRECTORY/FILE FILE
+    // diff FILE DIRECTORY => diff FILE DIRECTORY/FILE
+    let mut from_path: PathBuf = PathBuf::from(&params.from);
+    let mut to_path: PathBuf = PathBuf::from(&params.to);
+
+    if from_path.is_dir() && to_path.is_file() {
+        from_path.push(to_path.file_name().unwrap());
+        params.from = from_path.into_os_string();
+    } else if from_path.is_file() && to_path.is_dir() {
+        to_path.push(from_path.file_name().unwrap());
+        params.to = to_path.into_os_string();
+    }
+
     params.format = format.unwrap_or(Format::default());
     if let Some(context_count) = context {
         params.context_count = context_count;

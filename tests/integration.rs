@@ -6,8 +6,9 @@
 use assert_cmd::cmd::Command;
 use diffutilslib::assert_diff_eq;
 use predicates::prelude::*;
+use std::fs::File;
 use std::io::Write;
-use tempfile::NamedTempFile;
+use tempfile::{tempdir, NamedTempFile};
 
 // Integration tests for the diffutils command
 
@@ -235,6 +236,52 @@ fn read_from_stdin() -> Result<(), Box<dyn std::error::Error>> {
             )
         );
     }
+
+    Ok(())
+}
+
+#[test]
+fn compare_file_to_directory() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+
+    let directory = tmp_dir.path().join("d");
+    let _ = std::fs::create_dir(&directory);
+
+    let a_path = tmp_dir.path().join("a");
+    let mut a = File::create(&a_path).unwrap();
+    a.write_all(b"a\n").unwrap();
+
+    let da_path = directory.join("a");
+    let mut da = File::create(&da_path).unwrap();
+    da.write_all(b"da\n").unwrap();
+
+    let mut cmd = Command::cargo_bin("diffutils")?;
+    cmd.arg("-u").arg(&directory).arg(&a_path);
+    cmd.assert().code(predicate::eq(1)).failure();
+
+    let output = cmd.output().unwrap().stdout;
+    assert_diff_eq!(
+        output,
+        format!(
+            "--- {}\tTIMESTAMP\n+++ {}\tTIMESTAMP\n@@ -1 +1 @@\n-da\n+a\n",
+            da_path.display(),
+            a_path.display()
+        )
+    );
+
+    let mut cmd = Command::cargo_bin("diffutils")?;
+    cmd.arg("-u").arg(&a_path).arg(&directory);
+    cmd.assert().code(predicate::eq(1)).failure();
+
+    let output = cmd.output().unwrap().stdout;
+    assert_diff_eq!(
+        output,
+        format!(
+            "--- {}\tTIMESTAMP\n+++ {}\tTIMESTAMP\n@@ -1 +1 @@\n-a\n+da\n",
+            a_path.display(),
+            da_path.display()
+        )
+    );
 
     Ok(())
 }
