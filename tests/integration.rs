@@ -36,21 +36,30 @@ fn cannot_read_files() -> Result<(), Box<dyn std::error::Error>> {
     cmd.assert()
         .code(predicate::eq(2))
         .failure()
-        .stderr(predicate::str::starts_with("Failed to read from-file"));
+        .stderr(predicate::str::ends_with(format!(
+            ": {}: No such file or directory\n",
+            &nopath.as_os_str().to_string_lossy()
+        )));
 
     let mut cmd = Command::cargo_bin("diffutils")?;
     cmd.arg(file.path()).arg(&nopath);
     cmd.assert()
         .code(predicate::eq(2))
         .failure()
-        .stderr(predicate::str::starts_with("Failed to read to-file"));
+        .stderr(predicate::str::ends_with(format!(
+            ": {}: No such file or directory\n",
+            &nopath.as_os_str().to_string_lossy()
+        )));
 
     let mut cmd = Command::cargo_bin("diffutils")?;
     cmd.arg(&nopath).arg(&nopath);
-    cmd.assert()
-        .code(predicate::eq(2))
-        .failure()
-        .stderr(predicate::str::starts_with("Failed to read from-file"));
+    cmd.assert().code(predicate::eq(2)).failure().stderr(
+        predicate::str::contains(format!(
+            ": {}: No such file or directory\n",
+            &nopath.as_os_str().to_string_lossy()
+        ))
+        .count(2),
+    );
 
     Ok(())
 }

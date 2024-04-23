@@ -4,6 +4,7 @@
 // files that was distributed with this source code.
 
 use crate::params::{parse_params, Format};
+use regex::Regex;
 use std::env;
 use std::ffi::OsString;
 use std::fs;
@@ -17,6 +18,22 @@ mod normal_diff;
 mod params;
 mod unified_diff;
 mod utils;
+
+fn report_failure_to_read_input_file(
+    executable: &OsString,
+    filepath: &OsString,
+    error: &std::io::Error,
+) {
+    // std::io::Error's display trait outputs "{detail} (os error {code})"
+    // but we want only the {detail} (error string) part
+    let error_code_re = Regex::new(r"\ \(os\ error\ \d+\)$").unwrap();
+    eprintln!(
+        "{}: {}: {}",
+        executable.to_string_lossy(),
+        filepath.to_string_lossy(),
+        error_code_re.replace(error.to_string().as_str(), ""),
+    );
+}
 
 // Exit codes are documented at
 // https://www.gnu.org/software/diffutils/manual/html_node/Invoking-diff.html.
@@ -45,6 +62,7 @@ fn main() -> ExitCode {
         maybe_report_identical_files();
         return ExitCode::SUCCESS;
     }
+
     // read files
     fn read_file_contents(filepath: &OsString) -> io::Result<Vec<u8>> {
         if filepath == "-" {
@@ -54,20 +72,27 @@ fn main() -> ExitCode {
             fs::read(filepath)
         }
     }
+    let mut io_error = false;
     let from_content = match read_file_contents(&params.from) {
         Ok(from_content) => from_content,
         Err(e) => {
-            eprintln!("Failed to read from-file: {e}");
-            return ExitCode::from(2);
+            report_failure_to_read_input_file(&params.executable, &params.from, &e);
+            io_error = true;
+            vec![]
         }
     };
     let to_content = match read_file_contents(&params.to) {
         Ok(to_content) => to_content,
         Err(e) => {
-            eprintln!("Failed to read to-file: {e}");
-            return ExitCode::from(2);
+            report_failure_to_read_input_file(&params.executable, &params.to, &e);
+            io_error = true;
+            vec![]
         }
     };
+    if io_error {
+        return ExitCode::from(2);
+    }
+
     // run diff
     let result: Vec<u8> = match params.format {
         Format::Normal => normal_diff::diff(&from_content, &to_content, &params),

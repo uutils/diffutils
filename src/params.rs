@@ -14,6 +14,7 @@ pub enum Format {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Params {
+    pub executable: OsString,
     pub from: OsString,
     pub to: OsString,
     pub format: Format,
@@ -27,6 +28,7 @@ pub struct Params {
 impl Default for Params {
     fn default() -> Self {
         Self {
+            executable: OsString::default(),
             from: OsString::default(),
             to: OsString::default(),
             format: Format::default(),
@@ -43,10 +45,13 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
     let mut opts = opts.into_iter().peekable();
     // parse CLI
 
-    let Some(exe) = opts.next() else {
+    let Some(executable) = opts.next() else {
         return Err("Usage: <exe> <from> <to>".to_string());
     };
-    let mut params = Params::default();
+    let mut params = Params {
+        executable,
+        ..Default::default()
+    };
     let mut from = None;
     let mut to = None;
     let mut format = None;
@@ -63,7 +68,10 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
             } else if to.is_none() {
                 to = Some(param);
             } else {
-                return Err(format!("Usage: {} <from> <to>", exe.to_string_lossy()));
+                return Err(format!(
+                    "Usage: {} <from> <to>",
+                    params.executable.to_string_lossy()
+                ));
             }
             continue;
         }
@@ -155,7 +163,10 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
         } else if to.is_none() {
             to = Some(param);
         } else {
-            return Err(format!("Usage: {} <from> <to>", exe.to_string_lossy()));
+            return Err(format!(
+                "Usage: {} <from> <to>",
+                params.executable.to_string_lossy()
+            ));
         }
     }
     params.from = if let Some(from) = from {
@@ -163,14 +174,20 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
     } else if let Some(param) = opts.next() {
         param
     } else {
-        return Err(format!("Usage: {} <from> <to>", exe.to_string_lossy()));
+        return Err(format!(
+            "Usage: {} <from> <to>",
+            params.executable.to_string_lossy()
+        ));
     };
     params.to = if let Some(to) = to {
         to
     } else if let Some(param) = opts.next() {
         param
     } else {
-        return Err(format!("Usage: {} <from> <to>", exe.to_string_lossy()));
+        return Err(format!(
+            "Usage: {} <from> <to>",
+            params.executable.to_string_lossy()
+        ));
     };
 
     // diff DIRECTORY FILE => diff DIRECTORY/FILE FILE
@@ -301,6 +318,7 @@ mod tests {
     fn basics() {
         assert_eq!(
             Ok(Params {
+                executable: os("diff"),
                 from: os("foo"),
                 to: os("bar"),
                 ..Default::default()
@@ -309,6 +327,7 @@ mod tests {
         );
         assert_eq!(
             Ok(Params {
+                executable: os("diff"),
                 from: os("foo"),
                 to: os("bar"),
                 ..Default::default()
@@ -325,6 +344,7 @@ mod tests {
         for arg in ["-e", "--ed"] {
             assert_eq!(
                 Ok(Params {
+                    executable: os("diff"),
                     from: os("foo"),
                     to: os("bar"),
                     format: Format::Ed,
@@ -342,6 +362,7 @@ mod tests {
             params.extend(["foo", "bar"]);
             assert_eq!(
                 Ok(Params {
+                    executable: os("diff"),
                     from: os("foo"),
                     to: os("bar"),
                     format: Format::Context,
@@ -362,6 +383,7 @@ mod tests {
             params.extend(["foo", "bar"]);
             assert_eq!(
                 Ok(Params {
+                    executable: os("diff"),
                     from: os("foo"),
                     to: os("bar"),
                     format: Format::Context,
@@ -399,6 +421,7 @@ mod tests {
             params.extend(["foo", "bar"]);
             assert_eq!(
                 Ok(Params {
+                    executable: os("diff"),
                     from: os("foo"),
                     to: os("bar"),
                     format: Format::Unified,
@@ -419,6 +442,7 @@ mod tests {
             params.extend(["foo", "bar"]);
             assert_eq!(
                 Ok(Params {
+                    executable: os("diff"),
                     from: os("foo"),
                     to: os("bar"),
                     format: Format::Unified,
@@ -452,6 +476,7 @@ mod tests {
     fn context_count() {
         assert_eq!(
             Ok(Params {
+                executable: os("diff"),
                 from: os("foo"),
                 to: os("bar"),
                 format: Format::Unified,
@@ -466,6 +491,7 @@ mod tests {
         );
         assert_eq!(
             Ok(Params {
+                executable: os("diff"),
                 from: os("foo"),
                 to: os("bar"),
                 format: Format::Unified,
@@ -480,6 +506,7 @@ mod tests {
         );
         assert_eq!(
             Ok(Params {
+                executable: os("diff"),
                 from: os("foo"),
                 to: os("bar"),
                 format: Format::Unified,
@@ -494,6 +521,7 @@ mod tests {
         );
         assert_eq!(
             Ok(Params {
+                executable: os("diff"),
                 from: os("foo"),
                 to: os("bar"),
                 format: Format::Context,
@@ -511,6 +539,7 @@ mod tests {
     fn report_identical_files() {
         assert_eq!(
             Ok(Params {
+                executable: os("diff"),
                 from: os("foo"),
                 to: os("bar"),
                 ..Default::default()
@@ -519,6 +548,7 @@ mod tests {
         );
         assert_eq!(
             Ok(Params {
+                executable: os("diff"),
                 from: os("foo"),
                 to: os("bar"),
                 report_identical_files: true,
@@ -528,6 +558,7 @@ mod tests {
         );
         assert_eq!(
             Ok(Params {
+                executable: os("diff"),
                 from: os("foo"),
                 to: os("bar"),
                 report_identical_files: true,
@@ -549,6 +580,7 @@ mod tests {
     fn brief() {
         assert_eq!(
             Ok(Params {
+                executable: os("diff"),
                 from: os("foo"),
                 to: os("bar"),
                 ..Default::default()
@@ -557,6 +589,7 @@ mod tests {
         );
         assert_eq!(
             Ok(Params {
+                executable: os("diff"),
                 from: os("foo"),
                 to: os("bar"),
                 brief: true,
@@ -566,6 +599,7 @@ mod tests {
         );
         assert_eq!(
             Ok(Params {
+                executable: os("diff"),
                 from: os("foo"),
                 to: os("bar"),
                 brief: true,
@@ -582,6 +616,7 @@ mod tests {
     fn expand_tabs() {
         assert_eq!(
             Ok(Params {
+                executable: os("diff"),
                 from: os("foo"),
                 to: os("bar"),
                 ..Default::default()
@@ -591,6 +626,7 @@ mod tests {
         for option in ["-t", "--expand-tabs"] {
             assert_eq!(
                 Ok(Params {
+                    executable: os("diff"),
                     from: os("foo"),
                     to: os("bar"),
                     expand_tabs: true,
@@ -608,6 +644,7 @@ mod tests {
     fn tabsize() {
         assert_eq!(
             Ok(Params {
+                executable: os("diff"),
                 from: os("foo"),
                 to: os("bar"),
                 ..Default::default()
@@ -616,6 +653,7 @@ mod tests {
         );
         assert_eq!(
             Ok(Params {
+                executable: os("diff"),
                 from: os("foo"),
                 to: os("bar"),
                 tabsize: 0,
@@ -629,6 +667,7 @@ mod tests {
         );
         assert_eq!(
             Ok(Params {
+                executable: os("diff"),
                 from: os("foo"),
                 to: os("bar"),
                 tabsize: 42,
@@ -686,6 +725,7 @@ mod tests {
     fn double_dash() {
         assert_eq!(
             Ok(Params {
+                executable: os("diff"),
                 from: os("-g"),
                 to: os("-h"),
                 ..Default::default()
@@ -697,6 +737,7 @@ mod tests {
     fn default_to_stdin() {
         assert_eq!(
             Ok(Params {
+                executable: os("diff"),
                 from: os("foo"),
                 to: os("-"),
                 ..Default::default()
@@ -705,6 +746,7 @@ mod tests {
         );
         assert_eq!(
             Ok(Params {
+                executable: os("diff"),
                 from: os("-"),
                 to: os("bar"),
                 ..Default::default()
@@ -713,6 +755,7 @@ mod tests {
         );
         assert_eq!(
             Ok(Params {
+                executable: os("diff"),
                 from: os("-"),
                 to: os("-"),
                 ..Default::default()
