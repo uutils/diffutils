@@ -8,8 +8,7 @@ use diffutilslib::assert_diff_eq;
 use predicates::prelude::*;
 use std::fs::File;
 use std::io::Write;
-use std::path::PathBuf;
-use tempfile::NamedTempFile;
+use tempfile::{tempdir, NamedTempFile};
 
 // Integration tests for the diffutils command
 
@@ -238,14 +237,13 @@ fn read_from_stdin() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn read_from_directory() -> Result<(), Box<dyn std::error::Error>> {
-    let target = PathBuf::from("target/integration");
-    let _ = std::fs::create_dir(&target);
+fn compare_file_to_directory() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
 
-    let directory = target.join("d");
+    let directory = tmp_dir.path().join("d");
     let _ = std::fs::create_dir(&directory);
 
-    let a_path = target.join("a");
+    let a_path = tmp_dir.path().join("a");
     let mut a = File::create(&a_path).unwrap();
     a.write_all(b"a\n").unwrap();
 
