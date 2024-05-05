@@ -190,12 +190,11 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
     let file = File::from(fd);
     let meta = file.metadata().unwrap();
     if meta.is_dir() {
-        let stdin = fs::canonicalize("/dev/stdin").unwrap();
-        let mut stdin_path: PathBuf = PathBuf::from(stdin);
+        let mut stdin_path = fs::canonicalize("/dev/stdin").unwrap();
         if params.from == "-" {
-            stdin_path.push(&to_path.file_name().unwrap());
+            stdin_path.push(to_path.file_name().unwrap());
         } else {
-            stdin_path.push(&from_path.file_name().unwrap());
+            stdin_path.push(from_path.file_name().unwrap());
         }
         params.stdin_path = stdin_path.into();
     }

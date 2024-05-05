@@ -47,7 +47,7 @@ fn main() -> ExitCode {
     }
     // read files
     fn read_file_contents(filepath: &OsString, stdin_path: &OsString) -> io::Result<Vec<u8>> {
-        if filepath.to_string_lossy().starts_with("-") && !stdin_path.is_empty() {
+        if filepath.to_string_lossy().starts_with('-') && !stdin_path.is_empty() {
             fs::read(stdin_path)
         } else if filepath == "-" {
             let mut content = Vec::new();
