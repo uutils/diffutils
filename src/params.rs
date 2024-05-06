@@ -1,9 +1,11 @@
 use std::ffi::OsString;
-use std::fs;
 use std::path::PathBuf;
 
-use std::fs::File;
+#[cfg(unix)]
+use std::fs::{self, File};
+#[cfg(unix)]
 use std::io::stdin;
+#[cfg(unix)]
 use std::os::fd::AsFd;
 
 use regex::Regex;
@@ -185,18 +187,21 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
     let mut from_path: PathBuf = PathBuf::from(&params.from);
     let mut to_path: PathBuf = PathBuf::from(&params.to);
 
-    // check if stdin is a directory
-    let fd = stdin().as_fd().try_clone_to_owned().unwrap();
-    let file = File::from(fd);
-    let meta = file.metadata().unwrap();
-    if meta.is_dir() {
-        let mut stdin_path = fs::canonicalize("/dev/stdin").unwrap();
-        if params.from == "-" {
-            stdin_path.push(to_path.file_name().unwrap());
-        } else {
-            stdin_path.push(from_path.file_name().unwrap());
+    #[cfg(unix)]
+    {
+        // check if stdin is a directory
+        let fd = stdin().as_fd().try_clone_to_owned().unwrap();
+        let file = File::from(fd);
+        let meta = file.metadata().unwrap();
+        if meta.is_dir() {
+            let mut stdin_path = fs::canonicalize("/dev/stdin").unwrap();
+            if params.from == "-" {
+                stdin_path.push(to_path.file_name().unwrap());
+            } else {
+                stdin_path.push(from_path.file_name().unwrap());
+            }
+            params.stdin_path = stdin_path.into();
         }
-        params.stdin_path = stdin_path.into();
     }
 
     if (from_path.is_dir() || !params.stdin_path.is_empty()) && to_path.is_file() {
