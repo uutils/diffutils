@@ -14,7 +14,7 @@ use tempfile::{tempdir, NamedTempFile};
 
 #[test]
 fn unknown_param() -> Result<(), Box<dyn std::error::Error>> {
-    let mut cmd = Command::cargo_bin("diffutils")?;
+    let mut cmd = Command::cargo_bin("diff")?;
     cmd.arg("--foobar");
     cmd.assert()
         .code(predicate::eq(2))
@@ -31,21 +31,21 @@ fn cannot_read_files() -> Result<(), Box<dyn std::error::Error>> {
     let nopath = nofile.into_temp_path();
     std::fs::remove_file(&nopath)?;
 
-    let mut cmd = Command::cargo_bin("diffutils")?;
+    let mut cmd = Command::cargo_bin("diff")?;
     cmd.arg(&nopath).arg(file.path());
     cmd.assert()
         .code(predicate::eq(2))
         .failure()
         .stderr(predicate::str::starts_with("Failed to read from-file"));
 
-    let mut cmd = Command::cargo_bin("diffutils")?;
+    let mut cmd = Command::cargo_bin("diff")?;
     cmd.arg(file.path()).arg(&nopath);
     cmd.assert()
         .code(predicate::eq(2))
         .failure()
         .stderr(predicate::str::starts_with("Failed to read to-file"));
 
-    let mut cmd = Command::cargo_bin("diffutils")?;
+    let mut cmd = Command::cargo_bin("diff")?;
     cmd.arg(&nopath).arg(&nopath);
     cmd.assert()
         .code(predicate::eq(2))
@@ -59,7 +59,7 @@ fn cannot_read_files() -> Result<(), Box<dyn std::error::Error>> {
 fn no_differences() -> Result<(), Box<dyn std::error::Error>> {
     let file = NamedTempFile::new()?;
     for option in ["", "-u", "-c", "-e"] {
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = Command::cargo_bin("diff")?;
         if !option.is_empty() {
             cmd.arg(option);
         }
@@ -78,7 +78,7 @@ fn no_differences_report_identical_files() -> Result<(), Box<dyn std::error::Err
     let mut file1 = NamedTempFile::new()?;
     file1.write_all("foo\n".as_bytes())?;
     for option in ["", "-u", "-c", "-e"] {
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = Command::cargo_bin("diff")?;
         if !option.is_empty() {
             cmd.arg(option);
         }
@@ -96,7 +96,7 @@ fn no_differences_report_identical_files() -> Result<(), Box<dyn std::error::Err
     let mut file2 = NamedTempFile::new()?;
     file2.write_all("foo\n".as_bytes())?;
     for option in ["", "-u", "-c", "-e"] {
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = Command::cargo_bin("diff")?;
         if !option.is_empty() {
             cmd.arg(option);
         }
@@ -120,7 +120,7 @@ fn differences() -> Result<(), Box<dyn std::error::Error>> {
     let mut file2 = NamedTempFile::new()?;
     file2.write_all("bar\n".as_bytes())?;
     for option in ["", "-u", "-c", "-e"] {
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = Command::cargo_bin("diff")?;
         if !option.is_empty() {
             cmd.arg(option);
         }
@@ -140,7 +140,7 @@ fn differences_brief() -> Result<(), Box<dyn std::error::Error>> {
     let mut file2 = NamedTempFile::new()?;
     file2.write_all("bar\n".as_bytes())?;
     for option in ["", "-u", "-c", "-e"] {
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = Command::cargo_bin("diff")?;
         if !option.is_empty() {
             cmd.arg(option);
         }
@@ -163,7 +163,7 @@ fn missing_newline() -> Result<(), Box<dyn std::error::Error>> {
     file1.write_all("foo".as_bytes())?;
     let mut file2 = NamedTempFile::new()?;
     file2.write_all("bar".as_bytes())?;
-    let mut cmd = Command::cargo_bin("diffutils")?;
+    let mut cmd = Command::cargo_bin("diff")?;
     cmd.arg("-e").arg(file1.path()).arg(file2.path());
     cmd.assert()
         .code(predicate::eq(2))
@@ -179,7 +179,7 @@ fn read_from_stdin() -> Result<(), Box<dyn std::error::Error>> {
     let mut file2 = NamedTempFile::new()?;
     file2.write_all("bar\n".as_bytes())?;
 
-    let mut cmd = Command::cargo_bin("diffutils")?;
+    let mut cmd = Command::cargo_bin("diff")?;
     cmd.arg("-u")
         .arg(file1.path())
         .arg("-")
@@ -195,7 +195,7 @@ fn read_from_stdin() -> Result<(), Box<dyn std::error::Error>> {
         )
     );
 
-    let mut cmd = Command::cargo_bin("diffutils")?;
+    let mut cmd = Command::cargo_bin("diff")?;
     cmd.arg("-u")
         .arg("-")
         .arg(file2.path())
@@ -211,7 +211,7 @@ fn read_from_stdin() -> Result<(), Box<dyn std::error::Error>> {
         )
     );
 
-    let mut cmd = Command::cargo_bin("diffutils")?;
+    let mut cmd = Command::cargo_bin("diff")?;
     cmd.arg("-u").arg("-").arg("-");
     cmd.assert()
         .code(predicate::eq(0))
@@ -220,7 +220,7 @@ fn read_from_stdin() -> Result<(), Box<dyn std::error::Error>> {
 
     #[cfg(unix)]
     {
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = Command::cargo_bin("diff")?;
         cmd.arg("-u")
             .arg(file1.path())
             .arg("/dev/stdin")
@@ -255,7 +255,7 @@ fn compare_file_to_directory() -> Result<(), Box<dyn std::error::Error>> {
     let mut da = File::create(&da_path).unwrap();
     da.write_all(b"da\n").unwrap();
 
-    let mut cmd = Command::cargo_bin("diffutils")?;
+    let mut cmd = Command::cargo_bin("diff")?;
     cmd.arg("-u").arg(&directory).arg(&a_path);
     cmd.assert().code(predicate::eq(1)).failure();
 
@@ -269,7 +269,7 @@ fn compare_file_to_directory() -> Result<(), Box<dyn std::error::Error>> {
         )
     );
 
-    let mut cmd = Command::cargo_bin("diffutils")?;
+    let mut cmd = Command::cargo_bin("diff")?;
     cmd.arg("-u").arg(&a_path).arg(&directory);
     cmd.assert().code(predicate::eq(1)).failure();
 

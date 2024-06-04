@@ -16,9 +16,9 @@
 # tests are run might not match exactly that used when the upstream tests are
 # run through the autotools.
 
-# By default it expects a release build of the diffutils binary, but a
-# different build profile can be specified as an argument
-# (e.g. 'dev' or 'test').
+# By default it expects a release build of the diff binary, but a different
+# build profile can be specified as an argument (e.g. 'dev' or 'test').
+
 # Unless overridden by the $TESTS environment variable, all tests in the test
 # suite will be run. Tests targeting a command that is not yet implemented
 # (e.g. cmp, diff3 or sdiff) are skipped.
@@ -31,7 +31,7 @@ profile="release"
 [[ -n $1 ]] && profile="$1"
 
 # Verify that the diffutils binary was built for the requested profile
-binary="$scriptpath/../target/$profile/diffutils"
+binary="$scriptpath/../target/$profile/diff"
 if [[ ! -x "$binary" ]]
 then
   echo "Missing build for profile $profile"
@@ -52,7 +52,7 @@ git sparse-checkout set --no-cone tests &> /dev/null
 git checkout &> /dev/null
 upstreamrev=$(git rev-parse HEAD)
 
-# Ensure that calling `diff` invokes the built `diffutils` binary instead of
+# Ensure that calling `diff` invokes the built `diff` binary instead of
 # the upstream `diff` binary that is most likely installed on the system
 mkdir src
 cd src

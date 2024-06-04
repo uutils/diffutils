@@ -11,8 +11,8 @@ name = "diffutilslib"
 path = "src/lib.rs"
 
 [[bin]]
-name = "diffutils"
-path = "src/main.rs"
+name = "diff"
+path = "src/diff.rs"
 
 [dependencies]
 chrono = "0.4.38"
