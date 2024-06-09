@@ -46,22 +46,24 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
     // read files
-    fn read_file_contents(filepath: &OsString) -> io::Result<Vec<u8>> {
-        if filepath == "-" {
+    fn read_file_contents(filepath: &OsString, stdin_path: &OsString) -> io::Result<Vec<u8>> {
+        if filepath.to_string_lossy().starts_with('-') && !stdin_path.is_empty() {
+            fs::read(stdin_path)
+        } else if filepath == "-" {
             let mut content = Vec::new();
             io::stdin().read_to_end(&mut content).and(Ok(content))
         } else {
             fs::read(filepath)
         }
     }
-    let from_content = match read_file_contents(&params.from) {
+    let from_content = match read_file_contents(&params.from, &params.stdin_path) {
         Ok(from_content) => from_content,
         Err(e) => {
             eprintln!("Failed to read from-file: {e}");
             return ExitCode::from(2);
         }
     };
-    let to_content = match read_file_contents(&params.to) {
+    let to_content = match read_file_contents(&params.to, &params.stdin_path) {
         Ok(to_content) => to_content,
         Err(e) => {
             eprintln!("Failed to read to-file: {e}");

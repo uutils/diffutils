@@ -1,6 +1,13 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 
+#[cfg(unix)]
+use std::fs::{self, File};
+#[cfg(unix)]
+use std::io::stdin;
+#[cfg(unix)]
+use std::os::fd::AsFd;
+
 use regex::Regex;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -16,6 +23,7 @@ pub enum Format {
 pub struct Params {
     pub from: OsString,
     pub to: OsString,
+    pub stdin_path: OsString,
     pub format: Format,
     pub context_count: usize,
     pub report_identical_files: bool,
@@ -29,6 +37,7 @@ impl Default for Params {
         Self {
             from: OsString::default(),
             to: OsString::default(),
+            stdin_path: OsString::default(),
             format: Format::default(),
             context_count: 3,
             report_identical_files: false,
@@ -178,10 +187,27 @@ pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params,
     let mut from_path: PathBuf = PathBuf::from(&params.from);
     let mut to_path: PathBuf = PathBuf::from(&params.to);
 
-    if from_path.is_dir() && to_path.is_file() {
+    #[cfg(unix)]
+    {
+        // check if stdin is a directory
+        let fd = stdin().as_fd().try_clone_to_owned().unwrap();
+        let file = File::from(fd);
+        let meta = file.metadata().unwrap();
+        if meta.is_dir() {
+            let mut stdin_path = fs::canonicalize("/dev/stdin").unwrap();
+            if params.from == "-" {
+                stdin_path.push(to_path.file_name().unwrap());
+            } else {
+                stdin_path.push(from_path.file_name().unwrap());
+            }
+            params.stdin_path = stdin_path.into();
+        }
+    }
+
+    if (from_path.is_dir() || !params.stdin_path.is_empty()) && to_path.is_file() {
         from_path.push(to_path.file_name().unwrap());
         params.from = from_path.into_os_string();
-    } else if from_path.is_file() && to_path.is_dir() {
+    } else if from_path.is_file() && (to_path.is_dir() || !params.stdin_path.is_empty()) {
         to_path.push(from_path.file_name().unwrap());
         params.to = to_path.into_os_string();
     }

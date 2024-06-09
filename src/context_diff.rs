@@ -268,8 +268,16 @@ fn make_diff(
 
 #[must_use]
 pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
-    let from_modified_time = get_modification_time(&params.from.to_string_lossy());
-    let to_modified_time = get_modification_time(&params.to.to_string_lossy());
+    let from_modified_time =
+        match !params.stdin_path.is_empty() && params.from.to_string_lossy().starts_with('-') {
+            true => get_modification_time(&params.stdin_path.to_string_lossy()),
+            false => get_modification_time(&params.from.to_string_lossy()),
+        };
+    let to_modified_time =
+        match !params.stdin_path.is_empty() && params.to.to_string_lossy().starts_with('-') {
+            true => get_modification_time(&params.stdin_path.to_string_lossy()),
+            false => get_modification_time(&params.to.to_string_lossy()),
+        };
     let mut output = format!(
         "*** {0}\t{1}\n--- {2}\t{3}\n",
         params.from.to_string_lossy(),
