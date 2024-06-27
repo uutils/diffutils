@@ -31,26 +31,40 @@ fn cannot_read_files() -> Result<(), Box<dyn std::error::Error>> {
     let nopath = nofile.into_temp_path();
     std::fs::remove_file(&nopath)?;
 
+    #[cfg(not(windows))]
+    let error_message = "No such file or directory";
+    #[cfg(windows)]
+    let error_message = "The system cannot find the file specified.";
+
     let mut cmd = Command::cargo_bin("diffutils")?;
     cmd.arg(&nopath).arg(file.path());
     cmd.assert()
         .code(predicate::eq(2))
         .failure()
-        .stderr(predicate::str::starts_with("Failed to read from-file"));
+        .stderr(predicate::str::ends_with(format!(
+            ": {}: {error_message}\n",
+            &nopath.as_os_str().to_string_lossy()
+        )));
 
     let mut cmd = Command::cargo_bin("diffutils")?;
     cmd.arg(file.path()).arg(&nopath);
     cmd.assert()
         .code(predicate::eq(2))
         .failure()
-        .stderr(predicate::str::starts_with("Failed to read to-file"));
+        .stderr(predicate::str::ends_with(format!(
+            ": {}: {error_message}\n",
+            &nopath.as_os_str().to_string_lossy()
+        )));
 
     let mut cmd = Command::cargo_bin("diffutils")?;
     cmd.arg(&nopath).arg(&nopath);
-    cmd.assert()
-        .code(predicate::eq(2))
-        .failure()
-        .stderr(predicate::str::starts_with("Failed to read from-file"));
+    cmd.assert().code(predicate::eq(2)).failure().stderr(
+        predicate::str::contains(format!(
+            ": {}: {error_message}\n",
+            &nopath.as_os_str().to_string_lossy()
+        ))
+        .count(2),
+    );
 
     Ok(())
 }
