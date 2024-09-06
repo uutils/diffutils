@@ -466,13 +466,13 @@ mod tests {
                                         ..Default::default()
                                     },
                                 );
-                                File::create(&format!("{target}/ab.diff"))
+                                File::create(format!("{target}/ab.diff"))
                                     .unwrap()
                                     .write_all(&diff)
                                     .unwrap();
-                                let mut fa = File::create(&format!("{target}/alef")).unwrap();
+                                let mut fa = File::create(format!("{target}/alef")).unwrap();
                                 fa.write_all(&alef[..]).unwrap();
-                                let mut fb = File::create(&format!("{target}/bet")).unwrap();
+                                let mut fb = File::create(format!("{target}/bet")).unwrap();
                                 fb.write_all(&bet[..]).unwrap();
                                 let _ = fa;
                                 let _ = fb;
@@ -494,13 +494,13 @@ mod tests {
 
                                 let output = Command::new("patch")
                                     .arg("-p0")
-                                    .stdin(File::open(&format!("{target}/ab.diff")).unwrap())
+                                    .stdin(File::open(format!("{target}/ab.diff")).unwrap())
                                     .output()
                                     .unwrap();
                                 println!("{}", String::from_utf8_lossy(&output.stdout));
                                 println!("{}", String::from_utf8_lossy(&output.stderr));
                                 assert!(output.status.success(), "{output:?}");
-                                let alef = fs::read(&format!("{target}/alef")).unwrap();
+                                let alef = fs::read(format!("{target}/alef")).unwrap();
                                 assert_eq!(alef, bet);
                             }
                         }
@@ -582,25 +582,25 @@ mod tests {
                                             ..Default::default()
                                         },
                                     );
-                                    File::create(&format!("{target}/abn.diff"))
+                                    File::create(format!("{target}/abn.diff"))
                                         .unwrap()
                                         .write_all(&diff)
                                         .unwrap();
-                                    let mut fa = File::create(&format!("{target}/alefn")).unwrap();
+                                    let mut fa = File::create(format!("{target}/alefn")).unwrap();
                                     fa.write_all(&alef[..]).unwrap();
-                                    let mut fb = File::create(&format!("{target}/betn")).unwrap();
+                                    let mut fb = File::create(format!("{target}/betn")).unwrap();
                                     fb.write_all(&bet[..]).unwrap();
                                     let _ = fa;
                                     let _ = fb;
                                     let output = Command::new("patch")
                                         .arg("-p0")
-                                        .stdin(File::open(&format!("{target}/abn.diff")).unwrap())
+                                        .stdin(File::open(format!("{target}/abn.diff")).unwrap())
                                         .output()
                                         .unwrap();
                                     assert!(output.status.success(), "{output:?}");
                                     //println!("{}", String::from_utf8_lossy(&output.stdout));
                                     //println!("{}", String::from_utf8_lossy(&output.stderr));
-                                    let alef = fs::read(&format!("{target}/alefn")).unwrap();
+                                    let alef = fs::read(format!("{target}/alefn")).unwrap();
                                     assert_eq!(alef, bet);
                                 }
                             }
@@ -678,25 +678,25 @@ mod tests {
                                             ..Default::default()
                                         },
                                     );
-                                    File::create(&format!("{target}/ab_.diff"))
+                                    File::create(format!("{target}/ab_.diff"))
                                         .unwrap()
                                         .write_all(&diff)
                                         .unwrap();
-                                    let mut fa = File::create(&format!("{target}/alef_")).unwrap();
+                                    let mut fa = File::create(format!("{target}/alef_")).unwrap();
                                     fa.write_all(&alef[..]).unwrap();
-                                    let mut fb = File::create(&format!("{target}/bet_")).unwrap();
+                                    let mut fb = File::create(format!("{target}/bet_")).unwrap();
                                     fb.write_all(&bet[..]).unwrap();
                                     let _ = fa;
                                     let _ = fb;
                                     let output = Command::new("patch")
                                         .arg("-p0")
-                                        .stdin(File::open(&format!("{target}/ab_.diff")).unwrap())
+                                        .stdin(File::open(format!("{target}/ab_.diff")).unwrap())
                                         .output()
                                         .unwrap();
                                     assert!(output.status.success(), "{output:?}");
                                     //println!("{}", String::from_utf8_lossy(&output.stdout));
                                     //println!("{}", String::from_utf8_lossy(&output.stderr));
-                                    let alef = fs::read(&format!("{target}/alef_")).unwrap();
+                                    let alef = fs::read(format!("{target}/alef_")).unwrap();
                                     assert_eq!(alef, bet);
                                 }
                             }
@@ -759,25 +759,25 @@ mod tests {
                                         ..Default::default()
                                     },
                                 );
-                                File::create(&format!("{target}/abx.diff"))
+                                File::create(format!("{target}/abx.diff"))
                                     .unwrap()
                                     .write_all(&diff)
                                     .unwrap();
-                                let mut fa = File::create(&format!("{target}/alefx")).unwrap();
+                                let mut fa = File::create(format!("{target}/alefx")).unwrap();
                                 fa.write_all(&alef[..]).unwrap();
-                                let mut fb = File::create(&format!("{target}/betx")).unwrap();
+                                let mut fb = File::create(format!("{target}/betx")).unwrap();
                                 fb.write_all(&bet[..]).unwrap();
                                 let _ = fa;
                                 let _ = fb;
                                 let output = Command::new("patch")
                                     .arg("-p0")
-                                    .stdin(File::open(&format!("{target}/abx.diff")).unwrap())
+                                    .stdin(File::open(format!("{target}/abx.diff")).unwrap())
                                     .output()
                                     .unwrap();
                                 assert!(output.status.success(), "{output:?}");
                                 //println!("{}", String::from_utf8_lossy(&output.stdout));
                                 //println!("{}", String::from_utf8_lossy(&output.stderr));
-                                let alef = fs::read(&format!("{target}/alefx")).unwrap();
+                                let alef = fs::read(format!("{target}/alefx")).unwrap();
                                 assert_eq!(alef, bet);
                             }
                         }
@@ -845,25 +845,25 @@ mod tests {
                                         ..Default::default()
                                     },
                                 );
-                                File::create(&format!("{target}/abr.diff"))
+                                File::create(format!("{target}/abr.diff"))
                                     .unwrap()
                                     .write_all(&diff)
                                     .unwrap();
-                                let mut fa = File::create(&format!("{target}/alefr")).unwrap();
+                                let mut fa = File::create(format!("{target}/alefr")).unwrap();
                                 fa.write_all(&alef[..]).unwrap();
-                                let mut fb = File::create(&format!("{target}/betr")).unwrap();
+                                let mut fb = File::create(format!("{target}/betr")).unwrap();
                                 fb.write_all(&bet[..]).unwrap();
                                 let _ = fa;
                                 let _ = fb;
                                 let output = Command::new("patch")
                                     .arg("-p0")
-                                    .stdin(File::open(&format!("{target}/abr.diff")).unwrap())
+                                    .stdin(File::open(format!("{target}/abr.diff")).unwrap())
                                     .output()
                                     .unwrap();
                                 assert!(output.status.success(), "{output:?}");
                                 //println!("{}", String::from_utf8_lossy(&output.stdout));
                                 //println!("{}", String::from_utf8_lossy(&output.stderr));
-                                let alef = fs::read(&format!("{target}/alefr")).unwrap();
+                                let alef = fs::read(format!("{target}/alefr")).unwrap();
                                 assert_eq!(alef, bet);
                             }
                         }
