@@ -101,10 +101,11 @@ mod tests {
 
             // Note: The Woman Scientist emoji (👩‍🔬) is a ZWJ sequence combining
             // the Woman emoji (👩) and the Microscope emoji (🔬). On supported platforms
-            // it is displayed as a single emoji and should have a print size of 2 columns,
-            // but terminal emulators tend to not support this, and display the two emojis
-            // side by side, thus accounting for a print size of 4 columns.
-            assert_tab_expansion("foo\t👩‍🔬\tbaz", 6, "foo   👩‍🔬  baz");
+            // it is displayed as a single emoji and has a print size of 2 columns.
+            // Terminal emulators tend to not support this, and display the two emojis
+            // side by side, thus accounting for a print size of 4 columns, but the
+            // unicode_width crate reports a correct size of 2.
+            assert_tab_expansion("foo\t👩‍🔬\tbaz", 6, "foo   👩‍🔬    baz");
         }
 
         #[test]
