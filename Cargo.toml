@@ -19,7 +19,7 @@ chrono = "0.4.38"
 diff = "0.1.13"
 regex = "1.10.4"
 same-file = "1.0.6"
-unicode-width = "0.1.12"
+unicode-width = "0.2.0"
 
 [dev-dependencies]
 pretty_assertions = "1.4.0"
