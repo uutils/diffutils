@@ -3,8 +3,9 @@
 // For the full copyright and license information, please view the LICENSE-*
 // files that was distributed with this source code.
 
-use std::io::Write;
+use std::{ffi::OsString, io::Write};
 
+use regex::Regex;
 use unicode_width::UnicodeWidthStr;
 
 /// Replace tabs by spaces in the input line.
@@ -69,6 +70,22 @@ pub fn get_modification_time(file_path: &str) -> String {
         .to_string();
 
     modification_time
+}
+
+pub fn report_failure_to_read_input_file(
+    executable: &OsString,
+    filepath: &OsString,
+    error: &std::io::Error,
+) {
+    // std::io::Error's display trait outputs "{detail} (os error {code})"
+    // but we want only the {detail} (error string) part
+    let error_code_re = Regex::new(r"\ \(os\ error\ \d+\)$").unwrap();
+    eprintln!(
+        "{}: {}: {}",
+        executable.to_string_lossy(),
+        filepath.to_string_lossy(),
+        error_code_re.replace(error.to_string().as_str(), ""),
+    );
 }
 
 #[cfg(test)]

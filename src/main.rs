@@ -3,15 +3,16 @@
 // For the full copyright and license information, please view the LICENSE-*
 // files that was distributed with this source code.
 
-use crate::params::{parse_params, Format};
-use regex::Regex;
-use std::env;
-use std::ffi::OsString;
-use std::fs;
-use std::io::{self, Read, Write};
-use std::process::{exit, ExitCode};
+use std::{
+    env::ArgsOs,
+    ffi::OsString,
+    iter::Peekable,
+    path::{Path, PathBuf},
+    process::ExitCode,
+};
 
 mod context_diff;
+mod diff;
 mod ed_diff;
 mod macros;
 mod normal_diff;
@@ -19,103 +20,60 @@ mod params;
 mod unified_diff;
 mod utils;
 
-fn report_failure_to_read_input_file(
-    executable: &OsString,
-    filepath: &OsString,
-    error: &std::io::Error,
-) {
-    // std::io::Error's display trait outputs "{detail} (os error {code})"
-    // but we want only the {detail} (error string) part
-    let error_code_re = Regex::new(r"\ \(os\ error\ \d+\)$").unwrap();
-    eprintln!(
-        "{}: {}: {}",
-        executable.to_string_lossy(),
-        filepath.to_string_lossy(),
-        error_code_re.replace(error.to_string().as_str(), ""),
-    );
+/// # Panics
+/// Panics if the binary path cannot be determined
+fn binary_path(args: &mut Peekable<ArgsOs>) -> PathBuf {
+    match args.peek() {
+        Some(ref s) if !s.is_empty() => PathBuf::from(s),
+        _ => std::env::current_exe().unwrap(),
+    }
 }
 
-// Exit codes are documented at
-// https://www.gnu.org/software/diffutils/manual/html_node/Invoking-diff.html.
-//     An exit status of 0 means no differences were found,
-//     1 means some differences were found,
-//     and 2 means trouble.
+fn name(binary_path: &Path) -> Option<&str> {
+    binary_path.file_stem()?.to_str()
+}
+
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+fn usage(name: &str) {
+    println!("{name} {VERSION} (multi-call binary)\n");
+    println!("Usage: {name} [function [arguments...]]\n");
+    println!("Currently defined functions:\n");
+    println!("    diff\n");
+}
+
+fn second_arg_error(name: &str) -> ! {
+    println!("Expected utility name as second argument, got nothing.");
+    usage(name);
+    std::process::exit(0);
+}
+
 fn main() -> ExitCode {
-    let opts = env::args_os();
-    let params = parse_params(opts).unwrap_or_else(|error| {
-        eprintln!("{error}");
-        exit(2);
+    let mut args = std::env::args_os().peekable();
+
+    let exe_path = binary_path(&mut args);
+    let exe_name = name(&exe_path).unwrap_or_else(|| {
+        usage("<unknown binary>");
+        std::process::exit(1);
     });
-    // if from and to are the same file, no need to perform any comparison
-    let maybe_report_identical_files = || {
-        if params.report_identical_files {
-            println!(
-                "Files {} and {} are identical",
-                params.from.to_string_lossy(),
-                params.to.to_string_lossy(),
-            );
-        }
-    };
-    if params.from == "-" && params.to == "-"
-        || same_file::is_same_file(&params.from, &params.to).unwrap_or(false)
-    {
-        maybe_report_identical_files();
-        return ExitCode::SUCCESS;
-    }
 
-    // read files
-    fn read_file_contents(filepath: &OsString) -> io::Result<Vec<u8>> {
-        if filepath == "-" {
-            let mut content = Vec::new();
-            io::stdin().read_to_end(&mut content).and(Ok(content))
-        } else {
-            fs::read(filepath)
-        }
-    }
-    let mut io_error = false;
-    let from_content = match read_file_contents(&params.from) {
-        Ok(from_content) => from_content,
-        Err(e) => {
-            report_failure_to_read_input_file(&params.executable, &params.from, &e);
-            io_error = true;
-            vec![]
-        }
-    };
-    let to_content = match read_file_contents(&params.to) {
-        Ok(to_content) => to_content,
-        Err(e) => {
-            report_failure_to_read_input_file(&params.executable, &params.to, &e);
-            io_error = true;
-            vec![]
-        }
-    };
-    if io_error {
-        return ExitCode::from(2);
-    }
+    let util_name = if exe_name == "diffutils" {
+        // Discard the item we peeked.
+        let _ = args.next();
 
-    // run diff
-    let result: Vec<u8> = match params.format {
-        Format::Normal => normal_diff::diff(&from_content, &to_content, &params),
-        Format::Unified => unified_diff::diff(&from_content, &to_content, &params),
-        Format::Context => context_diff::diff(&from_content, &to_content, &params),
-        Format::Ed => ed_diff::diff(&from_content, &to_content, &params).unwrap_or_else(|error| {
-            eprintln!("{error}");
-            exit(2);
-        }),
+        args.peek()
+            .cloned()
+            .unwrap_or_else(|| second_arg_error(exe_name))
+    } else {
+        OsString::from(exe_name)
     };
-    if params.brief && !result.is_empty() {
-        println!(
-            "Files {} and {} differ",
-            params.from.to_string_lossy(),
-            params.to.to_string_lossy()
-        );
-    } else {
-        io::stdout().write_all(&result).unwrap();
-    }
-    if result.is_empty() {
-        maybe_report_identical_files();
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::from(1)
+
+    match util_name.to_str() {
+        Some("diff") => diff::main(args),
+        Some(name) => {
+            usage(&format!("{}: utility not supported", name));
+            ExitCode::from(1)
+        }
+        None => second_arg_error(exe_name),
     }
 }
