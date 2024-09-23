@@ -5,12 +5,13 @@
 
 use std::{
     env::ArgsOs,
-    ffi::OsString,
+    ffi::{OsStr, OsString},
     iter::Peekable,
     path::{Path, PathBuf},
     process::ExitCode,
 };
 
+mod cmp;
 mod context_diff;
 mod diff;
 mod ed_diff;
@@ -29,8 +30,10 @@ fn binary_path(args: &mut Peekable<ArgsOs>) -> PathBuf {
     }
 }
 
-fn name(binary_path: &Path) -> Option<&str> {
-    binary_path.file_stem()?.to_str()
+/// #Panics
+/// Panics if path has no UTF-8 valid name
+fn name(binary_path: &Path) -> &OsStr {
+    binary_path.file_stem().unwrap()
 }
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -39,12 +42,12 @@ fn usage(name: &str) {
     println!("{name} {VERSION} (multi-call binary)\n");
     println!("Usage: {name} [function [arguments...]]\n");
     println!("Currently defined functions:\n");
-    println!("    diff\n");
+    println!("    cmp, diff\n");
 }
 
-fn second_arg_error(name: &str) -> ! {
-    println!("Expected utility name as second argument, got nothing.");
-    usage(name);
+fn second_arg_error(name: &OsStr) -> ! {
+    eprintln!("Expected utility name as second argument, got nothing.");
+    usage(&name.to_string_lossy());
     std::process::exit(0);
 }
 
@@ -52,10 +55,7 @@ fn main() -> ExitCode {
     let mut args = std::env::args_os().peekable();
 
     let exe_path = binary_path(&mut args);
-    let exe_name = name(&exe_path).unwrap_or_else(|| {
-        usage("<unknown binary>");
-        std::process::exit(1);
-    });
+    let exe_name = name(&exe_path);
 
     let util_name = if exe_name == "diffutils" {
         // Discard the item we peeked.
@@ -70,9 +70,10 @@ fn main() -> ExitCode {
 
     match util_name.to_str() {
         Some("diff") => diff::main(args),
+        Some("cmp") => cmp::main(args),
         Some(name) => {
-            usage(&format!("{}: utility not supported", name));
-            ExitCode::from(1)
+            eprintln!("{}: utility not supported", name);
+            ExitCode::from(2)
         }
         None => second_arg_error(exe_name),
     }

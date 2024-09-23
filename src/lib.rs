@@ -1,3 +1,4 @@
+pub mod cmp;
 pub mod context_diff;
 pub mod ed_diff;
 pub mod macros;

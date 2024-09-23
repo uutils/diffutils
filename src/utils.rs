@@ -72,19 +72,30 @@ pub fn get_modification_time(file_path: &str) -> String {
     modification_time
 }
 
+pub fn format_failure_to_read_input_file(
+    executable: &OsString,
+    filepath: &OsString,
+    error: &std::io::Error,
+) -> String {
+    // std::io::Error's display trait outputs "{detail} (os error {code})"
+    // but we want only the {detail} (error string) part
+    let error_code_re = Regex::new(r"\ \(os\ error\ \d+\)$").unwrap();
+    format!(
+        "{}: {}: {}",
+        executable.to_string_lossy(),
+        filepath.to_string_lossy(),
+        error_code_re.replace(error.to_string().as_str(), ""),
+    )
+}
+
 pub fn report_failure_to_read_input_file(
     executable: &OsString,
     filepath: &OsString,
     error: &std::io::Error,
 ) {
-    // std::io::Error's display trait outputs "{detail} (os error {code})"
-    // but we want only the {detail} (error string) part
-    let error_code_re = Regex::new(r"\ \(os\ error\ \d+\)$").unwrap();
     eprintln!(
-        "{}: {}: {}",
-        executable.to_string_lossy(),
-        filepath.to_string_lossy(),
-        error_code_re.replace(error.to_string().as_str(), ""),
+        "{}",
+        format_failure_to_read_input_file(executable, filepath, error)
     );
 }
 

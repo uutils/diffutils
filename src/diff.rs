@@ -18,7 +18,7 @@ use std::process::{exit, ExitCode};
 //     An exit status of 0 means no differences were found,
 //     1 means some differences were found,
 //     and 2 means trouble.
-pub(crate) fn main(opts: Peekable<ArgsOs>) -> ExitCode {
+pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
     let params = parse_params(opts).unwrap_or_else(|error| {
         eprintln!("{error}");
         exit(2);

@@ -17,6 +17,18 @@ diffutils = { path = "../" }
 members = ["."]
 
 [[bin]]
+name = "fuzz_cmp"
+path = "fuzz_targets/fuzz_cmp.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_cmp_args"
+path = "fuzz_targets/fuzz_cmp_args.rs"
+test = false
+doc = false
+
+[[bin]]
 name = "fuzz_patch"
 path = "fuzz_targets/fuzz_patch.rs"
 test = false

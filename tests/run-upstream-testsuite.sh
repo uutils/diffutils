@@ -21,7 +21,7 @@
 # (e.g. 'dev' or 'test').
 # Unless overridden by the $TESTS environment variable, all tests in the test
 # suite will be run. Tests targeting a command that is not yet implemented
-# (e.g. cmp, diff3 or sdiff) are skipped.
+# (e.g. diff3 or sdiff) are skipped.
 
 scriptpath=$(dirname "$(readlink -f "$0")")
 rev=$(git rev-parse HEAD)
@@ -57,6 +57,7 @@ upstreamrev=$(git rev-parse HEAD)
 mkdir src
 cd src
 ln -s "$binary" diff
+ln -s "$binary" cmp
 cd ../tests
 
 if [[ -n "$TESTS" ]]
@@ -82,9 +83,9 @@ for test in $tests
 do
   result="FAIL"
   url="$urlroot$test?id=$upstreamrev"
-  # Run only the tests that invoke `diff`,
+  # Run only the tests that invoke `diff` or `cmp`,
   # because other binaries aren't implemented yet
-  if ! grep -E -s -q "(cmp|diff3|sdiff)" "$test"
+  if ! grep -E -s -q "(diff3|sdiff)" "$test"
   then
     sh "$test" 1> stdout.txt 2> stderr.txt && result="PASS" || exitcode=1
     json+="{\"test\":\"$test\",\"result\":\"$result\","
