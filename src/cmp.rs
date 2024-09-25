@@ -530,6 +530,9 @@ fn format_byte(byte: u8) -> String {
     unsafe { String::from_utf8_unchecked(quoted) }
 }
 
+// This function has been optimized to not use the Rust fmt system, which
+// leads to a massive speed up when processing large files: cuts the time
+// for comparing 2 ~36MB completely different files in half on an M1 Max.
 fn report_verbose_diffs(diffs: Vec<(usize, u8, u8)>, params: &Params) -> Result<(), String> {
     assert!(!params.quiet);
 
@@ -542,19 +545,49 @@ fn report_verbose_diffs(diffs: Vec<(usize, u8, u8)>, params: &Params) -> Result<
         let mut from_oct = [0u8; 3]; // for octal conversions
         let mut to_oct = [0u8; 3];
 
+        // Capacity calc: at_byte width + 2 x 3-byte octal numbers + 4-byte value + up to 2 byte value + 4 spaces
+        let mut output = Vec::<u8>::with_capacity(width + 3 * 2 + 4 + 2 + 4);
+
         if params.print_bytes {
             for (at_byte, from_byte, to_byte) in diffs {
+                output.clear();
+
+                // "{:>width$} {:>3o} {:4} {:>3o} {}",
                 let at_byte_str = at_byte_buf.format(at_byte);
-                writeln!(
-                    stdout,
-                    "{:>width$} {} {:4} {} {}",
-                    at_byte_str,
-                    format_octal(from_byte, &mut from_oct),
-                    format_byte(from_byte),
-                    format_octal(to_byte, &mut to_oct),
-                    format_byte(to_byte),
-                )
-                .map_err(|e| {
+                let at_byte_padding = width - at_byte_str.len();
+
+                for _ in 0..at_byte_padding {
+                    output.push(b' ')
+                }
+
+                output.extend_from_slice(at_byte_str.as_bytes());
+
+                output.push(b' ');
+
+                output.extend_from_slice(format_octal(from_byte, &mut from_oct).as_bytes());
+
+                output.push(b' ');
+
+                let from_byte_str = format_byte(from_byte);
+                let from_byte_padding = 4 - from_byte_str.len();
+
+                output.extend_from_slice(from_byte_str.as_bytes());
+
+                for _ in 0..from_byte_padding {
+                    output.push(b' ')
+                }
+
+                output.push(b' ');
+
+                output.extend_from_slice(format_octal(to_byte, &mut to_oct).as_bytes());
+
+                output.push(b' ');
+
+                output.extend_from_slice(format_byte(to_byte).as_bytes());
+
+                output.push(b'\n');
+
+                stdout.write_all(output.as_slice()).map_err(|e| {
                     format!(
                         "{}: error printing output: {e}",
                         params.executable.to_string_lossy()
@@ -563,16 +596,29 @@ fn report_verbose_diffs(diffs: Vec<(usize, u8, u8)>, params: &Params) -> Result<
             }
         } else {
             for (at_byte, from_byte, to_byte) in diffs {
+                output.clear();
+
+                // "{:>width$} {:>3o} {:>3o}"
                 let at_byte_str = at_byte_buf.format(at_byte);
-                writeln!(
-                    stdout,
-                    "{:>width$} {} {}",
-                    at_byte_str,
-                    format_octal(from_byte, &mut from_oct),
-                    format_octal(to_byte, &mut to_oct),
-                    width = width
-                )
-                .map_err(|e| {
+                let at_byte_padding = width - at_byte_str.len();
+
+                for _ in 0..at_byte_padding {
+                    output.push(b' ')
+                }
+
+                output.extend_from_slice(at_byte_str.as_bytes());
+
+                output.push(b' ');
+
+                output.extend_from_slice(format_octal(from_byte, &mut from_oct).as_bytes());
+
+                output.push(b' ');
+
+                output.extend_from_slice(format_octal(to_byte, &mut to_oct).as_bytes());
+
+                output.push(b'\n');
+
+                stdout.write_all(output.as_slice()).map_err(|e| {
                     format!(
                         "{}: error printing output: {e}",
                         params.executable.to_string_lossy()
