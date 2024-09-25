@@ -484,6 +484,24 @@ fn is_ascii_printable(byte: u8) -> bool {
 }
 
 #[inline]
+fn format_octal(byte: u8, buf: &mut [u8; 3]) -> &str {
+    *buf = [b' ', b' ', b'0'];
+
+    let mut num = byte;
+    let mut idx = 2; // Start at the last position in the buffer
+
+    // Generate octal digits
+    while num > 0 {
+        buf[idx] = b'0' + num % 8;
+        num /= 8;
+        idx = idx.saturating_sub(1);
+    }
+
+    // SAFETY: the operations we do above always land within ascii range.
+    unsafe { std::str::from_utf8_unchecked(&buf[..]) }
+}
+
+#[inline]
 fn format_byte(byte: u8) -> String {
     let mut byte = byte;
     let mut quoted = vec![];
@@ -520,15 +538,20 @@ fn report_verbose_diffs(diffs: Vec<(usize, u8, u8)>, params: &Params) -> Result<
         // Obtain the width of the first column from the last byte offset.
         let width = format!("{}", offset).len();
 
+        let mut at_byte_buf = itoa::Buffer::new();
+        let mut from_oct = [0u8; 3]; // for octal conversions
+        let mut to_oct = [0u8; 3];
+
         if params.print_bytes {
             for (at_byte, from_byte, to_byte) in diffs {
+                let at_byte_str = at_byte_buf.format(at_byte);
                 writeln!(
                     stdout,
-                    "{:>width$} {:>3o} {:4} {:>3o} {}",
-                    at_byte,
-                    from_byte,
+                    "{:>width$} {} {:4} {} {}",
+                    at_byte_str,
+                    format_octal(from_byte, &mut from_oct),
                     format_byte(from_byte),
-                    to_byte,
+                    format_octal(to_byte, &mut to_oct),
                     format_byte(to_byte),
                 )
                 .map_err(|e| {
@@ -540,12 +563,13 @@ fn report_verbose_diffs(diffs: Vec<(usize, u8, u8)>, params: &Params) -> Result<
             }
         } else {
             for (at_byte, from_byte, to_byte) in diffs {
+                let at_byte_str = at_byte_buf.format(at_byte);
                 writeln!(
                     stdout,
-                    "{:>width$} {:>3o} {:>3o}",
-                    at_byte,
-                    from_byte,
-                    to_byte,
+                    "{:>width$} {} {}",
+                    at_byte_str,
+                    format_octal(from_byte, &mut from_oct),
+                    format_octal(to_byte, &mut to_oct),
                     width = width
                 )
                 .map_err(|e| {
