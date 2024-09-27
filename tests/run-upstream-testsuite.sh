@@ -59,6 +59,10 @@ cd src
 ln -s "$binary" diff
 cd ../tests
 
+# Fetch tests/init.sh from the gnulib repository (needed since
+# https://git.savannah.gnu.org/cgit/diffutils.git/commit/tests?id=1d2456f539)
+curl -s "$gitserver/gitweb/?p=gnulib.git;a=blob_plain;f=tests/init.sh;hb=HEAD" -o init.sh
+
 if [[ -n "$TESTS" ]]
 then
   tests="$TESTS"
