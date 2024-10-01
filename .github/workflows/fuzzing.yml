@@ -41,6 +41,8 @@ jobs:
     strategy:
       matrix:
         test-target:
+          - { name: fuzz_cmp, should_pass: true }
+          - { name: fuzz_cmp_args, should_pass: true }
           - { name: fuzz_ed, should_pass: true }
           - { name: fuzz_normal, should_pass: true }
           - { name: fuzz_patch, should_pass: true }

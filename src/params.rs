@@ -1,4 +1,5 @@
 use std::ffi::OsString;
+use std::iter::Peekable;
 use std::path::PathBuf;
 
 use regex::Regex;
@@ -41,8 +42,7 @@ impl Default for Params {
     }
 }
 
-pub fn parse_params<I: IntoIterator<Item = OsString>>(opts: I) -> Result<Params, String> {
-    let mut opts = opts.into_iter().peekable();
+pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Result<Params, String> {
     // parse CLI
 
     let Some(executable) = opts.next() else {
@@ -323,7 +323,12 @@ mod tests {
                 to: os("bar"),
                 ..Default::default()
             }),
-            parse_params([os("diff"), os("foo"), os("bar")].iter().cloned())
+            parse_params(
+                [os("diff"), os("foo"), os("bar")]
+                    .iter()
+                    .cloned()
+                    .peekable()
+            )
         );
         assert_eq!(
             Ok(Params {
@@ -336,6 +341,7 @@ mod tests {
                 [os("diff"), os("--normal"), os("foo"), os("bar")]
                     .iter()
                     .cloned()
+                    .peekable()
             )
         );
     }
@@ -350,7 +356,12 @@ mod tests {
                     format: Format::Ed,
                     ..Default::default()
                 }),
-                parse_params([os("diff"), os(arg), os("foo"), os("bar")].iter().cloned())
+                parse_params(
+                    [os("diff"), os(arg), os("foo"), os("bar")]
+                        .iter()
+                        .cloned()
+                        .peekable()
+                )
             );
         }
     }
@@ -368,7 +379,7 @@ mod tests {
                     format: Format::Context,
                     ..Default::default()
                 }),
-                parse_params(params.iter().map(|x| os(x)))
+                parse_params(params.iter().map(|x| os(x)).peekable())
             );
         }
         for args in [
@@ -390,7 +401,7 @@ mod tests {
                     context_count: 42,
                     ..Default::default()
                 }),
-                parse_params(params.iter().map(|x| os(x)))
+                parse_params(params.iter().map(|x| os(x)).peekable())
             );
         }
     }
@@ -410,7 +421,7 @@ mod tests {
             let mut params = vec!["diff"];
             params.extend(args);
             params.extend(["foo", "bar"]);
-            assert!(parse_params(params.iter().map(|x| os(x))).is_err());
+            assert!(parse_params(params.iter().map(|x| os(x)).peekable()).is_err());
         }
     }
     #[test]
@@ -427,7 +438,7 @@ mod tests {
                     format: Format::Unified,
                     ..Default::default()
                 }),
-                parse_params(params.iter().map(|x| os(x)))
+                parse_params(params.iter().map(|x| os(x)).peekable())
             );
         }
         for args in [
@@ -449,7 +460,7 @@ mod tests {
                     context_count: 42,
                     ..Default::default()
                 }),
-                parse_params(params.iter().map(|x| os(x)))
+                parse_params(params.iter().map(|x| os(x)).peekable())
             );
         }
     }
@@ -469,7 +480,7 @@ mod tests {
             let mut params = vec!["diff"];
             params.extend(args);
             params.extend(["foo", "bar"]);
-            assert!(parse_params(params.iter().map(|x| os(x))).is_err());
+            assert!(parse_params(params.iter().map(|x| os(x)).peekable()).is_err());
         }
     }
     #[test]
@@ -487,6 +498,7 @@ mod tests {
                 [os("diff"), os("-u54"), os("foo"), os("bar")]
                     .iter()
                     .cloned()
+                    .peekable()
             )
         );
         assert_eq!(
@@ -502,6 +514,7 @@ mod tests {
                 [os("diff"), os("-U54"), os("foo"), os("bar")]
                     .iter()
                     .cloned()
+                    .peekable()
             )
         );
         assert_eq!(
@@ -517,6 +530,7 @@ mod tests {
                 [os("diff"), os("-U"), os("54"), os("foo"), os("bar")]
                     .iter()
                     .cloned()
+                    .peekable()
             )
         );
         assert_eq!(
@@ -532,6 +546,7 @@ mod tests {
                 [os("diff"), os("-c54"), os("foo"), os("bar")]
                     .iter()
                     .cloned()
+                    .peekable()
             )
         );
     }
@@ -544,7 +559,12 @@ mod tests {
                 to: os("bar"),
                 ..Default::default()
             }),
-            parse_params([os("diff"), os("foo"), os("bar")].iter().cloned())
+            parse_params(
+                [os("diff"), os("foo"), os("bar")]
+                    .iter()
+                    .cloned()
+                    .peekable()
+            )
         );
         assert_eq!(
             Ok(Params {
@@ -554,7 +574,12 @@ mod tests {
                 report_identical_files: true,
                 ..Default::default()
             }),
-            parse_params([os("diff"), os("-s"), os("foo"), os("bar")].iter().cloned())
+            parse_params(
+                [os("diff"), os("-s"), os("foo"), os("bar")]
+                    .iter()
+                    .cloned()
+                    .peekable()
+            )
         );
         assert_eq!(
             Ok(Params {
@@ -573,6 +598,7 @@ mod tests {
                 ]
                 .iter()
                 .cloned()
+                .peekable()
             )
         );
     }
@@ -585,7 +611,12 @@ mod tests {
                 to: os("bar"),
                 ..Default::default()
             }),
-            parse_params([os("diff"), os("foo"), os("bar")].iter().cloned())
+            parse_params(
+                [os("diff"), os("foo"), os("bar")]
+                    .iter()
+                    .cloned()
+                    .peekable()
+            )
         );
         assert_eq!(
             Ok(Params {
@@ -595,7 +626,12 @@ mod tests {
                 brief: true,
                 ..Default::default()
             }),
-            parse_params([os("diff"), os("-q"), os("foo"), os("bar")].iter().cloned())
+            parse_params(
+                [os("diff"), os("-q"), os("foo"), os("bar")]
+                    .iter()
+                    .cloned()
+                    .peekable()
+            )
         );
         assert_eq!(
             Ok(Params {
@@ -609,6 +645,7 @@ mod tests {
                 [os("diff"), os("--brief"), os("foo"), os("bar"),]
                     .iter()
                     .cloned()
+                    .peekable()
             )
         );
     }
@@ -621,7 +658,12 @@ mod tests {
                 to: os("bar"),
                 ..Default::default()
             }),
-            parse_params([os("diff"), os("foo"), os("bar")].iter().cloned())
+            parse_params(
+                [os("diff"), os("foo"), os("bar")]
+                    .iter()
+                    .cloned()
+                    .peekable()
+            )
         );
         for option in ["-t", "--expand-tabs"] {
             assert_eq!(
@@ -636,6 +678,7 @@ mod tests {
                     [os("diff"), os(option), os("foo"), os("bar")]
                         .iter()
                         .cloned()
+                        .peekable()
                 )
             );
         }
@@ -649,7 +692,12 @@ mod tests {
                 to: os("bar"),
                 ..Default::default()
             }),
-            parse_params([os("diff"), os("foo"), os("bar")].iter().cloned())
+            parse_params(
+                [os("diff"), os("foo"), os("bar")]
+                    .iter()
+                    .cloned()
+                    .peekable()
+            )
         );
         assert_eq!(
             Ok(Params {
@@ -663,6 +711,7 @@ mod tests {
                 [os("diff"), os("--tabsize=0"), os("foo"), os("bar")]
                     .iter()
                     .cloned()
+                    .peekable()
             )
         );
         assert_eq!(
@@ -677,36 +726,42 @@ mod tests {
                 [os("diff"), os("--tabsize=42"), os("foo"), os("bar")]
                     .iter()
                     .cloned()
+                    .peekable()
             )
         );
         assert!(parse_params(
             [os("diff"), os("--tabsize"), os("foo"), os("bar")]
                 .iter()
                 .cloned()
+                .peekable()
         )
         .is_err());
         assert!(parse_params(
             [os("diff"), os("--tabsize="), os("foo"), os("bar")]
                 .iter()
                 .cloned()
+                .peekable()
         )
         .is_err());
         assert!(parse_params(
             [os("diff"), os("--tabsize=r2"), os("foo"), os("bar")]
                 .iter()
                 .cloned()
+                .peekable()
         )
         .is_err());
         assert!(parse_params(
             [os("diff"), os("--tabsize=-1"), os("foo"), os("bar")]
                 .iter()
                 .cloned()
+                .peekable()
         )
         .is_err());
         assert!(parse_params(
             [os("diff"), os("--tabsize=r2"), os("foo"), os("bar")]
                 .iter()
                 .cloned()
+                .peekable()
         )
         .is_err());
         assert!(parse_params(
@@ -718,6 +773,7 @@ mod tests {
             ]
             .iter()
             .cloned()
+            .peekable()
         )
         .is_err());
     }
@@ -730,7 +786,12 @@ mod tests {
                 to: os("-h"),
                 ..Default::default()
             }),
-            parse_params([os("diff"), os("--"), os("-g"), os("-h")].iter().cloned())
+            parse_params(
+                [os("diff"), os("--"), os("-g"), os("-h")]
+                    .iter()
+                    .cloned()
+                    .peekable()
+            )
         );
     }
     #[test]
@@ -742,7 +803,7 @@ mod tests {
                 to: os("-"),
                 ..Default::default()
             }),
-            parse_params([os("diff"), os("foo"), os("-")].iter().cloned())
+            parse_params([os("diff"), os("foo"), os("-")].iter().cloned().peekable())
         );
         assert_eq!(
             Ok(Params {
@@ -751,7 +812,7 @@ mod tests {
                 to: os("bar"),
                 ..Default::default()
             }),
-            parse_params([os("diff"), os("-"), os("bar")].iter().cloned())
+            parse_params([os("diff"), os("-"), os("bar")].iter().cloned().peekable())
         );
         assert_eq!(
             Ok(Params {
@@ -760,27 +821,45 @@ mod tests {
                 to: os("-"),
                 ..Default::default()
             }),
-            parse_params([os("diff"), os("-"), os("-")].iter().cloned())
+            parse_params([os("diff"), os("-"), os("-")].iter().cloned().peekable())
         );
-        assert!(parse_params([os("diff"), os("foo"), os("bar"), os("-")].iter().cloned()).is_err());
-        assert!(parse_params([os("diff"), os("-"), os("-"), os("-")].iter().cloned()).is_err());
+        assert!(parse_params(
+            [os("diff"), os("foo"), os("bar"), os("-")]
+                .iter()
+                .cloned()
+                .peekable()
+        )
+        .is_err());
+        assert!(parse_params(
+            [os("diff"), os("-"), os("-"), os("-")]
+                .iter()
+                .cloned()
+                .peekable()
+        )
+        .is_err());
     }
     #[test]
     fn missing_arguments() {
-        assert!(parse_params([os("diff")].iter().cloned()).is_err());
-        assert!(parse_params([os("diff"), os("foo")].iter().cloned()).is_err());
+        assert!(parse_params([os("diff")].iter().cloned().peekable()).is_err());
+        assert!(parse_params([os("diff"), os("foo")].iter().cloned().peekable()).is_err());
     }
     #[test]
     fn unknown_argument() {
+        assert!(parse_params(
+            [os("diff"), os("-g"), os("foo"), os("bar")]
+                .iter()
+                .cloned()
+                .peekable()
+        )
+        .is_err());
         assert!(
-            parse_params([os("diff"), os("-g"), os("foo"), os("bar")].iter().cloned()).is_err()
+            parse_params([os("diff"), os("-g"), os("bar")].iter().cloned().peekable()).is_err()
         );
-        assert!(parse_params([os("diff"), os("-g"), os("bar")].iter().cloned()).is_err());
-        assert!(parse_params([os("diff"), os("-g")].iter().cloned()).is_err());
+        assert!(parse_params([os("diff"), os("-g")].iter().cloned().peekable()).is_err());
     }
     #[test]
     fn empty() {
-        assert!(parse_params([].iter().cloned()).is_err());
+        assert!(parse_params([].iter().cloned().peekable()).is_err());
     }
     #[test]
     fn conflicting_output_styles() {
@@ -797,6 +876,7 @@ mod tests {
                 [os("diff"), os(arg1), os(arg2), os("foo"), os("bar")]
                     .iter()
                     .cloned()
+                    .peekable()
             )
             .is_err());
         }
