@@ -76,7 +76,6 @@ total=$(echo "$tests" | wc -w)
 echo "Running $total tests"
 export LC_ALL=C
 export KEEP=yes
-exitcode=0
 timestamp=$(date -Iseconds)
 urlroot="$gitserver/cgit/diffutils.git/tree/tests/"
 passed=0
@@ -91,31 +90,39 @@ do
   # because other binaries aren't implemented yet
   if ! grep -E -s -q "(diff3|sdiff)" "$test"
   then
-    sh "$test" 1> stdout.txt 2> stderr.txt && result="PASS" || exitcode=1
-    json+="{\"test\":\"$test\",\"result\":\"$result\","
-    json+="\"url\":\"$url\","
-    json+="\"stdout\":\"$(base64 -w0 < stdout.txt)\","
-    json+="\"stderr\":\"$(base64 -w0 < stderr.txt)\","
-    json+="\"files\":{"
-    cd gt-$test.*
-    # Note: this doesn't include the contents of subdirectories,
-    # but there isn't much value added in doing so
-    for file in *
-    do
-      [[ -f "$file" ]] && json+="\"$file\":\"$(base64 -w0 < "$file")\","
-    done
-    json="${json%,}}},"
-    cd - > /dev/null
-    [[ "$result" = "PASS" ]] && (( passed++ ))
-    [[ "$result" = "FAIL" ]] && (( failed++ ))
+    sh "$test" 1> stdout.txt 2> stderr.txt && result="PASS"
+    if [[ $? = 77 ]]
+    then
+      result="SKIP"
+    else
+      json+="{\"test\":\"$test\",\"result\":\"$result\","
+      json+="\"url\":\"$url\","
+      json+="\"stdout\":\"$(base64 -w0 < stdout.txt)\","
+      json+="\"stderr\":\"$(base64 -w0 < stderr.txt)\","
+      json+="\"files\":{"
+      cd gt-$test.*
+      # Note: this doesn't include the contents of subdirectories,
+      # but there isn't much value added in doing so
+      for file in *
+      do
+        [[ -f "$file" ]] && json+="\"$file\":\"$(base64 -w0 < "$file")\","
+      done
+      json="${json%,}}},"
+      cd - > /dev/null
+      [[ "$result" = "PASS" ]] && (( passed++ ))
+      [[ "$result" = "FAIL" ]] && (( failed++ ))
+    fi
   else
     result="SKIP"
-    (( skipped++ ))
-    json+="{\"test\":\"$test\",\"url\":\"$url\",\"result\":\"$result\"},"
   fi
   color=2 # green
   [[ "$result" = "FAIL" ]] && color=1 # red
-  [[ "$result" = "SKIP" ]] && color=3 # yellow
+  if [[ $result = "SKIP" ]]
+  then
+    (( skipped++ ))
+    json+="{\"test\":\"$test\",\"url\":\"$url\",\"result\":\"$result\"},"
+    color=3 # yellow
+  fi
   printf "  %-40s $(tput setaf $color)$result$(tput sgr0)\n" "$test"
 done
 echo ""
@@ -143,4 +150,5 @@ resultsfile="test-results.json"
 echo "$json" | jq > "$resultsfile"
 echo "Results written to $scriptpath/$resultsfile"
 
-exit $exitcode
+(( failed > 0 )) && exit 1
+exit 0
