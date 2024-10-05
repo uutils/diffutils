@@ -9,7 +9,7 @@ use std::ffi::OsString;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::iter::Peekable;
 use std::process::ExitCode;
-use std::{fs, io};
+use std::{cmp, fs, io};
 
 #[cfg(not(target_os = "windows"))]
 use std::os::fd::{AsRawFd, FromRawFd};
@@ -320,10 +320,35 @@ pub fn cmp(params: &Params) -> Result<Cmp, String> {
     let mut from = prepare_reader(&params.from, &params.skip_a, params)?;
     let mut to = prepare_reader(&params.to, &params.skip_b, params)?;
 
+    let mut offset_width = params.max_bytes.unwrap_or(usize::MAX);
+
+    if let (Ok(a_meta), Ok(b_meta)) = (fs::metadata(&params.from), fs::metadata(&params.to)) {
+        #[cfg(not(target_os = "windows"))]
+        let (a_size, b_size) = (a_meta.size(), b_meta.size());
+
+        #[cfg(target_os = "windows")]
+        let (a_size, b_size) = (a_meta.file_size(), b_meta.file_size());
+
+        // If the files have different sizes, we already know they are not identical. If we have not
+        // been asked to show even the first difference, we can quit early.
+        if params.quiet && a_size != b_size {
+            return Ok(Cmp::Different);
+        }
+
+        let smaller = cmp::min(a_size, b_size) as usize;
+        offset_width = cmp::min(smaller, offset_width);
+    }
+
+    let offset_width = 1 + offset_width.checked_ilog10().unwrap_or(1) as usize;
+
+    // Capacity calc: at_byte width + 2 x 3-byte octal numbers + 2 x 4-byte value + 4 spaces
+    let mut output = Vec::<u8>::with_capacity(offset_width + 3 * 2 + 4 * 2 + 4);
+
     let mut at_byte = 1;
     let mut at_line = 1;
     let mut start_of_line = true;
-    let mut verbose_diffs = vec![];
+    let mut stdout = BufWriter::new(io::stdout().lock());
+    let mut compare = Cmp::Equal;
     loop {
         // Fill up our buffers.
         let from_buf = match from.fill_buf() {
@@ -360,10 +385,6 @@ pub fn cmp(params: &Params) -> Result<Cmp, String> {
                 &params.to.to_string_lossy()
             };
 
-            if params.verbose {
-                report_verbose_diffs(verbose_diffs, params)?;
-            }
-
             report_eof(at_byte, at_line, start_of_line, eof_on, params);
             return Ok(Cmp::Different);
         }
@@ -395,8 +416,24 @@ pub fn cmp(params: &Params) -> Result<Cmp, String> {
         // first one runs out.
         for (&from_byte, &to_byte) in from_buf.iter().zip(to_buf.iter()) {
             if from_byte != to_byte {
+                compare = Cmp::Different;
+
                 if params.verbose {
-                    verbose_diffs.push((at_byte, from_byte, to_byte));
+                    format_verbose_difference(
+                        from_byte,
+                        to_byte,
+                        at_byte,
+                        offset_width,
+                        &mut output,
+                        params,
+                    )?;
+                    stdout.write_all(output.as_slice()).map_err(|e| {
+                        format!(
+                            "{}: error printing output: {e}",
+                            params.executable.to_string_lossy()
+                        )
+                    })?;
+                    output.clear();
                 } else {
                     report_difference(from_byte, to_byte, at_byte, at_line, params);
                     return Ok(Cmp::Different);
@@ -422,12 +459,7 @@ pub fn cmp(params: &Params) -> Result<Cmp, String> {
         to.consume(consumed);
     }
 
-    if params.verbose && !verbose_diffs.is_empty() {
-        report_verbose_diffs(verbose_diffs, params)?;
-        return Ok(Cmp::Different);
-    }
-
-    Ok(Cmp::Equal)
+    Ok(compare)
 }
 
 // Exit codes are documented at
@@ -448,21 +480,6 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
         || same_file::is_same_file(&params.from, &params.to).unwrap_or(false)
     {
         return ExitCode::SUCCESS;
-    }
-
-    // If the files have different sizes, we already know they are not identical. If we have not
-    // been asked to show even the first difference, we can quit early.
-    if params.quiet {
-        if let (Ok(a_meta), Ok(b_meta)) = (fs::metadata(&params.from), fs::metadata(&params.to)) {
-            #[cfg(not(target_os = "windows"))]
-            if a_meta.size() != b_meta.size() {
-                return ExitCode::from(1);
-            }
-            #[cfg(target_os = "windows")]
-            if a_meta.file_size() != b_meta.file_size() {
-                return ExitCode::from(1);
-            }
-        }
     }
 
     match cmp(&params) {
@@ -533,99 +550,76 @@ fn format_byte(byte: u8) -> String {
 // This function has been optimized to not use the Rust fmt system, which
 // leads to a massive speed up when processing large files: cuts the time
 // for comparing 2 ~36MB completely different files in half on an M1 Max.
-fn report_verbose_diffs(diffs: Vec<(usize, u8, u8)>, params: &Params) -> Result<(), String> {
+#[inline]
+fn format_verbose_difference(
+    from_byte: u8,
+    to_byte: u8,
+    at_byte: usize,
+    offset_width: usize,
+    output: &mut Vec<u8>,
+    params: &Params,
+) -> Result<(), String> {
     assert!(!params.quiet);
 
-    let mut stdout = BufWriter::new(io::stdout().lock());
-    if let Some((offset, _, _)) = diffs.last() {
-        // Obtain the width of the first column from the last byte offset.
-        let width = format!("{}", offset).len();
+    let mut at_byte_buf = itoa::Buffer::new();
+    let mut from_oct = [0u8; 3]; // for octal conversions
+    let mut to_oct = [0u8; 3];
 
-        let mut at_byte_buf = itoa::Buffer::new();
-        let mut from_oct = [0u8; 3]; // for octal conversions
-        let mut to_oct = [0u8; 3];
+    if params.print_bytes {
+        // "{:>width$} {:>3o} {:4} {:>3o} {}",
+        let at_byte_str = at_byte_buf.format(at_byte);
+        let at_byte_padding = offset_width.saturating_sub(at_byte_str.len());
 
-        // Capacity calc: at_byte width + 2 x 3-byte octal numbers + 4-byte value + up to 2 byte value + 4 spaces
-        let mut output = Vec::<u8>::with_capacity(width + 3 * 2 + 4 + 2 + 4);
-
-        if params.print_bytes {
-            for (at_byte, from_byte, to_byte) in diffs {
-                output.clear();
-
-                // "{:>width$} {:>3o} {:4} {:>3o} {}",
-                let at_byte_str = at_byte_buf.format(at_byte);
-                let at_byte_padding = width - at_byte_str.len();
-
-                for _ in 0..at_byte_padding {
-                    output.push(b' ')
-                }
-
-                output.extend_from_slice(at_byte_str.as_bytes());
-
-                output.push(b' ');
-
-                output.extend_from_slice(format_octal(from_byte, &mut from_oct).as_bytes());
-
-                output.push(b' ');
-
-                let from_byte_str = format_byte(from_byte);
-                let from_byte_padding = 4 - from_byte_str.len();
-
-                output.extend_from_slice(from_byte_str.as_bytes());
-
-                for _ in 0..from_byte_padding {
-                    output.push(b' ')
-                }
-
-                output.push(b' ');
-
-                output.extend_from_slice(format_octal(to_byte, &mut to_oct).as_bytes());
-
-                output.push(b' ');
-
-                output.extend_from_slice(format_byte(to_byte).as_bytes());
-
-                output.push(b'\n');
-
-                stdout.write_all(output.as_slice()).map_err(|e| {
-                    format!(
-                        "{}: error printing output: {e}",
-                        params.executable.to_string_lossy()
-                    )
-                })?;
-            }
-        } else {
-            for (at_byte, from_byte, to_byte) in diffs {
-                output.clear();
-
-                // "{:>width$} {:>3o} {:>3o}"
-                let at_byte_str = at_byte_buf.format(at_byte);
-                let at_byte_padding = width - at_byte_str.len();
-
-                for _ in 0..at_byte_padding {
-                    output.push(b' ')
-                }
-
-                output.extend_from_slice(at_byte_str.as_bytes());
-
-                output.push(b' ');
-
-                output.extend_from_slice(format_octal(from_byte, &mut from_oct).as_bytes());
-
-                output.push(b' ');
-
-                output.extend_from_slice(format_octal(to_byte, &mut to_oct).as_bytes());
-
-                output.push(b'\n');
-
-                stdout.write_all(output.as_slice()).map_err(|e| {
-                    format!(
-                        "{}: error printing output: {e}",
-                        params.executable.to_string_lossy()
-                    )
-                })?;
-            }
+        for _ in 0..at_byte_padding {
+            output.push(b' ')
         }
+
+        output.extend_from_slice(at_byte_str.as_bytes());
+
+        output.push(b' ');
+
+        output.extend_from_slice(format_octal(from_byte, &mut from_oct).as_bytes());
+
+        output.push(b' ');
+
+        let from_byte_str = format_byte(from_byte);
+        let from_byte_padding = 4 - from_byte_str.len();
+
+        output.extend_from_slice(from_byte_str.as_bytes());
+
+        for _ in 0..from_byte_padding {
+            output.push(b' ')
+        }
+
+        output.push(b' ');
+
+        output.extend_from_slice(format_octal(to_byte, &mut to_oct).as_bytes());
+
+        output.push(b' ');
+
+        output.extend_from_slice(format_byte(to_byte).as_bytes());
+
+        output.push(b'\n');
+    } else {
+        // "{:>width$} {:>3o} {:>3o}"
+        let at_byte_str = at_byte_buf.format(at_byte);
+        let at_byte_padding = offset_width - at_byte_str.len();
+
+        for _ in 0..at_byte_padding {
+            output.push(b' ')
+        }
+
+        output.extend_from_slice(at_byte_str.as_bytes());
+
+        output.push(b' ');
+
+        output.extend_from_slice(format_octal(from_byte, &mut from_oct).as_bytes());
+
+        output.push(b' ');
+
+        output.extend_from_slice(format_octal(to_byte, &mut to_oct).as_bytes());
+
+        output.push(b'\n');
     }
 
     Ok(())
