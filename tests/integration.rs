@@ -616,7 +616,7 @@ mod cmp {
             .code(predicate::eq(1))
             .failure()
             .stderr(predicate::str::is_empty())
-            .stdout(predicate::eq("4  40      144 d\n8  40      150 h\n"));
+            .stdout(predicate::eq(" 4  40      144 d\n 8  40      150 h\n"));
         Ok(())
     }
 
