@@ -851,12 +851,12 @@ mod cmp {
 
         let a_path = tmp_dir.path().join("a");
         let mut a = File::create(&a_path).unwrap();
-        a.write_all(&bytes).unwrap();
+        a.write_all(bytes).unwrap();
         a.write_all(b"A").unwrap();
 
         let b_path = tmp_dir.path().join("b");
         let mut b = File::create(&b_path).unwrap();
-        b.write_all(&bytes).unwrap();
+        b.write_all(bytes).unwrap();
         b.write_all(b"B").unwrap();
 
         let mut cmd = Command::cargo_bin("diffutils")?;
