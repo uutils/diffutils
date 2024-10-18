@@ -691,12 +691,12 @@ mod cmp {
 
         let a_path = tmp_dir.path().join("a");
         let mut a = File::create(&a_path).unwrap();
-        write!(a, "{}c\n", "a".repeat(1024)).unwrap();
+        writeln!(a, "{}c", "a".repeat(1024)).unwrap();
         a.flush().unwrap();
 
         let b_path = tmp_dir.path().join("b");
         let mut b = File::create(&b_path).unwrap();
-        write!(b, "{}c\n", "b".repeat(1024)).unwrap();
+        writeln!(b, "{}c", "b".repeat(1024)).unwrap();
         b.flush().unwrap();
 
         let mut cmd = Command::cargo_bin("diffutils")?;
