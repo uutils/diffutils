@@ -771,6 +771,7 @@ mod tests {
                                 let _ = fb;
                                 let output = Command::new("patch")
                                     .arg("-p0")
+                                    .arg(format!("{target}/alefx"))
                                     .stdin(File::open(format!("{target}/abx.diff")).unwrap())
                                     .output()
                                     .unwrap();
