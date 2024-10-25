@@ -15,6 +15,7 @@ mod cmp;
 mod context_diff;
 mod diff;
 mod ed_diff;
+mod engine;
 mod macros;
 mod normal_diff;
 mod params;
@@ -52,6 +53,8 @@ fn second_arg_error(name: &OsStr) -> ! {
 }
 
 fn main() -> ExitCode {
+    tracing_subscriber::fmt::init();
+
     let mut args = std::env::args_os().peekable();
 
     let exe_path = binary_path(&mut args);

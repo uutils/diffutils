@@ -6,6 +6,7 @@
 use std::collections::VecDeque;
 use std::io::Write;
 
+use crate::engine::{self, Edit};
 use crate::params::Params;
 use crate::utils::do_write_line;
 use crate::utils::get_modification_time;
@@ -65,9 +66,9 @@ fn make_diff(
         actual_lines.pop();
     }
 
-    for result in diff::slice(&expected_lines, &actual_lines) {
+    for result in engine::diff(&expected_lines, &actual_lines) {
         match result {
-            diff::Result::Left(str) => {
+            Edit::Delete(str) => {
                 if lines_since_mismatch >= context_size && lines_since_mismatch > 0 {
                     results.push(mismatch);
                     mismatch = Mismatch::new(
@@ -104,7 +105,7 @@ fn make_diff(
                 line_number_expected += 1;
                 lines_since_mismatch = 0;
             }
-            diff::Result::Right(str) => {
+            Edit::Insert(str) => {
                 if lines_since_mismatch >= context_size && lines_since_mismatch > 0 {
                     results.push(mismatch);
                     mismatch = Mismatch::new(
@@ -125,7 +126,7 @@ fn make_diff(
                 line_number_actual += 1;
                 lines_since_mismatch = 0;
             }
-            diff::Result::Both(str, _) => {
+            Edit::Keep(str) => {
                 // if one of them is missing a newline and the other isn't, then they don't actually match
                 if (line_number_actual > actual_lines_count)
                     && (line_number_expected > expected_lines_count)

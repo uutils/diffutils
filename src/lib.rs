@@ -1,6 +1,7 @@
 pub mod cmp;
 pub mod context_diff;
 pub mod ed_diff;
+pub mod engine;
 pub mod macros;
 pub mod normal_diff;
 pub mod params;
