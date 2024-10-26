@@ -16,6 +16,11 @@ struct Snake {
 }
 
 impl Snake {
+    fn is_good(&self) -> bool {
+        // This magic number comes from GNU diff.
+        self.length > 20
+    }
+
     fn maybe_update(&mut self, x: isize, y: isize, length: isize) {
         let length = length as usize;
         if length > self.length {
@@ -82,11 +87,26 @@ fn find_split_point<T: Clone + Debug + PartialEq + Into<Vec<u8>>>(
         x >= offset && y >= offset && x < left_length + offset && y < right_length + offset
     };
 
+    // This constant is the value used by GNU diff; using it should give us
+    // more similar diffs.
+    const HIGH_COST: isize = 200;
+
+    // This magic number was borrowed from GNU diff - apparently this is a
+    // good number for modern CPUs.
+    let too_expensive: isize = ((max_cost as f64).sqrt() as isize).max(4096);
+    info!(too_expensive = too_expensive);
+
     let mut best_snake = Snake::default();
 
     let forward_span = tracing::span!(Level::TRACE, "forward");
     let backward_span = tracing::span!(Level::TRACE, "backward");
-    'outer: for _ in 1..max_cost {
+    'outer: for c in 1..max_cost {
+        info!(c = c, snake_length = best_snake.length);
+        // The files appear to be large and too different. Go for good enough
+        if c > too_expensive {
+            break 'outer;
+        }
+
         // Forwards search
         forward_diagonals.expand_search();
         let fwd = forward_span.enter();
@@ -192,7 +212,21 @@ fn find_split_point<T: Clone + Debug + PartialEq + Into<Vec<u8>>>(
             }
         }
         drop(bwd);
+
+        if c > HIGH_COST && best_snake.is_good() {
+            info!("met criteria for high cost with good snake heuristic");
+            break 'outer;
+        }
     }
+
+    // If we hit this condition, the search ran too long and found 0 matches.
+    // Get the best we can do as a split point - furthest diagonal.
+    if best_snake.length == 0 {
+        let (x, y) = forward_diagonals.get_furthest_progress();
+        best_snake.x = x;
+        best_snake.y = y;
+    }
+
     info!(
         x = best_snake.x,
         y = best_snake.y,
@@ -353,6 +387,21 @@ impl Diagonals {
     fn in_bounds(&self, index: isize) -> bool {
         let actual = self.center as isize + index;
         actual >= 0 && (actual as usize) < self.data.len()
+    }
+
+    fn get_furthest_progress(&self) -> (usize, usize) {
+        let (d, x) = self
+            .data
+            .iter()
+            .enumerate()
+            .filter(|(d, &x)| x - (*d as isize) >= 0)
+            .max_by_key(|(_, &x)| x)
+            .map(|(i, x)| (i as isize, *x))
+            .unwrap_or((0isize, 0isize));
+        let y = x - d;
+        debug_assert!(x >= 0);
+        debug_assert!(y >= 0);
+        (x as usize, y as usize)
     }
 
     fn expand_search(&mut self) {
