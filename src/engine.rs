@@ -6,6 +6,7 @@
 use std::fmt::Debug;
 use std::ops::{Index, IndexMut, RangeInclusive};
 
+use rand::Rng as _;
 use tracing::{info, instrument, trace, Level};
 
 #[derive(Debug, Default, PartialEq)]
@@ -43,11 +44,43 @@ impl Snake {
 fn find_split_point<T: Clone + Debug + PartialEq + Into<Vec<u8>>>(
     left: &[T],
     right: &[T],
+    total_cost: &mut usize,
 ) -> Snake {
     let left_length = left.len() as isize;
     let right_length = right.len() as isize;
 
     let max_cost = left_length + right_length;
+
+    // This constant is the value used by GNU diff; using it should give us
+    // more similar diffs.
+    const HIGH_COST: isize = 200;
+
+    // This magic number was borrowed from GNU diff - apparently this is a
+    // good number for modern CPUs.
+    let too_expensive: isize = ((max_cost as f64).sqrt() as isize).max(4096);
+    info!(too_expensive = too_expensive);
+
+    // We've been constantly hitting the too expensive heuristic, this means the
+    // files are too different for us to get a good diff in reasonable amount of
+    // time. Do naive splits from now on.
+    if *total_cost as isize > too_expensive * 10 {
+        info!(
+            total_cost = total_cost,
+            "hit too costly overall heuristic, creating naive split"
+        );
+        let mut rng = rand::thread_rng();
+        let x = if left_length == 0 {
+            0
+        } else {
+            rng.gen_range(0..left.len())
+        };
+        let y = if right_length == 0 {
+            0
+        } else {
+            rng.gen_range(0..right.len())
+        };
+        return Snake { x, y, length: 0 };
+    }
 
     // For collections of different sizes, the diagonals will not neatly balance. That means the
     // "middle" diagonal for the backwards search will be offset from the forward one, so we need
@@ -87,20 +120,13 @@ fn find_split_point<T: Clone + Debug + PartialEq + Into<Vec<u8>>>(
         x >= offset && y >= offset && x < left_length + offset && y < right_length + offset
     };
 
-    // This constant is the value used by GNU diff; using it should give us
-    // more similar diffs.
-    const HIGH_COST: isize = 200;
-
-    // This magic number was borrowed from GNU diff - apparently this is a
-    // good number for modern CPUs.
-    let too_expensive: isize = ((max_cost as f64).sqrt() as isize).max(4096);
-    info!(too_expensive = too_expensive);
-
     let mut best_snake = Snake::default();
 
     let forward_span = tracing::span!(Level::TRACE, "forward");
     let backward_span = tracing::span!(Level::TRACE, "backward");
     'outer: for c in 1..max_cost {
+        *total_cost += 1;
+
         info!(c = c, snake_length = best_snake.length);
         // The files appear to be large and too different. Go for good enough
         if c > too_expensive {
@@ -253,7 +279,8 @@ pub fn diff<'a, T: Clone + Debug + PartialEq + Into<Vec<u8>>>(
 ) -> Vec<Edit<'a, T>> {
     trace!(left_length = left.len(), right_length = right.len());
     let mut edits = vec![];
-    do_diff(left, right, &mut edits);
+    let mut total_cost = 0;
+    do_diff(left, right, &mut edits, &mut total_cost);
     edits
 }
 
@@ -262,6 +289,7 @@ fn do_diff<'a, T: Clone + Debug + PartialEq + Into<Vec<u8>>>(
     left: &'a [T],
     right: &'a [T],
     edits: &mut Vec<Edit<'a, T>>,
+    total_cost: &mut usize,
 ) {
     if left.is_empty() {
         right.iter().for_each(|r| edits.push(Edit::Insert(r)));
@@ -296,7 +324,7 @@ fn do_diff<'a, T: Clone + Debug + PartialEq + Into<Vec<u8>>>(
     let left_remaining = &left[leading_matches..left.len() - trailing_matches];
     let right_remaining = &right[leading_matches..right.len() - trailing_matches];
 
-    let snake = find_split_point(left_remaining, right_remaining);
+    let snake = find_split_point(left_remaining, right_remaining, total_cost);
 
     trace!(x = snake.x, y = snake.y, length = snake.length, "snake");
 
@@ -321,8 +349,8 @@ fn do_diff<'a, T: Clone + Debug + PartialEq + Into<Vec<u8>>>(
             "split"
         );
 
-        do_diff(l1, r1, edits);
-        do_diff(l2, r2, edits);
+        do_diff(l1, r1, edits, total_cost);
+        do_diff(l2, r2, edits, total_cost);
     }
 
     // Finally add the trailing matches.
