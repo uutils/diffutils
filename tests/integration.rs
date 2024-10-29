@@ -95,6 +95,8 @@ mod common {
 }
 
 mod diff {
+    use std::process::Stdio;
+
     use diffutilslib::assert_diff_eq;
 
     use super::*;
@@ -338,6 +340,97 @@ mod diff {
                 da_path.display()
             )
         );
+
+        Ok(())
+    }
+
+    fn str_bar_diff(bar: &[u8]) -> String {
+        String::from_utf8(
+            bar.split(|b| *b == b'\n')
+                .filter(|b| b != b"")
+                .flat_map(|b| [b">", b" ", b, b"\n"].concat())
+                .collect::<Vec<u8>>(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn large_similar_files() -> Result<(), Box<dyn std::error::Error>> {
+        // Large similar files should still produce ideal diffs, not
+        // triggering the total cost heuristic.
+        let foo = b"f\n".repeat(16 * 1024 * 1024);
+        let bar = b"b\n".repeat(26);
+
+        let mut file1 = NamedTempFile::new()?;
+        file1.write_all(&foo)?;
+        file1.write_all(&foo)?;
+        let mut file2 = NamedTempFile::new()?;
+        file2.write_all(&foo)?;
+        file2.write_all(&bar)?;
+        file2.write_all(&foo)?;
+
+        let mut cmd = Command::cargo_bin("diffutils")?;
+        cmd.arg("diff").arg(file1.path()).arg(file2.path());
+        cmd.assert()
+            .code(predicate::eq(1))
+            .failure()
+            .stdout(predicate::eq(format!(
+                "16777216a16777217,16777242\n{}",
+                str_bar_diff(&bar)
+            )));
+
+        let mut file1 = NamedTempFile::new()?;
+        file1.write_all(&bar)?;
+        file1.write_all(&foo)?;
+        file1.write_all(&foo)?;
+        let mut file2 = NamedTempFile::new()?;
+        file2.write_all(&foo)?;
+        file2.write_all(&foo)?;
+
+        let mut cmd = Command::cargo_bin("diffutils")?;
+        cmd.arg("diff").arg(file1.path()).arg(file2.path());
+        cmd.assert()
+            .code(predicate::eq(1))
+            .failure()
+            .stdout(predicate::eq(format!(
+                "1,26d0\n{}",
+                str_bar_diff(&bar).replace(">", "<")
+            )));
+
+        Ok(())
+    }
+
+    #[test]
+    fn large_different_files() -> Result<(), Box<dyn std::error::Error>> {
+        let foo = b"f\n".repeat(4 * 1024 * 1024);
+        let bar = b"b\n".repeat(26);
+        let baz = b"z\n".repeat(4 * 1024 * 1024);
+
+        let mut file1 = NamedTempFile::new()?;
+        file1.write_all(&foo)?;
+        file1.write_all(&bar)?;
+        let mut file2 = NamedTempFile::new()?;
+        file2.write_all(&baz)?;
+        file2.write_all(&bar)?;
+
+        let mut child = std::process::Command::new(assert_cmd::cargo::cargo_bin("diffutils"))
+            .arg("diff")
+            .arg(file1.path())
+            .arg(file2.path())
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap();
+
+        // The total cost heuristic should give up trying to find good split points
+        // in a reasonable amount of time (can still be a fairly big in debug builds)
+        for retries in 0.. {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            if let Some(status) = child.try_wait()? {
+                assert_eq!(status.code(), Some(1));
+                break;
+            }
+            assert!(retries < 10);
+        }
 
         Ok(())
     }
