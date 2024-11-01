@@ -3,6 +3,44 @@
 // For the full copyright and license information, please view the LICENSE-*
 // files that was distributed with this source code.
 
+// This engine implements the Myers diff algorithm, which uses a double-ended
+// diagonal search to identify the longest common subsequence (LCS) between two
+// collections. The original paper can be found here:
+//
+// https://link.springer.com/article/10.1007/BF01840446
+//
+// Unlike a naive LCS implementation, which covers all possible combinations,
+// the Myers algorithm gradualy expands the search space, and only encodes
+// the furthest progress made by each diagonal rather than storing each step
+// of the search on a matrix.
+//
+// This makes it a lot more memory-efficient, as it only needs 2 * (m + n)
+// positions to represent the state of the search, where m and n are the number
+// of items in the collections being compared, whereas the naive LCS requires
+// m * n positions.
+//
+// The downside is it is more compute-intensive than the naive method when
+// searching through very different files. This may lead to unnacceptable run
+// time in pathological cases (large, completely different files), so heuristics
+// are often used to bail on the search if it gets too costly and/or a good enough
+// subsequence has been found.
+//
+// We implement 3 main heuristics that are also used by GNU diff:
+//
+// 1. if we found a large enough common subsequence (also known as a 'snake')
+// and have searched for a while, we return that one
+//
+// 2. if we have searched for a significant chunk of the collections (with a
+// minimum of 4096 iterations, so we cover easy cases fully) and have not found
+// one, we use whatever we have, even if it is a small snake or no snake at all
+//
+// 3. we keep track of the overall cost of the various searches that are done
+// over the course of the divide and conquer strategy, and if that becomes too
+// large we give up on trying to find long similarities altogether
+//
+// This last heuristic could be improved significantly in the future if we
+// implement an optimization that separates items that only appear in either
+// collection and remove them from the diffing process, like GNU diff does.
 use std::fmt::Debug;
 use std::ops::{Index, IndexMut, RangeInclusive};
 
