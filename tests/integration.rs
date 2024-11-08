@@ -5,7 +5,9 @@
 
 use assert_cmd::cmd::Command;
 use predicates::prelude::*;
-use std::fs::{File, OpenOptions};
+use std::fs::File;
+#[cfg(not(windows))]
+use std::fs::OpenOptions;
 use std::io::Write;
 use tempfile::{tempdir, NamedTempFile};
 
