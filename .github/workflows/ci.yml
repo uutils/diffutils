@@ -102,8 +102,6 @@ jobs:
         if [ -n "${{ matrix.job.toolchain }}" ]; then TOOLCHAIN="${{ matrix.job.toolchain }}" ; fi
         outputs TOOLCHAIN
         # target-specific options
-        # * CARGO_FEATURES_OPTION
-        CARGO_FEATURES_OPTION='--all -- --check' ;  ## default to '--all-features' for code coverage
         # * CODECOV_FLAGS
         CODECOV_FLAGS=$( echo "${{ matrix.job.os }}" | sed 's/[^[:alnum:]]/_/g' )
         outputs CODECOV_FLAGS
@@ -119,7 +117,7 @@ jobs:
       if: runner.os == 'Windows'
       run: echo "C:\Program Files\Git\usr\bin" >> $env:GITHUB_PATH
     - name: Test
-      run: cargo test ${{ steps.vars.outputs.CARGO_FEATURES_OPTION }} --no-fail-fast
+      run: cargo test --all-features --no-fail-fast
       env:
         CARGO_INCREMENTAL: "0"
         RUSTC_WRAPPER: ""
