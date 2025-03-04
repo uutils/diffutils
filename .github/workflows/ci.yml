@@ -30,7 +30,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: install GNU patch on MacOS
         if: runner.os == 'macOS'
-        run: brew install gpatch
+        run: |
+          brew install gpatch
+          echo "/opt/homebrew/opt/gpatch/libexec/gnubin" >> "$GITHUB_PATH"
       - name: set up PATH on Windows
         # Needed to use GNU's patch.exe instead of Strawberry Perl patch
         if: runner.os == 'Windows'
@@ -111,7 +113,9 @@ jobs:
     - run: rustup component add llvm-tools-preview
     - name: install GNU patch on MacOS
       if: runner.os == 'macOS'
-      run: brew install gpatch
+      run: |
+        brew install gpatch
+        echo "/opt/homebrew/opt/gpatch/libexec/gnubin" >> "$GITHUB_PATH"
     - name: set up PATH on Windows
       # Needed to use GNU's patch.exe instead of Strawberry Perl patch
       if: runner.os == 'Windows'
