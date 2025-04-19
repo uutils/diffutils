@@ -5,7 +5,7 @@
 
 use crate::params::{parse_params, Format};
 use crate::utils::report_failure_to_read_input_file;
-use crate::{context_diff, ed_diff, normal_diff, unified_diff};
+use crate::{context_diff, ed_diff, normal_diff, side_diff, unified_diff};
 use std::env::ArgsOs;
 use std::ffi::OsString;
 use std::fs;
@@ -79,6 +79,7 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
             eprintln!("{error}");
             exit(2);
         }),
+        Format::SideBySide => side_diff::diff(&from_content, &to_content),
     };
     if params.brief && !result.is_empty() {
         println!(
