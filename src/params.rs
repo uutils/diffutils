@@ -11,6 +11,7 @@ pub enum Format {
     Unified,
     Context,
     Ed,
+    SideBySide,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -99,6 +100,13 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
                 return Err("Conflicting output style options".to_string());
             }
             format = Some(Format::Ed);
+            continue;
+        }
+        if param == "-y" || param == "--side-by-side" {
+            if format.is_some() && format != Some(Format::SideBySide) {
+                return Err("Conflicting output style option".to_string());
+            }
+            format = Some(Format::SideBySide);
             continue;
         }
         if tabsize_re.is_match(param.to_string_lossy().as_ref()) {

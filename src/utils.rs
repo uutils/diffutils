@@ -3,9 +3,8 @@
 // For the full copyright and license information, please view the LICENSE-*
 // files that was distributed with this source code.
 
-use std::{ffi::OsString, io::Write};
-
 use regex::Regex;
+use std::{ffi::OsString, io::Write};
 use unicode_width::UnicodeWidthStr;
 
 /// Replace tabs by spaces in the input line.
@@ -97,6 +96,15 @@ pub fn report_failure_to_read_input_file(
         "{}",
         format_failure_to_read_input_file(executable, filepath, error)
     );
+}
+
+/// Limits a string at a certain limiter position. This can break the
+/// encoding of a specific char where it has been cut.
+#[must_use]
+pub fn limited_string(orig: &[u8], limiter: usize) -> &[u8] {
+    // TODO: Verify if we broke the encoding of the char
+    // when we cut it.
+    &orig[..orig.len().min(limiter)]
 }
 
 #[cfg(test)]
@@ -203,6 +211,66 @@ mod tests {
             let m_time: DateTime<Local> = get_modification_time(invalid_file).parse().unwrap();
 
             assert!(m_time > current_time);
+        }
+    }
+
+    mod limited_string {
+        use super::*;
+        use std::str;
+
+        #[test]
+        fn empty_orig_returns_empty() {
+            let orig: &[u8] = b"";
+            let result = limited_string(&orig, 10);
+            assert!(result.is_empty());
+        }
+
+        #[test]
+        fn zero_limit_returns_empty() {
+            let orig: &[u8] = b"foo";
+            let result = limited_string(&orig, 0);
+            assert!(result.is_empty());
+        }
+
+        #[test]
+        fn limit_longer_than_orig_returns_full() {
+            let orig: &[u8] = b"foo";
+            let result = limited_string(&orig, 10);
+            assert_eq!(result, orig);
+        }
+
+        #[test]
+        fn ascii_limit_in_middle() {
+            let orig: &[u8] = b"foobar";
+            let result = limited_string(&orig, 3);
+            assert_eq!(result, b"foo");
+            assert!(str::from_utf8(&result).is_ok()); // All are ascii chars, we do not broke the enconding
+        }
+
+        #[test]
+        fn utf8_multibyte_cut_invalidates() {
+            let orig = "áéíóú".as_bytes();
+            let result = limited_string(&orig, 1);
+            // should contain only the first byte of mult-byte char
+            assert_eq!(result, vec![0xC3]);
+            assert!(str::from_utf8(&result).is_err());
+        }
+
+        #[test]
+        fn utf8_limit_at_codepoint_boundary() {
+            let orig = "áéí".as_bytes();
+            let bytes = &orig;
+            let result = limited_string(&orig, bytes.len());
+
+            assert_eq!(result, *bytes);
+            assert!(str::from_utf8(&result).is_ok());
+        }
+
+        #[test]
+        fn works_with_byte_vec_input() {
+            let orig_bytes = b"hello".to_vec();
+            let result = limited_string(&orig_bytes, 3);
+            assert_eq!(result, b"hel");
         }
     }
 }
