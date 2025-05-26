@@ -47,4 +47,8 @@ path = "fuzz_targets/fuzz_ed.rs"
 test = false
 doc = false
 
-
+[[bin]]
+name = "fuzz_side"
+path = "fuzz_targets/fuzz_side.rs"
+test = false
+doc = false

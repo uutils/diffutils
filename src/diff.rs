@@ -9,7 +9,7 @@ use crate::{context_diff, ed_diff, normal_diff, side_diff, unified_diff};
 use std::env::ArgsOs;
 use std::ffi::OsString;
 use std::fs;
-use std::io::{self, Read, Write};
+use std::io::{self, stdout, Read, Write};
 use std::iter::Peekable;
 use std::process::{exit, ExitCode};
 
@@ -79,7 +79,10 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
             eprintln!("{error}");
             exit(2);
         }),
-        Format::SideBySide => side_diff::diff(&from_content, &to_content),
+        Format::SideBySide => {
+            let mut output = stdout().lock();
+            side_diff::diff(&from_content, &to_content, &mut output, &params)
+        }
     };
     if params.brief && !result.is_empty() {
         println!(
