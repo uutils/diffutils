@@ -46,6 +46,7 @@ jobs:
           - { name: fuzz_ed, should_pass: true }
           - { name: fuzz_normal, should_pass: true }
           - { name: fuzz_patch, should_pass: true }
+          - { name: fuzz_side, should_pass: true }
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly
