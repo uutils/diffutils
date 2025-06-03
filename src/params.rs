@@ -11,6 +11,7 @@ pub enum Format {
     Unified,
     Context,
     Ed,
+    SideBySide,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -24,6 +25,7 @@ pub struct Params {
     pub brief: bool,
     pub expand_tabs: bool,
     pub tabsize: usize,
+    pub width: usize,
 }
 
 impl Default for Params {
@@ -38,6 +40,7 @@ impl Default for Params {
             brief: false,
             expand_tabs: false,
             tabsize: 8,
+            width: 130,
         }
     }
 }
@@ -57,6 +60,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
     let mut format = None;
     let mut context = None;
     let tabsize_re = Regex::new(r"^--tabsize=(?<num>\d+)$").unwrap();
+    let width_re = Regex::new(r"--width=(?P<long>\d+)$").unwrap();
     while let Some(param) = opts.next() {
         let next_param = opts.peek();
         if param == "--" {
@@ -101,6 +105,34 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
             format = Some(Format::Ed);
             continue;
         }
+        if param == "-y" || param == "--side-by-side" {
+            if format.is_some() && format != Some(Format::SideBySide) {
+                return Err("Conflicting output style option".to_string());
+            }
+            format = Some(Format::SideBySide);
+            continue;
+        }
+        if width_re.is_match(param.to_string_lossy().as_ref()) {
+            let param = param.into_string().unwrap();
+            let width_str: &str = width_re
+                .captures(param.as_str())
+                .unwrap()
+                .name("long")
+                .unwrap()
+                .as_str();
+
+            params.width = match width_str.parse::<usize>() {
+                Ok(num) => {
+                    if num == 0 {
+                        return Err("invalid width «0»".to_string());
+                    }
+
+                    num
+                }
+                Err(_) => return Err(format!("invalid width «{width_str}»")),
+            };
+            continue;
+        }
         if tabsize_re.is_match(param.to_string_lossy().as_ref()) {
             // Because param matches the regular expression,
             // it is safe to assume it is valid UTF-8.
@@ -112,9 +144,16 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
                 .unwrap()
                 .as_str();
             params.tabsize = match tabsize_str.parse::<usize>() {
-                Ok(num) => num,
+                Ok(num) => {
+                    if num == 0 {
+                        return Err("invalid tabsize «0»".to_string());
+                    }
+
+                    num
+                }
                 Err(_) => return Err(format!("invalid tabsize «{tabsize_str}»")),
             };
+
             continue;
         }
         match match_context_diff_params(&param, next_param, format) {
@@ -704,11 +743,11 @@ mod tests {
                 executable: os("diff"),
                 from: os("foo"),
                 to: os("bar"),
-                tabsize: 0,
+                tabsize: 1,
                 ..Default::default()
             }),
             parse_params(
-                [os("diff"), os("--tabsize=0"), os("foo"), os("bar")]
+                [os("diff"), os("--tabsize=1"), os("foo"), os("bar")]
                     .iter()
                     .cloned()
                     .peekable()

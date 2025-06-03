@@ -3,9 +3,8 @@
 // For the full copyright and license information, please view the LICENSE-*
 // files that was distributed with this source code.
 
-use std::{ffi::OsString, io::Write};
-
 use regex::Regex;
+use std::{ffi::OsString, io::Write};
 use unicode_width::UnicodeWidthStr;
 
 /// Replace tabs by spaces in the input line.

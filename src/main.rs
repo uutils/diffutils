@@ -18,6 +18,7 @@ mod ed_diff;
 mod macros;
 mod normal_diff;
 mod params;
+mod side_diff;
 mod unified_diff;
 mod utils;
 
