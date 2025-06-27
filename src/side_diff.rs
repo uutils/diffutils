@@ -973,7 +973,7 @@ mod tests {
             }
         }
 
-        fn contains_string(vec: &Vec<u8>, s: &str) -> usize {
+        fn contains_string(vec: &[u8], s: &str) -> usize {
             let pattern = s.as_bytes();
             vec.windows(pattern.len()).filter(|s| s == &pattern).count()
         }
