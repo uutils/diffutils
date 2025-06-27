@@ -901,7 +901,7 @@ mod tests {
             let symbol = b'<'; // impossible case, just to use different symbol
             let mut buf = vec![];
             push_output(left_ln, right_ln, symbol, &mut buf, &config).unwrap();
-            assert_eq!(buf, format!("data\t\t\t\t\t\t\t      <\n").as_bytes());
+            assert_eq!(buf, "data\t\t\t\t\t\t\t      <\n".as_bytes());
         }
 
         #[test]
@@ -948,12 +948,9 @@ mod tests {
             let symbol = b' ';
             let mut buf = vec![];
             push_output(left_ln, right_ln, symbol, &mut buf, &config).unwrap();
-            let expected_left = format!("áéíóú\t\t\t\t\t\t\t\t");
+            let expected_left = "áéíóú\t\t\t\t\t\t\t\t";
             let expected_right = "😀😃😄";
-            assert_eq!(
-                buf,
-                format!("{}{}\n", expected_left, expected_right).as_bytes()
-            );
+            assert_eq!(buf, format!("{expected_left}{expected_right}\n").as_bytes());
         }
     }
 
@@ -976,7 +973,7 @@ mod tests {
             }
         }
 
-        fn contains_string(vec: &Vec<u8>, s: &str) -> usize {
+        fn contains_string(vec: &[u8], s: &str) -> usize {
             let pattern = s.as_bytes();
             vec.windows(pattern.len()).filter(|s| s == &pattern).count()
         }

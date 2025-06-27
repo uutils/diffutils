@@ -73,7 +73,7 @@ fn main() -> ExitCode {
         Some("diff") => diff::main(args),
         Some("cmp") => cmp::main(args),
         Some(name) => {
-            eprintln!("{}: utility not supported", name);
+            eprintln!("{name}: utility not supported");
             ExitCode::from(2)
         }
         None => second_arg_error(exe_name),

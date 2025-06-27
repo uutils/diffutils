@@ -35,7 +35,7 @@ pub struct Params {
 
 #[inline]
 fn usage_string(executable: &str) -> String {
-    format!("Usage: {} <from> <to>", executable)
+    format!("Usage: {executable} <from> <to>")
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -75,8 +75,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
             Err(e) if *e.kind() == std::num::IntErrorKind::PosOverflow => usize::MAX,
             Err(_) => {
                 return Err(format!(
-                    "{}: invalid --ignore-initial value '{}'",
-                    executable_str, skip_desc
+                    "{executable_str}: invalid --ignore-initial value '{skip_desc}'"
                 ))
             }
         };
@@ -103,8 +102,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
                 "Y" => usize::MAX,  // 1_208_925_819_614_629_174_706_176,
                 _ => {
                     return Err(format!(
-                        "{}: invalid --ignore-initial value '{}'",
-                        executable_str, skip_desc
+                        "{executable_str}: invalid --ignore-initial value '{skip_desc}'"
                     ));
                 }
             };
@@ -170,8 +168,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
                 Err(e) if *e.kind() == std::num::IntErrorKind::PosOverflow => usize::MAX,
                 Err(_) => {
                     return Err(format!(
-                        "{}: invalid --bytes value '{}'",
-                        executable_str, max_bytes
+                        "{executable_str}: invalid --bytes value '{max_bytes}'"
                     ))
                 }
             };
@@ -210,7 +207,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
             std::process::exit(0);
         }
         if param_str.starts_with('-') {
-            return Err(format!("Unknown option: {:?}", param));
+            return Err(format!("Unknown option: {param:?}"));
         }
         if from.is_none() {
             from = Some(param);
@@ -236,8 +233,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
 
     if params.quiet && params.verbose {
         return Err(format!(
-            "{}: options -l and -s are incompatible",
-            executable_str
+            "{executable_str}: options -l and -s are incompatible"
         ));
     }
 
