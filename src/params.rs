@@ -195,7 +195,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
             Err(error) => return Err(error),
         }
         if param.to_string_lossy().starts_with('-') {
-            return Err(format!("Unknown option: {:?}", param));
+            return Err(format!("Unknown option: {param:?}"));
         }
         if from.is_none() {
             from = Some(param);

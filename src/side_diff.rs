@@ -950,10 +950,7 @@ mod tests {
             push_output(left_ln, right_ln, symbol, &mut buf, &config).unwrap();
             let expected_left = format!("áéíóú\t\t\t\t\t\t\t\t");
             let expected_right = "😀😃😄";
-            assert_eq!(
-                buf,
-                format!("{}{}\n", expected_left, expected_right).as_bytes()
-            );
+            assert_eq!(buf, format!("{expected_left}{expected_right}\n").as_bytes());
         }
     }
 
