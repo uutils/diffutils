@@ -279,17 +279,15 @@ fn match_context_diff_params(
                 context_count = Some(numvalue.as_str().parse::<usize>().unwrap());
             }
         }
-        if param == "-C" && next_param.is_some() {
-            match next_param.unwrap().to_string_lossy().parse::<usize>() {
-                Ok(context_size) => {
-                    context_count = Some(context_size);
-                    next_param_consumed = true;
-                }
-                Err(_) => {
-                    return Err(format!(
-                        "invalid context length '{}'",
-                        next_param.unwrap().to_string_lossy()
-                    ))
+        if param == "-C" {
+            if let Some(p) = next_param {
+                let size_str = p.to_string_lossy();
+                match size_str.parse::<usize>() {
+                    Ok(context_size) => {
+                        context_count = Some(context_size);
+                        next_param_consumed = true;
+                    }
+                    Err(_) => return Err(format!("invalid context length '{size_str}'")),
                 }
             }
         }
@@ -325,17 +323,15 @@ fn match_unified_diff_params(
                 context_count = Some(numvalue.as_str().parse::<usize>().unwrap());
             }
         }
-        if param == "-U" && next_param.is_some() {
-            match next_param.unwrap().to_string_lossy().parse::<usize>() {
-                Ok(context_size) => {
-                    context_count = Some(context_size);
-                    next_param_consumed = true;
-                }
-                Err(_) => {
-                    return Err(format!(
-                        "invalid context length '{}'",
-                        next_param.unwrap().to_string_lossy()
-                    ))
+        if param == "-U" {
+            if let Some(p) = next_param {
+                let size_str = p.to_string_lossy();
+                match size_str.parse::<usize>() {
+                    Ok(context_size) => {
+                        context_count = Some(context_size);
+                        next_param_consumed = true;
+                    }
+                    Err(_) => return Err(format!("invalid context length '{size_str}'")),
                 }
             }
         }
