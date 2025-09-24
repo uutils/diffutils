@@ -14,7 +14,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macOS-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo check
 
@@ -26,7 +26,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macOS-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - name: install GNU patch on MacOS
         if: runner.os == 'macOS'
@@ -43,7 +43,7 @@ jobs:
     name: cargo fmt --all -- --check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - run: rustup component add rustfmt
       - run: cargo fmt --all -- --check
@@ -56,7 +56,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macOS-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - run: rustup component add clippy
       - run: cargo clippy -- -D warnings
@@ -65,7 +65,7 @@ jobs:
     name: GNU test suite
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo build --release
       # do not fail, the report is merely informative (at least until all tests pass reliably)
@@ -89,7 +89,7 @@ jobs:
           - { os: macos-latest   , features: macos }
           - { os: windows-latest , features: windows }
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Initialize workflow variables
       id: vars
       shell: bash
