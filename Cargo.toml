@@ -28,7 +28,10 @@ assert_cmd = "2.0.14"
 predicates = "3.1.0"
 tempfile = "3.10.1"
 
-# The profile that 'cargo dist' will build with
-[profile.dist]
-inherits = "release"
+[profile.release]
 lto = "thin"
+codegen-units = 1
+
+[profile.release-fast]
+inherits = "release"
+panic = "abort"
