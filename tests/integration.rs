@@ -3,7 +3,7 @@
 // For the full copyright and license information, please view the LICENSE-*
 // files that was distributed with this source code.
 
-use assert_cmd::cmd::Command;
+use assert_cmd::cargo::cargo_bin_cmd;
 use predicates::prelude::*;
 use std::fs::File;
 #[cfg(not(windows))]
@@ -17,14 +17,14 @@ mod common {
 
     #[test]
     fn unknown_param() -> Result<(), Box<dyn std::error::Error>> {
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.arg("patch");
         cmd.assert()
             .code(predicate::eq(2))
             .failure()
             .stderr(predicate::eq("patch: utility not supported\n"));
 
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.assert()
             .code(predicate::eq(0))
             .success()
@@ -33,7 +33,7 @@ mod common {
             ));
 
         for subcmd in ["diff", "cmp"] {
-            let mut cmd = Command::cargo_bin("diffutils")?;
+            let mut cmd = cargo_bin_cmd!("diffutils");
             cmd.arg(subcmd);
             cmd.arg("--foobar");
             cmd.assert()
@@ -58,7 +58,7 @@ mod common {
         let error_message = "The system cannot find the file specified.";
 
         for subcmd in ["diff", "cmp"] {
-            let mut cmd = Command::cargo_bin("diffutils")?;
+            let mut cmd = cargo_bin_cmd!("diffutils");
             cmd.arg(subcmd);
             cmd.arg(&nopath).arg(file.path());
             cmd.assert()
@@ -69,7 +69,7 @@ mod common {
                     &nopath.as_os_str().to_string_lossy()
                 )));
 
-            let mut cmd = Command::cargo_bin("diffutils")?;
+            let mut cmd = cargo_bin_cmd!("diffutils");
             cmd.arg(subcmd);
             cmd.arg(file.path()).arg(&nopath);
             cmd.assert()
@@ -81,7 +81,7 @@ mod common {
                 )));
         }
 
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.arg("diff");
         cmd.arg(&nopath).arg(&nopath);
         cmd.assert().code(predicate::eq(2)).failure().stderr(
@@ -105,7 +105,7 @@ mod diff {
     fn no_differences() -> Result<(), Box<dyn std::error::Error>> {
         let file = NamedTempFile::new()?;
         for option in ["", "-u", "-c", "-e"] {
-            let mut cmd = Command::cargo_bin("diffutils")?;
+            let mut cmd = cargo_bin_cmd!("diffutils");
             cmd.arg("diff");
             if !option.is_empty() {
                 cmd.arg(option);
@@ -125,7 +125,7 @@ mod diff {
         let mut file1 = NamedTempFile::new()?;
         file1.write_all("foo\n".as_bytes())?;
         for option in ["", "-u", "-c", "-e"] {
-            let mut cmd = Command::cargo_bin("diffutils")?;
+            let mut cmd = cargo_bin_cmd!("diffutils");
             cmd.arg("diff");
             if !option.is_empty() {
                 cmd.arg(option);
@@ -144,7 +144,7 @@ mod diff {
         let mut file2 = NamedTempFile::new()?;
         file2.write_all("foo\n".as_bytes())?;
         for option in ["", "-u", "-c", "-e"] {
-            let mut cmd = Command::cargo_bin("diffutils")?;
+            let mut cmd = cargo_bin_cmd!("diffutils");
             cmd.arg("diff");
             if !option.is_empty() {
                 cmd.arg(option);
@@ -169,7 +169,7 @@ mod diff {
         let mut file2 = NamedTempFile::new()?;
         file2.write_all("bar\n".as_bytes())?;
         for option in ["", "-u", "-c", "-e"] {
-            let mut cmd = Command::cargo_bin("diffutils")?;
+            let mut cmd = cargo_bin_cmd!("diffutils");
             cmd.arg("diff");
             if !option.is_empty() {
                 cmd.arg(option);
@@ -190,7 +190,7 @@ mod diff {
         let mut file2 = NamedTempFile::new()?;
         file2.write_all("bar\n".as_bytes())?;
         for option in ["", "-u", "-c", "-e"] {
-            let mut cmd = Command::cargo_bin("diffutils")?;
+            let mut cmd = cargo_bin_cmd!("diffutils");
             cmd.arg("diff");
             if !option.is_empty() {
                 cmd.arg(option);
@@ -214,7 +214,7 @@ mod diff {
         file1.write_all("foo".as_bytes())?;
         let mut file2 = NamedTempFile::new()?;
         file2.write_all("bar".as_bytes())?;
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.arg("diff");
         cmd.arg("-e").arg(file1.path()).arg(file2.path());
         cmd.assert()
@@ -231,7 +231,7 @@ mod diff {
         let mut file2 = NamedTempFile::new()?;
         file2.write_all("bar\n".as_bytes())?;
 
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.arg("diff");
         cmd.arg("-u")
             .arg(file1.path())
@@ -248,7 +248,7 @@ mod diff {
             )
         );
 
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.arg("diff");
         cmd.arg("-u")
             .arg("-")
@@ -265,7 +265,7 @@ mod diff {
             )
         );
 
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.arg("diff");
         cmd.arg("-u").arg("-").arg("-");
         cmd.assert()
@@ -275,7 +275,7 @@ mod diff {
 
         #[cfg(unix)]
         {
-            let mut cmd = Command::cargo_bin("diffutils")?;
+            let mut cmd = cargo_bin_cmd!("diffutils");
             cmd.arg("diff");
             cmd.arg("-u")
                 .arg(file1.path())
@@ -311,7 +311,7 @@ mod diff {
         let mut da = File::create(&da_path).unwrap();
         da.write_all(b"da\n").unwrap();
 
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.arg("diff");
         cmd.arg("-u").arg(&directory).arg(&a_path);
         cmd.assert().code(predicate::eq(1)).failure();
@@ -326,7 +326,7 @@ mod diff {
             )
         );
 
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.arg("diff");
         cmd.arg("-u").arg(&a_path).arg(&directory);
         cmd.assert().code(predicate::eq(1)).failure();
@@ -350,7 +350,7 @@ mod cmp {
 
     #[test]
     fn cmp_incompatible_params() -> Result<(), Box<dyn std::error::Error>> {
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.arg("cmp");
         cmd.arg("-l");
         cmd.arg("-s");
@@ -373,7 +373,7 @@ mod cmp {
         let mut a = File::create(&a_path).unwrap();
         a.write_all(b"a\n").unwrap();
 
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.arg("cmp");
         cmd.arg(&a_path);
         cmd.write_stdin("a\n");
@@ -383,7 +383,7 @@ mod cmp {
             .stderr(predicate::str::is_empty())
             .stdout(predicate::str::is_empty());
 
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.env("LC_ALL", "C");
         cmd.arg("cmp");
         cmd.arg(&a_path);
@@ -409,7 +409,7 @@ mod cmp {
         let mut b = File::create(&b_path).unwrap();
         b.write_all(b"a\n").unwrap();
 
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.arg("cmp");
         cmd.arg(&a_path).arg(&b_path);
         cmd.assert()
@@ -432,7 +432,7 @@ mod cmp {
         let b_path = tmp_dir.path().join("b");
         let _ = File::create(&b_path).unwrap();
 
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.arg("cmp");
         cmd.arg(&a_path).arg(&b_path);
         cmd.assert()
@@ -456,7 +456,7 @@ mod cmp {
         let mut b = File::create(&b_path).unwrap();
         b.write_all(b"bcd\n").unwrap();
 
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.env("LC_ALL", "C");
         cmd.arg("cmp");
         cmd.arg(&a_path).arg(&b_path);
@@ -465,7 +465,7 @@ mod cmp {
             .failure()
             .stdout(predicate::str::ends_with(" differ: char 1, line 1\n"));
 
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.env("LC_ALL", "C");
         cmd.arg("cmp");
         cmd.arg("-b");
@@ -478,7 +478,7 @@ mod cmp {
                 " differ: byte 1, line 1 is 141 a 142 b\n",
             ));
 
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.env("LC_ALL", "C");
         cmd.arg("cmp");
         cmd.arg("-l");
@@ -489,7 +489,7 @@ mod cmp {
             .stderr(predicate::str::is_empty())
             .stdout(predicate::eq("1 141 142\n2 142 143\n3 143 144\n"));
 
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.env("LC_ALL", "C");
         cmd.arg("cmp");
         cmd.arg("-l");
@@ -518,7 +518,7 @@ mod cmp {
         let mut b = File::create(&b_path).unwrap();
         b.write_all(b"abc\ndef\ng").unwrap();
 
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.env("LC_ALL", "C");
         cmd.arg("cmp");
         cmd.arg(&a_path).arg(&b_path);
@@ -528,7 +528,7 @@ mod cmp {
             .stderr(predicate::str::is_empty())
             .stdout(predicate::str::ends_with(" differ: char 8, line 2\n"));
 
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.env("LC_ALL", "C");
         cmd.arg("cmp");
         cmd.arg("-b");
@@ -541,7 +541,7 @@ mod cmp {
                 " differ: byte 8, line 2 is 147 g  12 ^J\n",
             ));
 
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.env("LC_ALL", "C");
         cmd.arg("cmp");
         cmd.arg("-l");
@@ -553,7 +553,7 @@ mod cmp {
             .stderr(predicate::str::contains(" EOF on"))
             .stderr(predicate::str::ends_with(" after byte 8\n"));
 
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.env("LC_ALL", "C");
         cmd.arg("cmp");
         cmd.arg("-b");
@@ -581,7 +581,7 @@ mod cmp {
         let mut b = File::create(&b_path).unwrap();
         b.write_all(b"abcdefghijkl\n").unwrap();
 
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.arg("cmp");
         cmd.arg("-l");
         cmd.arg("-b");
@@ -594,7 +594,7 @@ mod cmp {
             .stderr(predicate::str::is_empty())
             .stdout(predicate::str::is_empty());
 
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.arg("cmp");
         cmd.arg("-l");
         cmd.arg("-b");
@@ -607,7 +607,7 @@ mod cmp {
             .stderr(predicate::str::is_empty())
             .stdout(predicate::eq("4  40      144 d\n"));
 
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.arg("cmp");
         cmd.arg("-l");
         cmd.arg("-b");
@@ -634,7 +634,7 @@ mod cmp {
         let mut b = File::create(&b_path).unwrap();
         b.write_all(b"###abc\n").unwrap();
 
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.env("LC_ALL", "C");
         cmd.arg("cmp");
         cmd.arg("-i");
@@ -647,7 +647,7 @@ mod cmp {
             .stdout(predicate::str::is_empty());
 
         // Positional skips should be ignored
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.env("LC_ALL", "C");
         cmd.arg("cmp");
         cmd.arg("-i");
@@ -661,7 +661,7 @@ mod cmp {
             .stdout(predicate::str::is_empty());
 
         // Single positional argument should only affect first file.
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.env("LC_ALL", "C");
         cmd.arg("cmp");
         cmd.arg(&a_path).arg(&b_path);
@@ -672,7 +672,7 @@ mod cmp {
             .stderr(predicate::str::is_empty())
             .stdout(predicate::str::ends_with(" differ: char 1, line 1\n"));
 
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.env("LC_ALL", "C");
         cmd.arg("cmp");
         cmd.arg(&a_path).arg(&b_path);
@@ -701,7 +701,7 @@ mod cmp {
         writeln!(b, "{}c", "b".repeat(1024)).unwrap();
         b.flush().unwrap();
 
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.arg("cmp");
         cmd.arg("--ignore-initial=1K");
         cmd.arg(&a_path).arg(&b_path);
@@ -726,7 +726,7 @@ mod cmp {
         let mut b = File::create(&b_path).unwrap();
         b.write_all(b"abcdefghijkl\n").unwrap();
 
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.arg("cmp");
         cmd.arg("-l");
         cmd.arg("-b");
@@ -739,7 +739,7 @@ mod cmp {
             .stderr(predicate::str::is_empty())
             .stdout(predicate::str::is_empty());
 
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.arg("cmp");
         cmd.arg("-b");
         cmd.arg("-i");
@@ -772,7 +772,7 @@ mod cmp {
         let mut b = File::create(&b_path).unwrap();
         b.write_all(&bytes).unwrap();
 
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.arg("cmp");
         cmd.arg("-l");
         cmd.arg("-b");
@@ -817,7 +817,7 @@ mod cmp {
 
         let dev_null = OpenOptions::new().write(true).open("/dev/null").unwrap();
 
-        let mut child = std::process::Command::new(assert_cmd::cargo::cargo_bin("diffutils"))
+        let mut child = std::process::Command::new(assert_cmd::cargo::cargo_bin!("diffutils"))
             .arg("cmp")
             .arg(&a_path)
             .arg(&b_path)
@@ -830,7 +830,7 @@ mod cmp {
         assert_eq!(child.try_wait().unwrap().unwrap().code(), Some(1));
 
         // Two stdins should be equal
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.arg("cmp");
         cmd.arg("-");
         cmd.arg("-");
@@ -861,7 +861,7 @@ mod cmp {
         b.write_all(bytes).unwrap();
         b.write_all(b"B").unwrap();
 
-        let mut cmd = Command::cargo_bin("diffutils")?;
+        let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.arg("cmp");
         cmd.arg(&a_path).arg(&b_path);
         cmd.assert()
