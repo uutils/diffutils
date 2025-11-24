@@ -90,12 +90,22 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
                 "M" => 1_048_576,
                 "GB" => 1_000_000_000,
                 "G" => 1_073_741_824,
-                "TB" => 1_000_000_000_000,
-                "T" => 1_099_511_627_776,
-                "PB" => 1_000_000_000_000_000,
-                "P" => 1_125_899_906_842_624,
-                "EB" => 1_000_000_000_000_000_000,
-                "E" => 1_152_921_504_606_846_976,
+                // This only generates a warning when compiling for target_pointer_width < 64
+                #[allow(unused_variables)]
+                suffix @ ("TB" | "T" | "PB" | "P" | "EB" | "E") => {
+                    #[cfg(target_pointer_width = "64")]
+                    match suffix {
+                        "TB" => 1_000_000_000_000,
+                        "T" => 1_099_511_627_776,
+                        "PB" => 1_000_000_000_000_000,
+                        "P" => 1_125_899_906_842_624,
+                        "EB" => 1_000_000_000_000_000_000,
+                        "E" => 1_152_921_504_606_846_976,
+                        _ => unreachable!(),
+                    }
+                    #[cfg(not(target_pointer_width = "64"))]
+                    usize::MAX
+                }
                 "ZB" => usize::MAX, // 1_000_000_000_000_000_000_000,
                 "Z" => usize::MAX,  // 1_180_591_620_717_411_303_424,
                 "YB" => usize::MAX, // 1_000_000_000_000_000_000_000_000,
