@@ -72,7 +72,7 @@ jobs:
       - run: ./tests/run-upstream-testsuite.sh release || true
         env:
           TERM: xterm
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: test-results.json
           path: tests/test-results.json
