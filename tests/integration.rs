@@ -922,9 +922,7 @@ mod diff3 {
         let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.arg("diff3");
         cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
-        cmd.assert()
-            .code(predicate::eq(0))
-            .success();
+        cmd.assert().code(predicate::eq(0)).success();
 
         Ok(())
     }
@@ -949,9 +947,7 @@ mod diff3 {
         cmd.arg("diff3");
         cmd.arg("-m");
         cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
-        cmd.assert()
-            .code(predicate::eq(1))
-            .failure();
+        cmd.assert().code(predicate::eq(1)).failure();
 
         Ok(())
     }
@@ -976,9 +972,7 @@ mod diff3 {
         cmd.arg("diff3");
         cmd.arg("-e");
         cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
-        cmd.assert()
-            .code(predicate::eq(0))
-            .success();
+        cmd.assert().code(predicate::eq(0)).success();
 
         Ok(())
     }
@@ -1034,9 +1028,7 @@ mod diff3 {
         cmd.arg("--label=original");
         cmd.arg("--label=yours_version");
         cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
-        cmd.assert()
-            .code(predicate::eq(1))
-            .failure();
+        cmd.assert().code(predicate::eq(1)).failure();
 
         Ok(())
     }
@@ -1061,9 +1053,7 @@ mod diff3 {
         cmd.arg("diff3");
         cmd.arg("-3");
         cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
-        cmd.assert()
-            .code(predicate::eq(0))
-            .success();
+        cmd.assert().code(predicate::eq(0)).success();
 
         Ok(())
     }
@@ -1110,9 +1100,7 @@ mod diff3 {
         cmd.arg("diff3");
         cmd.arg("-").arg(&older_path).arg(&yours_path);
         cmd.write_stdin(b"line1\nline2\nline3\n");
-        cmd.assert()
-            .code(predicate::eq(0))
-            .success();
+        cmd.assert().code(predicate::eq(0)).success();
 
         Ok(())
     }
@@ -1137,9 +1125,7 @@ mod diff3 {
         cmd.arg("diff3");
         cmd.arg("-A");
         cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
-        cmd.assert()
-            .code(predicate::eq(1))
-            .failure();
+        cmd.assert().code(predicate::eq(1)).failure();
 
         Ok(())
     }
@@ -1165,9 +1151,7 @@ mod diff3 {
         cmd.arg("diff3");
         cmd.arg("-m");
         cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
-        cmd.assert()
-            .code(predicate::eq(1))
-            .failure();
+        cmd.assert().code(predicate::eq(1)).failure();
 
         Ok(())
     }
@@ -1193,9 +1177,7 @@ mod diff3 {
         cmd.arg("diff3");
         cmd.arg("-x");
         cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
-        cmd.assert()
-            .code(predicate::eq(1))
-            .failure();
+        cmd.assert().code(predicate::eq(1)).failure();
 
         Ok(())
     }
@@ -1221,9 +1203,7 @@ mod diff3 {
         cmd.arg("diff3");
         cmd.arg("-3");
         cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
-        cmd.assert()
-            .code(predicate::eq(0))
-            .success();
+        cmd.assert().code(predicate::eq(0)).success();
 
         Ok(())
     }
@@ -1251,9 +1231,7 @@ mod diff3 {
         cmd.arg("-X");
         cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
         // -X shows only overlapping conflicts with markers, which exists in this case
-        cmd.assert()
-            .code(predicate::eq(1))
-            .failure();
+        cmd.assert().code(predicate::eq(1)).failure();
 
         Ok(())
     }
@@ -1307,9 +1285,7 @@ mod diff3 {
         cmd.arg("diff3");
         cmd.arg("-e");
         cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
-        cmd.assert()
-            .code(predicate::eq(0))
-            .success();
+        cmd.assert().code(predicate::eq(0)).success();
 
         Ok(())
     }
@@ -1336,9 +1312,7 @@ mod diff3 {
         cmd.arg("-i");
         cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
         // Even with conflicts, -e -i should produce a valid ed script with w and q
-        cmd.assert()
-            .code(predicate::eq(1))
-            .failure();
+        cmd.assert().code(predicate::eq(1)).failure();
 
         Ok(())
     }
@@ -1386,7 +1360,7 @@ mod diff3 {
         for i in 0..10000 {
             let line = format!("line {}\n", i);
             older_content.push_str(&line);
-            
+
             if i == 5000 {
                 mine_content.push_str("line 5000 MINE\n");
                 yours_content.push_str("line 5000 YOURS\n");
@@ -1412,7 +1386,7 @@ mod diff3 {
         let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.arg("diff3");
         cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
-        cmd.assert().code(1);  // Has conflict
+        cmd.assert().code(1); // Has conflict
 
         Ok(())
     }
@@ -1429,7 +1403,7 @@ mod diff3 {
         for i in 0..5000 {
             let line = format!("line {}\n", i);
             older_content.push_str(&line);
-            
+
             if i < 2500 {
                 mine_content.push_str(&line);
                 yours_content.push_str(&line);
@@ -1536,22 +1510,23 @@ mod diff3 {
 
         let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.arg("diff3");
-        cmd.arg("-a");  // --text flag to force text mode
+        cmd.arg("-a"); // --text flag to force text mode
         cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
         // With --text flag, should process as text despite null byte
         // The output should show differences but not report as "Binary files differ"
         let output = cmd.output()?;
         let stdout = String::from_utf8_lossy(&output.stdout);
         // Should not contain "Binary files differ" message
-        assert!(!stdout.contains("Binary files differ"), 
-                "Should not report binary when --text flag is used");
+        assert!(
+            !stdout.contains("Binary files differ"),
+            "Should not report binary when --text flag is used"
+        );
         // Should have changes detected (exit code 0 or 1 depending on conflicts)
-        assert!(output.status.code() == Some(0) || output.status.code() == Some(1),
-                "Exit code should indicate success or conflicts");
+        assert!(
+            output.status.code() == Some(0) || output.status.code() == Some(1),
+            "Exit code should indicate success or conflicts"
+        );
 
         Ok(())
     }
 }
-
-
-

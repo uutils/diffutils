@@ -23,12 +23,12 @@ pub enum Diff3Format {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum Diff3OutputMode {
     #[default]
-    All,       // -A: show all changes with conflict markers
-    EdScript,  // -e: output ed script
-    ShowOverlapEd, // -E: ed script with overlap markers
-    OverlapOnly,   // -x: output only overlapping changes
+    All, // -A: show all changes with conflict markers
+    EdScript,          // -e: output ed script
+    ShowOverlapEd,     // -E: ed script with overlap markers
+    OverlapOnly,       // -x: output only overlapping changes
     OverlapOnlyMarked, // -X: output only overlapping changes with markers
-    EasyOnly,  // -3: output only non-overlapping changes
+    EasyOnly,          // -3: output only non-overlapping changes
 }
 
 #[derive(Clone, Debug, Default)]
@@ -48,7 +48,9 @@ pub struct Diff3Params {
 
 // Default is derived above
 
-pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Result<Diff3Params, String> {
+pub fn parse_params<I: Iterator<Item = OsString>>(
+    mut opts: Peekable<I>,
+) -> Result<Diff3Params, String> {
     let Some(executable) = opts.next() else {
         return Err("Usage: <exe> mine older yours".to_string());
     };
@@ -172,10 +174,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
                 exit(0);
             }
 
-            return Err(format!(
-                "Unknown option: \"{}\"",
-                param_str
-            ));
+            return Err(format!("Unknown option: \"{}\"", param_str));
         } else {
             // Regular file argument
             if mine.is_none() {
@@ -242,12 +241,12 @@ fn print_help(executable: &OsString) {
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 struct Diff3Block {
-    line_1: usize,      // Line number in mine
-    lines_1: usize,     // Number of lines in mine
-    line_2: usize,      // Line number in older
-    lines_2: usize,     // Number of lines in older
-    line_3: usize,      // Line number in yours
-    lines_3: usize,     // Number of lines in yours
+    line_1: usize,  // Line number in mine
+    lines_1: usize, // Number of lines in mine
+    line_2: usize,  // Line number in older
+    lines_2: usize, // Number of lines in older
+    line_3: usize,  // Line number in yours
+    lines_3: usize, // Number of lines in yours
 }
 
 /// Fast content hash for quick equality checks on large files
@@ -257,7 +256,7 @@ struct Diff3Block {
 fn compute_content_hash(data: &[u8]) -> u64 {
     const FNV_64_PRIME: u64 = 1099511628211;
     const FNV_64_OFFSET: u64 = 14695981039346656037;
-    
+
     let mut hash = FNV_64_OFFSET;
     for &byte in data {
         hash ^= byte as u64;
@@ -282,7 +281,7 @@ fn is_binary_content(content: &[u8]) -> bool {
     if content.is_empty() {
         return false;
     }
-    
+
     // Check for null bytes (strong indicator of binary data)
     // Scan first 8KB (typical block size) for efficiency on large files
     let check_limit = std::cmp::min(content.len(), 8192);
@@ -291,34 +290,33 @@ fn is_binary_content(content: &[u8]) -> bool {
             return true;
         }
     }
-    
+
     // Additional heuristic: check for high proportion of non-text bytes
     // This helps detect binary formats that don't contain null bytes
     let mut non_text_count = 0;
     let sample_size = std::cmp::min(content.len(), 512);
-    
+
     for &byte in &content[..sample_size] {
         // Non-text bytes are control characters (0-8, 14-31, 127) except common ones (9=tab, 10=LF, 13=CR)
-        if (byte < 9 || (byte > 13 && byte < 32) || byte == 127) && byte != 9 && byte != 10 && byte != 13 {
+        if (byte < 9 || (byte > 13 && byte < 32) || byte == 127)
+            && byte != 9
+            && byte != 10
+            && byte != 13
+        {
             non_text_count += 1;
         }
     }
-    
+
     // If more than 30% of sampled bytes are non-text, treat as binary
     if sample_size > 0 && (non_text_count * 100) / sample_size > 30 {
         return true;
     }
-    
+
     false
 }
 
 // Main diff3 computation engine with performance optimizations
-fn compute_diff3(
-    mine: &[u8],
-    older: &[u8],
-    yours: &[u8],
-    params: &Diff3Params,
-) -> (Vec<u8>, bool) {
+fn compute_diff3(mine: &[u8], older: &[u8], yours: &[u8], params: &Diff3Params) -> (Vec<u8>, bool) {
     // Early termination: check if all files are identical
     // This is the fastest path for the common case of no changes
     if are_files_identical(mine, older) && are_files_identical(older, yours) {
@@ -334,27 +332,42 @@ fn compute_diff3(
     if mine_is_binary || older_is_binary || yours_is_binary {
         // For binary files, report if they differ and exit with appropriate code
         let all_identical = are_files_identical(mine, older) && are_files_identical(older, yours);
-        
+
         if all_identical {
             return (Vec::new(), false);
         } else {
             let mut output = Vec::new();
-            
+
             // Report binary file differences in a format similar to GNU diff
             if mine_is_binary && older_is_binary && mine != older {
-                writeln!(&mut output, "Binary files {} and {} differ", 
-                    params.mine.to_string_lossy(), params.older.to_string_lossy()).unwrap();
+                writeln!(
+                    &mut output,
+                    "Binary files {} and {} differ",
+                    params.mine.to_string_lossy(),
+                    params.older.to_string_lossy()
+                )
+                .unwrap();
             }
             if older_is_binary && yours_is_binary && older != yours {
-                writeln!(&mut output, "Binary files {} and {} differ", 
-                    params.older.to_string_lossy(), params.yours.to_string_lossy()).unwrap();
+                writeln!(
+                    &mut output,
+                    "Binary files {} and {} differ",
+                    params.older.to_string_lossy(),
+                    params.yours.to_string_lossy()
+                )
+                .unwrap();
             }
             if mine_is_binary && yours_is_binary && mine != yours {
-                writeln!(&mut output, "Binary files {} and {} differ", 
-                    params.mine.to_string_lossy(), params.yours.to_string_lossy()).unwrap();
+                writeln!(
+                    &mut output,
+                    "Binary files {} and {} differ",
+                    params.mine.to_string_lossy(),
+                    params.yours.to_string_lossy()
+                )
+                .unwrap();
             }
-            
-            return (output, true);  // Has conflicts (binary differences)
+
+            return (output, true); // Has conflicts (binary differences)
         }
     }
 
@@ -644,9 +657,9 @@ fn analyze_overlap(regions: &[Diff3Region]) -> (usize, usize, usize) {
 /// Checks if only easy (non-overlapping) conflicts exist
 #[allow(dead_code)]
 fn has_only_easy_conflicts(regions: &[Diff3Region]) -> bool {
-    regions.iter().all(|r| {
-        r.conflict == ConflictType::NoConflict || r.conflict == ConflictType::EasyConflict
-    })
+    regions
+        .iter()
+        .all(|r| r.conflict == ConflictType::NoConflict || r.conflict == ConflictType::EasyConflict)
 }
 
 /// Checks if overlapping (difficult) conflicts exist
@@ -697,9 +710,19 @@ fn generate_normal_output(
             && mine_lines[line_num] != yours_lines[line_num]
         {
             writeln!(&mut output, "{}c{}", line_num + 1, line_num + 1).unwrap();
-            writeln!(&mut output, "< {}", String::from_utf8_lossy(mine_lines[line_num])).unwrap();
+            writeln!(
+                &mut output,
+                "< {}",
+                String::from_utf8_lossy(mine_lines[line_num])
+            )
+            .unwrap();
             writeln!(&mut output, "---").unwrap();
-            writeln!(&mut output, "> {}", String::from_utf8_lossy(yours_lines[line_num])).unwrap();
+            writeln!(
+                &mut output,
+                "> {}",
+                String::from_utf8_lossy(yours_lines[line_num])
+            )
+            .unwrap();
         }
     }
 
@@ -720,12 +743,8 @@ fn generate_merged_output(
     let mut output = Vec::new();
 
     // Get labels
-    let mine_label = params.labels[0]
-        .as_deref()
-        .unwrap_or("<<<<<<<");
-    let yours_label = params.labels[2]
-        .as_deref()
-        .unwrap_or(">>>>>>>");
+    let mine_label = params.labels[0].as_deref().unwrap_or("<<<<<<<");
+    let yours_label = params.labels[2].as_deref().unwrap_or(">>>>>>>");
 
     // Check if we should filter based on output mode
     let should_filter = !matches!(
@@ -746,20 +765,19 @@ fn generate_merged_output(
         match (i < mine_lines.len(), i < yours_lines.len()) {
             (true, true) => {
                 if mine_lines[i] == yours_lines[i] {
-                    writeln!(
-                        &mut output,
-                        "{}",
-                        String::from_utf8_lossy(mine_lines[i])
-                    )
-                    .unwrap();
+                    writeln!(&mut output, "{}", String::from_utf8_lossy(mine_lines[i])).unwrap();
                 } else {
                     // Only output conflict if it matches the filter
-                    if !should_filter || region.is_none_or(|r| should_include_region(r, params.output_mode)) {
+                    if !should_filter
+                        || region.is_none_or(|r| should_include_region(r, params.output_mode))
+                    {
                         // Conflict with optional markers based on output mode
                         match params.output_mode {
                             Diff3OutputMode::OverlapOnlyMarked => {
                                 // Show conflict markers for overlapping conflicts
-                                if region.is_some_and(|r| r.conflict == ConflictType::OverlappingConflict) {
+                                if region.is_some_and(|r| {
+                                    r.conflict == ConflictType::OverlappingConflict
+                                }) {
                                     writeln!(&mut output, "<<<<<<< {}", mine_label).unwrap();
                                     writeln!(
                                         &mut output,
@@ -780,12 +798,8 @@ fn generate_merged_output(
                             _ => {
                                 // Standard conflict markers
                                 writeln!(&mut output, "<<<<<<< {}", mine_label).unwrap();
-                                writeln!(
-                                    &mut output,
-                                    "{}",
-                                    String::from_utf8_lossy(mine_lines[i])
-                                )
-                                .unwrap();
+                                writeln!(&mut output, "{}", String::from_utf8_lossy(mine_lines[i]))
+                                    .unwrap();
                                 writeln!(&mut output, "=======").unwrap();
                                 writeln!(
                                     &mut output,
@@ -800,20 +814,10 @@ fn generate_merged_output(
                 }
             }
             (true, false) => {
-                writeln!(
-                    &mut output,
-                    "{}",
-                    String::from_utf8_lossy(mine_lines[i])
-                )
-                .unwrap();
+                writeln!(&mut output, "{}", String::from_utf8_lossy(mine_lines[i])).unwrap();
             }
             (false, true) => {
-                writeln!(
-                    &mut output,
-                    "{}",
-                    String::from_utf8_lossy(yours_lines[i])
-                )
-                .unwrap();
+                writeln!(&mut output, "{}", String::from_utf8_lossy(yours_lines[i])).unwrap();
             }
             (false, false) => {}
         }
@@ -836,12 +840,8 @@ fn generate_ed_script(
     let mut output = Vec::new();
 
     // Generate ed script to transform mine into merged version
-    let mine_label = params.labels[0]
-        .as_deref()
-        .unwrap_or("mine");
-    let yours_label = params.labels[2]
-        .as_deref()
-        .unwrap_or("yours");
+    let mine_label = params.labels[0].as_deref().unwrap_or("mine");
+    let yours_label = params.labels[2].as_deref().unwrap_or("yours");
 
     // Check if we should filter based on output mode
     let should_filter = !matches!(
@@ -866,28 +866,15 @@ fn generate_ed_script(
             (Some(mine), Some(yours)) => {
                 if mine != yours {
                     // Only output if it matches the filter
-                    if !should_filter || region.is_none_or(|r| should_include_region(r, params.output_mode)) {
+                    if !should_filter
+                        || region.is_none_or(|r| should_include_region(r, params.output_mode))
+                    {
                         // Change command
                         writeln!(&mut output, "{}c", line_num + 1).unwrap();
-                        writeln!(
-                            &mut output,
-                            "<<<<<<< {}",
-                            mine_label
-                        )
-                        .unwrap();
-                        writeln!(
-                            &mut output,
-                            "{}",
-                            String::from_utf8_lossy(yours)
-                        )
-                        .unwrap();
+                        writeln!(&mut output, "<<<<<<< {}", mine_label).unwrap();
+                        writeln!(&mut output, "{}", String::from_utf8_lossy(yours)).unwrap();
                         writeln!(&mut output, "=======").unwrap();
-                        writeln!(
-                            &mut output,
-                            "{}",
-                            String::from_utf8_lossy(mine)
-                        )
-                        .unwrap();
+                        writeln!(&mut output, "{}", String::from_utf8_lossy(mine)).unwrap();
                         writeln!(&mut output, ">>>>>>> {}", yours_label).unwrap();
                         writeln!(&mut output, ".").unwrap();
                     }
@@ -895,20 +882,19 @@ fn generate_ed_script(
             }
             (Some(_), None) => {
                 // Delete command (only if not filtering or filter passes)
-                if !should_filter || region.is_none_or(|r| should_include_region(r, params.output_mode)) {
+                if !should_filter
+                    || region.is_none_or(|r| should_include_region(r, params.output_mode))
+                {
                     writeln!(&mut output, "{}d", line_num + 1).unwrap();
                 }
             }
             (None, Some(yours)) => {
                 // Add command (only if not filtering or filter passes)
-                if !should_filter || region.is_none_or(|r| should_include_region(r, params.output_mode)) {
+                if !should_filter
+                    || region.is_none_or(|r| should_include_region(r, params.output_mode))
+                {
                     writeln!(&mut output, "{}a", line_num).unwrap();
-                    writeln!(
-                        &mut output,
-                        "{}",
-                        String::from_utf8_lossy(yours)
-                    )
-                    .unwrap();
+                    writeln!(&mut output, "{}", String::from_utf8_lossy(yours)).unwrap();
                     writeln!(&mut output, ".").unwrap();
                 }
             }
@@ -979,7 +965,8 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
     }
 
     // Compute diff3
-    let (result, has_conflicts) = compute_diff3(&mine_content, &older_content, &yours_content, &params);
+    let (result, has_conflicts) =
+        compute_diff3(&mine_content, &older_content, &yours_content, &params);
 
     io::stdout().write_all(&result).unwrap();
 
@@ -1386,17 +1373,15 @@ mod tests {
 
     #[test]
     fn test_analyze_overlap_all_overlapping() {
-        let regions = vec![
-            Diff3Region {
-                mine_start: 0,
-                mine_count: 2,
-                older_start: 0,
-                older_count: 1,
-                yours_start: 0,
-                yours_count: 3,
-                conflict: ConflictType::OverlappingConflict,
-            },
-        ];
+        let regions = vec![Diff3Region {
+            mine_start: 0,
+            mine_count: 2,
+            older_start: 0,
+            older_count: 1,
+            yours_start: 0,
+            yours_count: 3,
+            conflict: ConflictType::OverlappingConflict,
+        }];
         let (easy, overlapping, non_overlapping) = analyze_overlap(&regions);
         assert_eq!(easy, 0);
         assert_eq!(overlapping, 1);
@@ -1660,8 +1645,14 @@ mod tests {
 
         let output_str = String::from_utf8_lossy(&output);
         // With -i, output should contain write (w) and quit (q) commands
-        assert!(output_str.contains("w\n") || output_str.contains("w"), "Output should contain write command");
-        assert!(output_str.contains("q\n") || output_str.contains("q"), "Output should contain quit command");
+        assert!(
+            output_str.contains("w\n") || output_str.contains("w"),
+            "Output should contain write command"
+        );
+        assert!(
+            output_str.contains("q\n") || output_str.contains("q"),
+            "Output should contain quit command"
+        );
     }
 
     #[test]
@@ -1692,7 +1683,10 @@ mod tests {
         let lines: Vec<&str> = output_str.lines().collect();
         if !lines.is_empty() {
             let last_line = lines[lines.len() - 1];
-            assert_ne!(last_line, "q", "Last line should not be 'q' without -i flag");
+            assert_ne!(
+                last_line, "q",
+                "Last line should not be 'q' without -i flag"
+            );
         }
     }
 
@@ -1700,28 +1694,40 @@ mod tests {
     fn test_is_binary_content_with_null_bytes() {
         // Binary content with null bytes
         let binary = b"GIF89a\x00\x00\x00\x00";
-        assert!(is_binary_content(binary), "Should detect null bytes as binary");
+        assert!(
+            is_binary_content(binary),
+            "Should detect null bytes as binary"
+        );
     }
 
     #[test]
     fn test_is_binary_content_text_only() {
         // Plain text content
         let text = b"This is plain text\nwith multiple lines\n";
-        assert!(!is_binary_content(text), "Should not detect plain text as binary");
+        assert!(
+            !is_binary_content(text),
+            "Should not detect plain text as binary"
+        );
     }
 
     #[test]
     fn test_is_binary_content_with_control_chars() {
         // Content with excessive control characters
         let binary = vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0xFF, 0xFE];
-        assert!(is_binary_content(&binary), "Should detect control-heavy content as binary");
+        assert!(
+            is_binary_content(&binary),
+            "Should detect control-heavy content as binary"
+        );
     }
 
     #[test]
     fn test_is_binary_content_empty() {
         // Empty content should not be treated as binary
         let empty: &[u8] = b"";
-        assert!(!is_binary_content(empty), "Empty content should not be binary");
+        assert!(
+            !is_binary_content(empty),
+            "Empty content should not be binary"
+        );
     }
 
     #[test]
@@ -1733,7 +1739,7 @@ mod tests {
             yours: OsString::from("yours.bin"),
             format: Diff3Format::Normal,
             output_mode: Diff3OutputMode::All,
-            text: false,  // Binary detection enabled
+            text: false, // Binary detection enabled
             labels: [None, None, None],
             strip_trailing_cr: false,
             initial_tab: false,
@@ -1749,10 +1755,15 @@ mod tests {
 
         // Should report binary file differences
         let output_str = String::from_utf8_lossy(&output);
-        assert!(output_str.contains("Binary files") || output_str.is_empty(), 
-                "Should report binary differences or be empty");
+        assert!(
+            output_str.contains("Binary files") || output_str.is_empty(),
+            "Should report binary differences or be empty"
+        );
         // Different binary files should have conflicts
-        assert!(has_conflicts, "Different binary files should be detected as conflicts");
+        assert!(
+            has_conflicts,
+            "Different binary files should be detected as conflicts"
+        );
     }
 
     #[test]
@@ -1764,7 +1775,7 @@ mod tests {
             yours: OsString::from("yours.bin"),
             format: Diff3Format::Normal,
             output_mode: Diff3OutputMode::All,
-            text: false,  // Binary detection enabled
+            text: false, // Binary detection enabled
             labels: [None, None, None],
             strip_trailing_cr: false,
             initial_tab: false,
@@ -1773,12 +1784,18 @@ mod tests {
 
         // Identical binary files
         let content = b"GIF89a\x00\x10\x00\x10\xFF\xFF\xFF";
-        
+
         let (output, has_conflicts) = compute_diff3(content, content, content, &params);
 
         // Identical files should have no output and no conflicts
-        assert!(output.is_empty(), "Identical binary files should produce no output");
-        assert!(!has_conflicts, "Identical binary files should have no conflicts");
+        assert!(
+            output.is_empty(),
+            "Identical binary files should produce no output"
+        );
+        assert!(
+            !has_conflicts,
+            "Identical binary files should have no conflicts"
+        );
     }
 
     #[test]
@@ -1790,7 +1807,7 @@ mod tests {
             yours: OsString::from("yours"),
             format: Diff3Format::Normal,
             output_mode: Diff3OutputMode::All,
-            text: true,  // Force text mode even for binary-looking content
+            text: true, // Force text mode even for binary-looking content
             labels: [None, None, None],
             strip_trailing_cr: false,
             initial_tab: false,
@@ -1808,12 +1825,10 @@ mod tests {
         let output_str = String::from_utf8_lossy(&output);
         // Should not be "Binary files differ" - instead should process as text
         if !output.is_empty() {
-            assert!(!output_str.contains("Binary files differ"), 
-                    "Should not report binary when --text flag is set");
+            assert!(
+                !output_str.contains("Binary files differ"),
+                "Should not report binary when --text flag is set"
+            );
         }
     }
 }
-
-
-
-
