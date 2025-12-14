@@ -31,7 +31,7 @@ pub enum Diff3OutputMode {
     EasyOnly,  // -3: output only non-overlapping changes
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Diff3Params {
     pub executable: OsString,
     pub mine: OsString,
@@ -46,23 +46,7 @@ pub struct Diff3Params {
     pub compat_i: bool, // -i option for ed script compatibility
 }
 
-impl Default for Diff3Params {
-    fn default() -> Self {
-        Self {
-            executable: OsString::default(),
-            mine: OsString::default(),
-            older: OsString::default(),
-            yours: OsString::default(),
-            format: Diff3Format::default(),
-            output_mode: Diff3OutputMode::default(),
-            text: false,
-            labels: [None, None, None],
-            strip_trailing_cr: false,
-            initial_tab: false,
-            compat_i: false,
-        }
-    }
-}
+// Default is derived above
 
 pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Result<Diff3Params, String> {
     let Some(executable) = opts.next() else {
@@ -78,6 +62,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
     let mut yours = None;
     let mut label_count = 0;
 
+    #[allow(clippy::while_let_on_iterator)]
     while let Some(param) = opts.next() {
         let param_str = param.to_string_lossy();
 
@@ -169,11 +154,11 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
                 label_count += 1;
                 continue;
             }
-            if param_str.starts_with("--label=") {
+            if let Some(stripped) = param_str.strip_prefix("--label=") {
                 if label_count >= 3 {
                     return Err("Too many labels".to_string());
                 }
-                let label = param_str[8..].to_string();
+                let label = stripped.to_string();
                 params.labels[label_count] = Some(label);
                 label_count += 1;
                 continue;
@@ -209,7 +194,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
     }
 
     // Collect remaining arguments
-    while let Some(param) = opts.next() {
+    for param in opts {
         if mine.is_none() {
             mine = Some(param);
         } else if older.is_none() {
@@ -609,9 +594,9 @@ fn build_conflict_regions(
         }
     } else if has_mine_changes || has_yours_changes {
         // Only one side changed - check if it differs from older
-        if has_mine_changes && mine_lines.len() != older_lines.len() {
-            ConflictType::EasyConflict
-        } else if has_yours_changes && yours_lines.len() != older_lines.len() {
+        if (has_mine_changes && mine_lines.len() != older_lines.len())
+            || (has_yours_changes && yours_lines.len() != older_lines.len())
+        {
             ConflictType::EasyConflict
         } else {
             ConflictType::NoConflict
@@ -622,7 +607,7 @@ fn build_conflict_regions(
     };
 
     // Create a single region representing the whole file
-    if mine_lines.len() > 0 || older_lines.len() > 0 || yours_lines.len() > 0 {
+    if !mine_lines.is_empty() || !older_lines.is_empty() || !yours_lines.is_empty() {
         regions.push(Diff3Region {
             mine_start: 0,
             mine_count: mine_lines.len(),
@@ -691,6 +676,7 @@ fn should_include_region(region: &Diff3Region, output_mode: Diff3OutputMode) -> 
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn generate_normal_output(
     _diff_mine_older: &[diff::Result<&&[u8]>],
     _diff_older_yours: &[diff::Result<&&[u8]>],
@@ -706,35 +692,21 @@ fn generate_normal_output(
     // Generate diff3 normal format output
     // For now, generate simple diff output between mine and yours
     for line_num in 0..mine_lines.len().max(yours_lines.len()) {
-        if line_num < mine_lines.len() && line_num < yours_lines.len() {
-            if mine_lines[line_num] != yours_lines[line_num] {
-                writeln!(
-                    &mut output,
-                    "{}c{}",
-                    line_num + 1,
-                    line_num + 1
-                )
-                .unwrap();
-                writeln!(
-                    &mut output,
-                    "< {}",
-                    String::from_utf8_lossy(mine_lines[line_num])
-                )
-                .unwrap();
-                writeln!(&mut output, "---").unwrap();
-                writeln!(
-                    &mut output,
-                    "> {}",
-                    String::from_utf8_lossy(yours_lines[line_num])
-                )
-                .unwrap();
-            }
+        if line_num < mine_lines.len()
+            && line_num < yours_lines.len()
+            && mine_lines[line_num] != yours_lines[line_num]
+        {
+            writeln!(&mut output, "{}c{}", line_num + 1, line_num + 1).unwrap();
+            writeln!(&mut output, "< {}", String::from_utf8_lossy(mine_lines[line_num])).unwrap();
+            writeln!(&mut output, "---").unwrap();
+            writeln!(&mut output, "> {}", String::from_utf8_lossy(yours_lines[line_num])).unwrap();
         }
     }
 
     output
 }
 
+#[allow(clippy::too_many_arguments)]
 fn generate_merged_output(
     _diff_mine_older: &[diff::Result<&&[u8]>],
     _diff_older_yours: &[diff::Result<&&[u8]>],
@@ -763,7 +735,7 @@ fn generate_merged_output(
 
     // If filtering, check if this region should be included
     let region = regions.first();
-    if should_filter && region.map_or(false, |r| !should_include_region(r, params.output_mode)) {
+    if should_filter && region.is_some_and(|r| !should_include_region(r, params.output_mode)) {
         // Output nothing if region doesn't match filter
         return output;
     }
@@ -782,12 +754,12 @@ fn generate_merged_output(
                     .unwrap();
                 } else {
                     // Only output conflict if it matches the filter
-                    if !should_filter || region.map_or(true, |r| should_include_region(r, params.output_mode)) {
+                    if !should_filter || region.is_none_or(|r| should_include_region(r, params.output_mode)) {
                         // Conflict with optional markers based on output mode
                         match params.output_mode {
                             Diff3OutputMode::OverlapOnlyMarked => {
                                 // Show conflict markers for overlapping conflicts
-                                if region.map_or(false, |r| r.conflict == ConflictType::OverlappingConflict) {
+                                if region.is_some_and(|r| r.conflict == ConflictType::OverlappingConflict) {
                                     writeln!(&mut output, "<<<<<<< {}", mine_label).unwrap();
                                     writeln!(
                                         &mut output,
@@ -850,6 +822,7 @@ fn generate_merged_output(
     output
 }
 
+#[allow(clippy::too_many_arguments)]
 fn generate_ed_script(
     _diff_mine_older: &[diff::Result<&&[u8]>],
     _diff_older_yours: &[diff::Result<&&[u8]>],
@@ -878,7 +851,7 @@ fn generate_ed_script(
 
     // If filtering, check if this region should be included
     let region = regions.first();
-    if should_filter && region.map_or(false, |r| !should_include_region(r, params.output_mode)) {
+    if should_filter && region.is_some_and(|r| !should_include_region(r, params.output_mode)) {
         // Output nothing if region doesn't match filter
         return output;
     }
@@ -893,7 +866,7 @@ fn generate_ed_script(
             (Some(mine), Some(yours)) => {
                 if mine != yours {
                     // Only output if it matches the filter
-                    if !should_filter || region.map_or(true, |r| should_include_region(r, params.output_mode)) {
+                    if !should_filter || region.is_none_or(|r| should_include_region(r, params.output_mode)) {
                         // Change command
                         writeln!(&mut output, "{}c", line_num + 1).unwrap();
                         writeln!(
@@ -922,13 +895,13 @@ fn generate_ed_script(
             }
             (Some(_), None) => {
                 // Delete command (only if not filtering or filter passes)
-                if !should_filter || region.map_or(true, |r| should_include_region(r, params.output_mode)) {
+                if !should_filter || region.is_none_or(|r| should_include_region(r, params.output_mode)) {
                     writeln!(&mut output, "{}d", line_num + 1).unwrap();
                 }
             }
             (None, Some(yours)) => {
                 // Add command (only if not filtering or filter passes)
-                if !should_filter || region.map_or(true, |r| should_include_region(r, params.output_mode)) {
+                if !should_filter || region.is_none_or(|r| should_include_region(r, params.output_mode)) {
                     writeln!(&mut output, "{}a", line_num).unwrap();
                     writeln!(
                         &mut output,
@@ -1012,8 +985,6 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
 
     if has_conflicts {
         ExitCode::from(1)
-    } else if result.is_empty() {
-        ExitCode::SUCCESS
     } else {
         ExitCode::SUCCESS
     }
