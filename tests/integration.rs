@@ -864,6 +864,7 @@ mod cmp {
         let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.arg("cmp");
         cmd.arg(&a_path).arg(&b_path);
+        cmd.env("LC_ALL", "en_US");
         cmd.assert()
             .code(predicate::eq(1))
             .failure()
