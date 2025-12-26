@@ -825,9 +825,24 @@ mod cmp {
             .spawn()
             .unwrap();
 
-        std::thread::sleep(std::time::Duration::from_millis(100));
-
-        assert_eq!(child.try_wait().unwrap().unwrap().code(), Some(1));
+        // Bound the runtime to a very short time that still allows for some resource
+        // constraint to slow it down while also allowing very fast systems to exit as
+        // early as possible.
+        const MAX_TRIES: u8 = 50;
+        for tries in 0..=MAX_TRIES {
+            if tries == MAX_TRIES {
+                panic!("cmp took too long to run, /dev/null optimization probably not working")
+            }
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    assert_eq!(status.code(), Some(1));
+                    break;
+                }
+                Ok(None) => (),
+                Err(e) => panic!("{e:#?}"),
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
 
         // Two stdins should be equal
         let mut cmd = cargo_bin_cmd!("diffutils");
@@ -864,6 +879,7 @@ mod cmp {
         let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.arg("cmp");
         cmd.arg(&a_path).arg(&b_path);
+        cmd.env("LC_ALL", "en_US");
         cmd.assert()
             .code(predicate::eq(1))
             .failure()
