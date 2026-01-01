@@ -115,7 +115,7 @@ checksum = "6184e33543162437515c2e2b48714794e37845ec9851711914eec9d308f6ebe8"
 
 [[package]]
 name = "diffutils"
-version = "0.4.2"
+version = "0.5.0"
 dependencies = [
  "assert_cmd",
  "chrono",
