@@ -501,12 +501,6 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
 }
 
 #[inline]
-fn is_ascii_printable(byte: u8) -> bool {
-    let c = byte as char;
-    c.is_ascii() && !c.is_ascii_control()
-}
-
-#[inline]
 fn format_octal(byte: u8, buf: &mut [u8; 3]) -> &str {
     *buf = [b' ', b' ', b'0'];
 
@@ -525,32 +519,68 @@ fn format_octal(byte: u8, buf: &mut [u8; 3]) -> &str {
 }
 
 #[inline]
-fn format_byte(byte: u8) -> String {
-    let mut byte = byte;
-    let mut quoted = vec![];
-
-    if !is_ascii_printable(byte) {
-        if byte >= 128 {
-            quoted.push(b'M');
-            quoted.push(b'-');
-            byte -= 128;
+fn write_visible_byte(output: &mut Vec<u8>, byte: u8) -> usize {
+    match byte {
+        // Control characters: ^@, ^A, ..., ^_
+        0..=31 => {
+            output.push(b'^');
+            output.push(byte + 64);
+            2
         }
-
-        if byte < 32 {
-            quoted.push(b'^');
-            byte += 64;
-        } else if byte == 127 {
-            quoted.push(b'^');
-            byte = b'?';
+        // Printable ASCII (space through ~)
+        32..=126 => {
+            output.push(byte);
+            1
         }
-        assert!((byte as char).is_ascii());
+        // DEL: ^?
+        127 => {
+            output.extend_from_slice(b"^?");
+            2
+        }
+        // High bytes with control equivalents: M-^@, M-^A, ..., M-^_
+        128..=159 => {
+            output.push(b'M');
+            output.push(b'-');
+            output.push(b'^');
+            output.push(byte - 64);
+            4
+        }
+        // High bytes: M-<space>, M-!, ..., M-~
+        160..=254 => {
+            output.push(b'M');
+            output.push(b'-');
+            output.push(byte - 128);
+            3
+        }
+        // Byte 255: M-^?
+        255 => {
+            output.extend_from_slice(b"M-^?");
+            4
+        }
     }
+}
 
-    quoted.push(byte);
+/// Writes a byte in visible form with right-padding to 4 spaces.
+#[inline]
+fn write_visible_byte_padded(output: &mut Vec<u8>, byte: u8) {
+    const SPACES: &[u8] = b"    ";
+    const WIDTH: usize = SPACES.len();
 
-    // SAFETY: the checks and shifts we do above match what cat and GNU
+    let display_width = write_visible_byte(output, byte);
+
+    // Add right-padding spaces
+    let padding = WIDTH.saturating_sub(display_width);
+    output.extend_from_slice(&SPACES[..padding]);
+}
+
+/// Formats a byte as a visible string (for non-performance-critical path)
+#[inline]
+fn format_visible_byte(byte: u8) -> String {
+    let mut result = Vec::with_capacity(4);
+    write_visible_byte(&mut result, byte);
+    // SAFETY: the checks and shifts in write_visible_byte match what cat and GNU
     // cmp do to ensure characters fall inside the ascii range.
-    unsafe { String::from_utf8_unchecked(quoted) }
+    unsafe { String::from_utf8_unchecked(result) }
 }
 
 // This function has been optimized to not use the Rust fmt system, which
@@ -588,14 +618,7 @@ fn format_verbose_difference(
 
         output.push(b' ');
 
-        let from_byte_str = format_byte(from_byte);
-        let from_byte_padding = 4 - from_byte_str.len();
-
-        output.extend_from_slice(from_byte_str.as_bytes());
-
-        for _ in 0..from_byte_padding {
-            output.push(b' ')
-        }
+        write_visible_byte_padded(output, from_byte);
 
         output.push(b' ');
 
@@ -603,7 +626,7 @@ fn format_verbose_difference(
 
         output.push(b' ');
 
-        output.extend_from_slice(format_byte(to_byte).as_bytes());
+        write_visible_byte(output, to_byte);
 
         output.push(b'\n');
     } else {
@@ -706,9 +729,9 @@ fn report_difference(from_byte: u8, to_byte: u8, at_byte: usize, at_line: usize,
         print!(
             " is {:>3o} {:char_width$} {:>3o} {:char_width$}",
             from_byte,
-            format_byte(from_byte),
+            format_visible_byte(from_byte),
             to_byte,
-            format_byte(to_byte)
+            format_visible_byte(to_byte)
         );
     }
     println!();
