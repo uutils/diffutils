@@ -73,26 +73,13 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
         }
 
         if param_str == "-" {
-            if mine.is_none() {
-                mine = Some(param);
-            } else if older.is_none() {
-                older = Some(param);
-            } else if yours.is_none() {
-                yours = Some(param);
-            } else {
-                return Err(format!(
-                    "Usage: {} mine older yours",
-                    params.executable.to_string_lossy()
-                ));
-            }
+            push_file_arg(param, &mut mine, &mut older, &mut yours, &params.executable)?;
             continue;
         }
 
         // Handle options
         if param_str.starts_with('-') && param_str != "-" {
             // Check for combined short options
-            let param_str = param_str.as_ref();
-
             if param_str == "-a" || param_str == "--text" {
                 params.text = true;
                 continue;
@@ -177,35 +164,13 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
             return Err(format!("Unknown option: \"{}\"", param_str));
         } else {
             // Regular file argument
-            if mine.is_none() {
-                mine = Some(param);
-            } else if older.is_none() {
-                older = Some(param);
-            } else if yours.is_none() {
-                yours = Some(param);
-            } else {
-                return Err(format!(
-                    "Usage: {} mine older yours",
-                    params.executable.to_string_lossy()
-                ));
-            }
+          push_file_arg(param, &mut mine, &mut older, &mut yours, &params.executable)?;
         }
     }
 
     // Collect remaining arguments
     for param in opts {
-        if mine.is_none() {
-            mine = Some(param);
-        } else if older.is_none() {
-            older = Some(param);
-        } else if yours.is_none() {
-            yours = Some(param);
-        } else {
-            return Err(format!(
-                "Usage: {} mine older yours",
-                params.executable.to_string_lossy()
-            ));
-        }
+        push_file_arg(param, &mut mine, &mut older, &mut yours, &params.executable)?;
     }
 
     params.mine = mine.ok_or("Missing file: mine")?;
@@ -214,7 +179,27 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
 
     Ok(params)
 }
-
+fn push_file_arg(
+    param: OsString,
+    mine: &mut Option<OsString>,
+    older: &mut Option<OsString>,
+    yours: &mut Option<OsString>,
+    exe: &OsString,
+) -> Result<(), String> {
+    if mine.is_none() {
+        *mine = Some(param);
+    } else if older.is_none() {
+        *older = Some(param);
+    } else if yours.is_none() {
+        *yours = Some(param);
+    } else {
+        return Err(format!(
+            "Usage: {} mine older yours",
+            exe.to_string_lossy()
+        ));
+    }
+    Ok(())
+}
 fn print_help(executable: &OsString) {
     let exe_name = executable.to_string_lossy();
     println!("Usage: {} [OPTION]... mine older yours", exe_name);
