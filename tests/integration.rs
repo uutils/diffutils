@@ -1529,4 +1529,96 @@ mod diff3 {
 
         Ok(())
     }
+
+    #[test]
+    fn diff3_strip_trailing_cr() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+
+        // Create files with CRLF line endings
+        let mine_path = tmp_dir.path().join("mine");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(b"line1\r\nline2\r\nline3\r\n")?;
+
+        let older_path = tmp_dir.path().join("older");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(b"line1\r\nline2\r\nline3\r\n")?;
+
+        let yours_path = tmp_dir.path().join("yours");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(b"line1\r\nline2\r\nline3\r\n")?;
+
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff3");
+        cmd.arg("--strip-trailing-cr");
+        cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
+        cmd.assert()
+            .code(predicate::eq(0))
+            .success()
+            .stdout(predicate::eq(""));
+
+        Ok(())
+    }
+
+    #[test]
+    fn diff3_strip_trailing_cr_mixed_endings() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+
+        // Mine has CRLF, others have LF - should be identical with --strip-trailing-cr
+        let mine_path = tmp_dir.path().join("mine");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(b"line1\r\nline2\r\nline3\r\n")?;
+
+        let older_path = tmp_dir.path().join("older");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(b"line1\nline2\nline3\n")?;
+
+        let yours_path = tmp_dir.path().join("yours");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(b"line1\nline2\nline3\n")?;
+
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff3");
+        cmd.arg("--strip-trailing-cr");
+        cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
+        cmd.assert()
+            .code(predicate::eq(0))
+            .success()
+            .stdout(predicate::eq(""));
+
+        Ok(())
+    }
+
+    #[test]
+    fn diff3_without_strip_trailing_cr_shows_differences() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+
+        // Mine has CRLF, others have LF - should show differences without --strip-trailing-cr
+        let mine_path = tmp_dir.path().join("mine");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(b"line1\r\nline2\r\nline3\r\n")?;
+
+        let older_path = tmp_dir.path().join("older");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(b"line1\nline2\nline3\n")?;
+
+        let yours_path = tmp_dir.path().join("yours");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(b"line1\nline2\nline3\n")?;
+
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff3");
+        cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
+        
+        let output = cmd.output()?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        
+        // Without --strip-trailing-cr, files with different line endings should be detected as different
+        // Exit code should be 1 (conflicts/differences) or output should show changes
+        assert!(
+            output.status.code() == Some(1) || !stdout.is_empty(),
+            "Should detect differences when line endings differ without --strip-trailing-cr"
+        );
+
+        Ok(())
+    }
 }

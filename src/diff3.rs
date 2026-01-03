@@ -216,38 +216,11 @@ fn print_help(executable: &OsString) {
     println!("  -X                         Output only overlapping changes with markers");
     println!("  -3, --easy-only            Output only non-overlapping changes");
     println!("  -i                         Add write and quit commands for ed");
-    println!("  -T, --initial-tab          Output tab instead of two spaces");
+    println!("  -T, --initial-tab          Make tabs line up by prepending a tab");
     println!("  --label=LABEL              Use label for conflict markers");
     println!("  --strip-trailing-cr        Strip trailing carriage return");
     println!("  -h, --help                 Display this help message");
     println!("  -v, --version              Display version information");
-}
-
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
-struct Diff3Block {
-    line_1: usize,  // Line number in mine
-    lines_1: usize, // Number of lines in mine
-    line_2: usize,  // Line number in older
-    lines_2: usize, // Number of lines in older
-    line_3: usize,  // Line number in yours
-    lines_3: usize, // Number of lines in yours
-}
-
-/// Fast content hash for quick equality checks on large files
-/// Uses a simple FNV-1a hash for performance optimization
-#[allow(dead_code)]
-#[inline]
-fn compute_content_hash(data: &[u8]) -> u64 {
-    const FNV_64_PRIME: u64 = 1099511628211;
-    const FNV_64_OFFSET: u64 = 14695981039346656037;
-
-    let mut hash = FNV_64_OFFSET;
-    for &byte in data {
-        hash ^= byte as u64;
-        hash = hash.wrapping_mul(FNV_64_PRIME);
-    }
-    hash
 }
 
 /// Checks if two files are identical with early exit on first difference
@@ -282,12 +255,7 @@ fn is_binary_content(content: &[u8]) -> bool {
     let sample_size = std::cmp::min(content.len(), 512);
 
     for &byte in &content[..sample_size] {
-        // Non-text bytes are control characters (0-8, 14-31, 127) except common ones (9=tab, 10=LF, 13=CR)
-        if (byte < 9 || (byte > 13 && byte < 32) || byte == 127)
-            && byte != 9
-            && byte != 10
-            && byte != 13
-        {
+        if matches!(byte, 0..=8 | 14..=31 | 127) {
             non_text_count += 1;
         }
     }
@@ -298,6 +266,16 @@ fn is_binary_content(content: &[u8]) -> bool {
     }
 
     false
+}
+
+/// Strips trailing carriage return from a byte slice if present
+#[inline]
+fn strip_trailing_cr(line: &[u8]) -> &[u8] {
+    if line.ends_with(b"\r") {
+        &line[..line.len() - 1]
+    } else {
+        line
+    }
 }
 
 // Main diff3 computation engine with performance optimizations
@@ -322,14 +300,17 @@ fn compute_diff3(mine: &[u8], older: &[u8], yours: &[u8], params: &Diff3Params) 
             return (Vec::new(), false);
         } else {
             let mut output = Vec::new();
-
+            
+            let mine_name = params.mine.to_string_lossy();
+            let older_name = params.older.to_string_lossy();
+            let yours_name = params.yours.to_string_lossy();
             // Report binary file differences in a format similar to GNU diff
             if mine_is_binary && older_is_binary && mine != older {
                 writeln!(
                     &mut output,
                     "Binary files {} and {} differ",
-                    params.mine.to_string_lossy(),
-                    params.older.to_string_lossy()
+                    mine_name,
+                    older_name
                 )
                 .unwrap();
             }
@@ -337,8 +318,8 @@ fn compute_diff3(mine: &[u8], older: &[u8], yours: &[u8], params: &Diff3Params) 
                 writeln!(
                     &mut output,
                     "Binary files {} and {} differ",
-                    params.older.to_string_lossy(),
-                    params.yours.to_string_lossy()
+                    older_name,
+                    yours_name
                 )
                 .unwrap();
             }
@@ -346,8 +327,8 @@ fn compute_diff3(mine: &[u8], older: &[u8], yours: &[u8], params: &Diff3Params) 
                 writeln!(
                     &mut output,
                     "Binary files {} and {} differ",
-                    params.mine.to_string_lossy(),
-                    params.yours.to_string_lossy()
+                    mine_name,
+                    yours_name
                 )
                 .unwrap();
             }
@@ -357,9 +338,22 @@ fn compute_diff3(mine: &[u8], older: &[u8], yours: &[u8], params: &Diff3Params) 
     }
 
     // Split files into lines
-    let mine_lines: Vec<&[u8]> = mine.split(|&c| c == b'\n').collect();
-    let older_lines: Vec<&[u8]> = older.split(|&c| c == b'\n').collect();
-    let yours_lines: Vec<&[u8]> = yours.split(|&c| c == b'\n').collect();
+    let mut mine_lines: Vec<&[u8]> = mine.split(|&c| c == b'\n').collect();
+    let mut older_lines: Vec<&[u8]> = older.split(|&c| c == b'\n').collect();
+    let mut yours_lines: Vec<&[u8]> = yours.split(|&c| c == b'\n').collect();
+
+    // Strip trailing carriage returns if requested
+    if params.strip_trailing_cr {
+        for line in &mut mine_lines {
+            *line = strip_trailing_cr(line);
+        }
+        for line in &mut older_lines {
+            *line = strip_trailing_cr(line);
+        }
+        for line in &mut yours_lines {
+            *line = strip_trailing_cr(line);
+        }
+    }
 
     // Remove trailing empty line if present
     let mine_lines = if mine_lines.last() == Some(&&b""[..]) {
@@ -466,20 +460,20 @@ pub enum ConflictType {
 
 /// Represents a contiguous region in a three-way diff
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
+#[cfg_attr(not(test), allow(dead_code))]
 struct Diff3Region {
     /// Starting line in mine file
-    mine_start: usize,
+    pub(crate) mine_start: usize,
     /// Count of lines in mine file
-    mine_count: usize,
+    pub(crate) mine_count: usize,
     /// Starting line in older file
-    older_start: usize,
+    pub(crate) older_start: usize,
     /// Count of lines in older file
-    older_count: usize,
+    pub(crate) older_count: usize,
     /// Starting line in yours file
-    yours_start: usize,
+    pub(crate) yours_start: usize,
     /// Count of lines in yours file
-    yours_count: usize,
+    pub(crate) yours_count: usize,
     /// Type of conflict in this region
     conflict: ConflictType,
 }
@@ -620,41 +614,6 @@ fn build_conflict_regions(
     regions
 }
 
-/// Analyzes overlap information in diff regions
-#[allow(dead_code)]
-fn analyze_overlap(regions: &[Diff3Region]) -> (usize, usize, usize) {
-    let mut easy_conflicts = 0;
-    let mut overlapping_conflicts = 0;
-    let mut non_overlapping = 0;
-
-    for region in regions {
-        match region.conflict {
-            ConflictType::EasyConflict => easy_conflicts += 1,
-            ConflictType::OverlappingConflict => overlapping_conflicts += 1,
-            ConflictType::NonOverlapping => non_overlapping += 1,
-            ConflictType::NoConflict => {}
-        }
-    }
-
-    (easy_conflicts, overlapping_conflicts, non_overlapping)
-}
-
-/// Checks if only easy (non-overlapping) conflicts exist
-#[allow(dead_code)]
-fn has_only_easy_conflicts(regions: &[Diff3Region]) -> bool {
-    regions
-        .iter()
-        .all(|r| r.conflict == ConflictType::NoConflict || r.conflict == ConflictType::EasyConflict)
-}
-
-/// Checks if overlapping (difficult) conflicts exist
-#[allow(dead_code)]
-fn has_overlapping_conflicts(regions: &[Diff3Region]) -> bool {
-    regions
-        .iter()
-        .any(|r| r.conflict == ConflictType::OverlappingConflict)
-}
-
 /// Determines if a region should be included in output based on the output mode
 fn should_include_region(region: &Diff3Region, output_mode: Diff3OutputMode) -> bool {
     match output_mode {
@@ -683,12 +642,13 @@ fn generate_normal_output(
     _older_lines: &[&[u8]],
     yours_lines: &[&[u8]],
     _regions: &[Diff3Region],
-    _params: &Diff3Params,
+    params: &Diff3Params,
 ) -> Vec<u8> {
     let mut output = Vec::new();
 
     // Generate diff3 normal format output
     // For now, generate simple diff output between mine and yours
+    let tab_prefix = if params.initial_tab { "\t" } else { "" };
     for line_num in 0..mine_lines.len().max(yours_lines.len()) {
         if line_num < mine_lines.len()
             && line_num < yours_lines.len()
@@ -697,14 +657,16 @@ fn generate_normal_output(
             writeln!(&mut output, "{}c{}", line_num + 1, line_num + 1).unwrap();
             writeln!(
                 &mut output,
-                "< {}",
+                "{}< {}",
+                tab_prefix,
                 String::from_utf8_lossy(mine_lines[line_num])
             )
             .unwrap();
             writeln!(&mut output, "---").unwrap();
             writeln!(
                 &mut output,
-                "> {}",
+                "{}> {}",
+                tab_prefix,
                 String::from_utf8_lossy(yours_lines[line_num])
             )
             .unwrap();
@@ -965,6 +927,38 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Analyzes overlap information in diff regions
+    fn analyze_overlap(regions: &[Diff3Region]) -> (usize, usize, usize) {
+        let mut easy_conflicts = 0;
+        let mut overlapping_conflicts = 0;
+        let mut non_overlapping = 0;
+
+        for region in regions {
+            match region.conflict {
+                ConflictType::EasyConflict => easy_conflicts += 1,
+                ConflictType::OverlappingConflict => overlapping_conflicts += 1,
+                ConflictType::NonOverlapping => non_overlapping += 1,
+                ConflictType::NoConflict => {}
+            }
+        }
+
+        (easy_conflicts, overlapping_conflicts, non_overlapping)
+    }
+
+    /// Checks if only easy (non-overlapping) conflicts exist
+    fn has_only_easy_conflicts(regions: &[Diff3Region]) -> bool {
+        regions
+            .iter()
+            .all(|r| r.conflict == ConflictType::NoConflict || r.conflict == ConflictType::EasyConflict)
+    }
+
+    /// Checks if overlapping (difficult) conflicts exist
+    fn has_overlapping_conflicts(regions: &[Diff3Region]) -> bool {
+        regions
+            .iter()
+            .any(|r| r.conflict == ConflictType::OverlappingConflict)
+    }
 
     #[test]
     fn test_parse_params_basic() {
@@ -1815,5 +1809,144 @@ mod tests {
                 "Should not report binary when --text flag is set"
             );
         }
+    }
+
+    #[test]
+    fn test_strip_trailing_cr() {
+        let params = Diff3Params {
+            executable: OsString::from("diff3"),
+            mine: OsString::from("mine"),
+            older: OsString::from("older"),
+            yours: OsString::from("yours"),
+            format: Diff3Format::Normal,
+            output_mode: Diff3OutputMode::All,
+            text: false,
+            labels: [None, None, None],
+            strip_trailing_cr: true,
+            initial_tab: false,
+            compat_i: false,
+        };
+
+        // Files with CRLF line endings (Windows style)
+        let mine = b"line1\r\nline2\r\nline3\r\n";
+        let older = b"line1\r\nline2\r\nline3\r\n";
+        let yours = b"line1\r\nline2\r\nline3\r\n";
+
+        let (output, has_conflicts) = compute_diff3(mine, older, yours, &params);
+
+        // Should treat files as identical despite CRLF
+        assert_eq!(has_conflicts, false);
+        assert!(output.is_empty());
+    }
+
+    #[test]
+    fn test_strip_trailing_cr_with_differences() {
+        let params = Diff3Params {
+            executable: OsString::from("diff3"),
+            mine: OsString::from("mine"),
+            older: OsString::from("older"),
+            yours: OsString::from("yours"),
+            format: Diff3Format::Normal,
+            output_mode: Diff3OutputMode::All,
+            text: false,
+            labels: [None, None, None],
+            strip_trailing_cr: true,
+            initial_tab: false,
+            compat_i: false,
+        };
+
+        // Files with CRLF and actual content differences - create a real conflict
+        let mine = b"line1\r\nmodified_mine\r\nline3\r\n";
+        let older = b"line1\r\nline2\r\nline3\r\n";
+        let yours = b"line1\r\nmodified_yours\r\nline3\r\n";
+
+        let (output, has_conflicts) = compute_diff3(mine, older, yours, &params);
+
+        // Should detect the real conflict (not the CRLF)
+        assert_eq!(has_conflicts, true);
+        assert!(!output.is_empty(), "Should produce output for conflicts");
+    }
+
+    #[test]
+    fn test_strip_trailing_cr_mixed_line_endings() {
+        let params = Diff3Params {
+            executable: OsString::from("diff3"),
+            mine: OsString::from("mine"),
+            older: OsString::from("older"),
+            yours: OsString::from("yours"),
+            format: Diff3Format::Normal,
+            output_mode: Diff3OutputMode::All,
+            text: false,
+            labels: [None, None, None],
+            strip_trailing_cr: true,
+            initial_tab: false,
+            compat_i: false,
+        };
+
+        // Mine has CRLF, older and yours have LF - should be identical with strip_trailing_cr
+        let mine = b"line1\r\nline2\r\nline3\r\n";
+        let older = b"line1\nline2\nline3\n";
+        let yours = b"line1\nline2\nline3\n";
+
+        let (output, has_conflicts) = compute_diff3(mine, older, yours, &params);
+
+        // Should treat files as identical when only line endings differ
+        assert_eq!(has_conflicts, false);
+        assert!(output.is_empty());
+    }
+
+    #[test]
+    fn test_initial_tab_flag() {
+        let params = Diff3Params {
+            executable: OsString::from("diff3"),
+            mine: OsString::from("mine"),
+            older: OsString::from("older"),
+            yours: OsString::from("yours"),
+            format: Diff3Format::Normal,
+            output_mode: Diff3OutputMode::All,
+            text: false,
+            labels: [None, None, None],
+            strip_trailing_cr: false,
+            initial_tab: true,
+            compat_i: false,
+        };
+
+        let mine = b"line1\nchanged_mine\nline3\n";
+        let older = b"line1\nline2\nline3\n";
+        let yours = b"line1\nline2\nline3\n";
+
+        let (output, _has_conflicts) = compute_diff3(mine, older, yours, &params);
+        let output_str = String::from_utf8_lossy(&output);
+
+        // With initial_tab, lines should be prefixed with a tab before < or >
+        assert!(output_str.contains("\t<"), "Should have tab before <");
+    }
+
+    #[test]
+    fn test_without_initial_tab_flag() {
+        let params = Diff3Params {
+            executable: OsString::from("diff3"),
+            mine: OsString::from("mine"),
+            older: OsString::from("older"),
+            yours: OsString::from("yours"),
+            format: Diff3Format::Normal,
+            output_mode: Diff3OutputMode::All,
+            text: false,
+            labels: [None, None, None],
+            strip_trailing_cr: false,
+            initial_tab: false,
+            compat_i: false,
+        };
+
+        let mine = b"line1\nchanged_mine\nline3\n";
+        let older = b"line1\nline2\nline3\n";
+        let yours = b"line1\nline2\nline3\n";
+
+        let (output, _has_conflicts) = compute_diff3(mine, older, yours, &params);
+        let output_str = String::from_utf8_lossy(&output);
+
+        // Without initial_tab, lines should NOT have tab before < or >
+        assert!(!output_str.contains("\t<"), "Should not have tab before <");
+        assert!(output_str.contains("< "), "Should have '< ' prefix");
     }
 }
