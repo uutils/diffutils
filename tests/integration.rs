@@ -1589,7 +1589,8 @@ mod diff3 {
     }
 
     #[test]
-    fn diff3_without_strip_trailing_cr_shows_differences() -> Result<(), Box<dyn std::error::Error>> {
+    fn diff3_without_strip_trailing_cr_shows_differences() -> Result<(), Box<dyn std::error::Error>>
+    {
         let tmp_dir = tempdir()?;
 
         // Mine has CRLF, others have LF - should show differences without --strip-trailing-cr
@@ -1608,10 +1609,10 @@ mod diff3 {
         let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.arg("diff3");
         cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
-        
+
         let output = cmd.output()?;
         let stdout = String::from_utf8_lossy(&output.stdout);
-        
+
         // Without --strip-trailing-cr, files with different line endings should be detected as different
         // Exit code should be 1 (conflicts/differences) or output should show changes
         assert!(

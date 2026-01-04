@@ -164,7 +164,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
             return Err(format!("Unknown option: \"{}\"", param_str));
         } else {
             // Regular file argument
-          push_file_arg(param, &mut mine, &mut older, &mut yours, &params.executable)?;
+            push_file_arg(param, &mut mine, &mut older, &mut yours, &params.executable)?;
         }
     }
 
@@ -193,10 +193,7 @@ fn push_file_arg(
     } else if yours.is_none() {
         *yours = Some(param);
     } else {
-        return Err(format!(
-            "Usage: {} mine older yours",
-            exe.to_string_lossy()
-        ));
+        return Err(format!("Usage: {} mine older yours", exe.to_string_lossy()));
     }
     Ok(())
 }
@@ -300,7 +297,7 @@ fn compute_diff3(mine: &[u8], older: &[u8], yours: &[u8], params: &Diff3Params) 
             return (Vec::new(), false);
         } else {
             let mut output = Vec::new();
-            
+
             let mine_name = params.mine.to_string_lossy();
             let older_name = params.older.to_string_lossy();
             let yours_name = params.yours.to_string_lossy();
@@ -309,8 +306,7 @@ fn compute_diff3(mine: &[u8], older: &[u8], yours: &[u8], params: &Diff3Params) 
                 writeln!(
                     &mut output,
                     "Binary files {} and {} differ",
-                    mine_name,
-                    older_name
+                    mine_name, older_name
                 )
                 .unwrap();
             }
@@ -318,8 +314,7 @@ fn compute_diff3(mine: &[u8], older: &[u8], yours: &[u8], params: &Diff3Params) 
                 writeln!(
                     &mut output,
                     "Binary files {} and {} differ",
-                    older_name,
-                    yours_name
+                    older_name, yours_name
                 )
                 .unwrap();
             }
@@ -327,8 +322,7 @@ fn compute_diff3(mine: &[u8], older: &[u8], yours: &[u8], params: &Diff3Params) 
                 writeln!(
                     &mut output,
                     "Binary files {} and {} differ",
-                    mine_name,
-                    yours_name
+                    mine_name, yours_name
                 )
                 .unwrap();
             }
@@ -948,9 +942,9 @@ mod tests {
 
     /// Checks if only easy (non-overlapping) conflicts exist
     fn has_only_easy_conflicts(regions: &[Diff3Region]) -> bool {
-        regions
-            .iter()
-            .all(|r| r.conflict == ConflictType::NoConflict || r.conflict == ConflictType::EasyConflict)
+        regions.iter().all(|r| {
+            r.conflict == ConflictType::NoConflict || r.conflict == ConflictType::EasyConflict
+        })
     }
 
     /// Checks if overlapping (difficult) conflicts exist
