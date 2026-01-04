@@ -80,6 +80,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
                 continue;
             }
             if param_str == "-A" || param_str == "--show-all" {
+                params.format = Diff3Format::Ed;
                 params.output_mode = Diff3OutputMode::All;
                 continue;
             }
@@ -102,14 +103,26 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
                 continue;
             }
             if param_str == "-x" || param_str == "--overlap-only" {
+                // Only set Ed format if no format was explicitly set
+                if params.format == Diff3Format::Normal {
+                    params.format = Diff3Format::Ed;
+                }
                 params.output_mode = Diff3OutputMode::OverlapOnly;
                 continue;
             }
             if param_str == "-X" {
+                // Only set Ed format if no format was explicitly set
+                if params.format == Diff3Format::Normal {
+                    params.format = Diff3Format::Ed;
+                }
                 params.output_mode = Diff3OutputMode::OverlapOnlyMarked;
                 continue;
             }
             if param_str == "-3" || param_str == "--easy-only" {
+                // Only set Ed format if no format was explicitly set
+                if params.format == Diff3Format::Normal {
+                    params.format = Diff3Format::Ed;
+                }
                 params.output_mode = Diff3OutputMode::EasyOnly;
                 continue;
             }
@@ -377,18 +390,23 @@ fn compute_diff3(
     );
 
     // Determine the appropriate exit code based on format and output mode
+    // GNU diff3 behavior:
+    // - Normal format: always returns 0 (changes are informational)
+    // - Merged format: returns 1 if there are unresolved conflicts
+    // - Ed format: depends on mode
+    //   - -e, -x, -X, -3: always return 0 (ed scripts are meant to be applied)
+    //   - -E, -A: return 1 if there are overlapping conflicts
     let should_report_conflict = match params.format {
         Diff3Format::Ed => {
-            // -e mode: conflicts are auto-resolved by choosing "yours", so return 0
-            // unless we're in ShowOverlapEd mode which needs manual resolution
+            // Ed format exit codes depend on the output mode
             match params.output_mode {
-                Diff3OutputMode::ShowOverlapEd => {
-                    // -E mode: return 1 if there are overlapping conflicts
+                Diff3OutputMode::ShowOverlapEd | Diff3OutputMode::All => {
+                    // -E or -A mode: return 1 if there are overlapping conflicts
                     regions
                         .iter()
                         .any(|r| r.conflict == ConflictType::OverlappingConflict)
                 }
-                _ => false, // -e mode always succeeds
+                _ => false, // -e, -x, -X, and -3 modes always return 0
             }
         }
         Diff3Format::ShowOverlap => {
@@ -398,36 +416,28 @@ fn compute_diff3(
                 .any(|r| r.conflict == ConflictType::OverlappingConflict)
         }
         Diff3Format::Normal => {
-            // Normal format: return 1 only if both sides changed differently
-            match params.output_mode {
-                Diff3OutputMode::EasyOnly => {
-                    // -3: showing easy conflicts doesn't count as failure (exit 0)
-                    false
-                }
-                Diff3OutputMode::OverlapOnly | Diff3OutputMode::OverlapOnlyMarked => {
-                    // -x or -X: return 1 if there are overlapping conflicts
-                    regions
-                        .iter()
-                        .any(|r| r.conflict == ConflictType::OverlappingConflict)
-                }
-                _ => {
-                    // Default: return 1 only if there are overlapping conflicts
-                    // (both sides changed differently)
-                    regions
-                        .iter()
-                        .any(|r| r.conflict == ConflictType::OverlappingConflict)
-                }
-            }
+            // Normal format: GNU diff3 always returns 0
+            // Changes are shown but don't indicate failure
+            false
         }
         Diff3Format::Merged => {
-            // Merged format: return 1 if there are ANY conflicts needing resolution
-            // This includes both easy conflicts (one side changed) and overlapping (both changed)
-            regions.iter().any(|r| {
-                matches!(
-                    r.conflict,
-                    ConflictType::EasyConflict | ConflictType::OverlappingConflict
-                )
-            })
+            // Merged format exit code depends on output mode
+            match params.output_mode {
+                Diff3OutputMode::OverlapOnly | Diff3OutputMode::OverlapOnlyMarked => {
+                    // -x or -X with -m: outputs resolved content (yours), returns 0 like ed scripts
+                    false
+                }
+                _ => {
+                    // Default merged format: return 1 if there are ANY conflicts needing resolution
+                    // This includes both easy conflicts (one side changed) and overlapping (both changed)
+                    regions.iter().any(|r| {
+                        matches!(
+                            r.conflict,
+                            ConflictType::EasyConflict | ConflictType::OverlappingConflict
+                        )
+                    })
+                }
+            }
         }
     };
 
@@ -765,7 +775,9 @@ fn generate_normal_output(
     params: &Diff3Params,
 ) -> io::Result<Vec<u8>> {
     let mut output = Vec::new();
-    let tab_prefix = if params.initial_tab { "\t" } else { "" };
+    // GNU diff3 uses just a tab before content when -T is specified
+    // Without -T, it uses two spaces
+    let line_prefix = if params.initial_tab { "\t" } else { "  " };
 
     for region in regions {
         if !should_include_region(region, params.output_mode) {
@@ -778,18 +790,33 @@ fn generate_normal_output(
 
         match region.conflict {
             ConflictType::EasyConflict => {
-                if region.mine_count != region.older_count
+                // Determine which file changed
+                let mine_differs = region.mine_count != region.older_count
                     || (region.mine_count > 0
                         && region.mine_count <= mine_lines.len()
                         && region.older_count > 0
                         && region.older_count <= older_lines.len()
                         && mine_lines[region.mine_start..region.mine_start + region.mine_count]
                             != older_lines
-                                [region.older_start..region.older_start + region.older_count])
-                {
+                                [region.older_start..region.older_start + region.older_count]);
+
+                let yours_differs = region.yours_count != region.older_count
+                    || (region.yours_count > 0
+                        && region.yours_count <= yours_lines.len()
+                        && region.older_count > 0
+                        && region.older_count <= older_lines.len()
+                        && yours_lines
+                            [region.yours_start..region.yours_start + region.yours_count]
+                            != older_lines
+                                [region.older_start..region.older_start + region.older_count]);
+
+                if mine_differs && !yours_differs {
                     writeln!(&mut output, "====1")?;
-                } else {
+                } else if yours_differs && !mine_differs {
                     writeln!(&mut output, "====3")?;
+                } else {
+                    // Shouldn't happen in EasyConflict, but treat as general conflict
+                    writeln!(&mut output, "====")?;
                 }
             }
             ConflictType::NonOverlapping => {
@@ -803,6 +830,12 @@ fn generate_normal_output(
             }
         }
 
+        // GNU diff3 normal format output rules:
+        // - Always show file 1 and file 3 content
+        // - Only show file 2 content for overlapping/non-overlapping conflicts
+        let is_easy_conflict = region.conflict == ConflictType::EasyConflict;
+
+        // Always show line ranges, content depends on conflict type
         if region.mine_count == 0 {
             writeln!(&mut output, "1:{}a", region.mine_start)?;
         } else {
@@ -813,6 +846,7 @@ fn generate_normal_output(
             } else {
                 writeln!(&mut output, "1:{},{}c", start_line, end_line)?;
             }
+            // Always show mine content
             let end_idx = region
                 .mine_start
                 .saturating_add(region.mine_count)
@@ -820,8 +854,8 @@ fn generate_normal_output(
             for line in &mine_lines[region.mine_start..end_idx] {
                 writeln!(
                     &mut output,
-                    "{}  {}",
-                    tab_prefix,
+                    "{}{}",
+                    line_prefix,
                     String::from_utf8_lossy(line)
                 )?;
             }
@@ -837,17 +871,20 @@ fn generate_normal_output(
             } else {
                 writeln!(&mut output, "2:{},{}c", start_line, end_line)?;
             }
-            let end_idx = region
-                .older_start
-                .saturating_add(region.older_count)
-                .min(older_lines.len());
-            for line in &older_lines[region.older_start..end_idx] {
-                writeln!(
-                    &mut output,
-                    "{}  {}",
-                    tab_prefix,
-                    String::from_utf8_lossy(line)
-                )?;
+            // Show older content only for overlapping/non-overlapping conflicts
+            if !is_easy_conflict {
+                let end_idx = region
+                    .older_start
+                    .saturating_add(region.older_count)
+                    .min(older_lines.len());
+                for line in &older_lines[region.older_start..end_idx] {
+                    writeln!(
+                        &mut output,
+                        "{}{}",
+                        line_prefix,
+                        String::from_utf8_lossy(line)
+                    )?;
+                }
             }
         }
 
@@ -861,6 +898,7 @@ fn generate_normal_output(
             } else {
                 writeln!(&mut output, "3:{},{}c", start_line, end_line)?;
             }
+            // Always show yours content
             let end_idx = region
                 .yours_start
                 .saturating_add(region.yours_count)
@@ -868,8 +906,8 @@ fn generate_normal_output(
             for line in &yours_lines[region.yours_start..end_idx] {
                 writeln!(
                     &mut output,
-                    "{}  {}",
-                    tab_prefix,
+                    "{}{}",
+                    line_prefix,
                     String::from_utf8_lossy(line)
                 )?;
             }
@@ -888,9 +926,19 @@ fn generate_merged_output(
 ) -> io::Result<Vec<u8>> {
     let mut output = Vec::new();
 
-    let mine_label = params.labels[0].as_deref().unwrap_or("<<<<<<<");
-    let older_label = params.labels[1].as_deref().unwrap_or("|||||||");
-    let yours_label = params.labels[2].as_deref().unwrap_or(">>>>>>>");
+    // Use file paths as default labels, matching GNU diff3 behavior
+    let mine_label = params.labels[0]
+        .as_deref()
+        .or_else(|| params.mine.to_str())
+        .unwrap_or("<<<<<<<");
+    let older_label = params.labels[1]
+        .as_deref()
+        .or_else(|| params.older.to_str())
+        .unwrap_or("|||||||");
+    let yours_label = params.labels[2]
+        .as_deref()
+        .or_else(|| params.yours.to_str())
+        .unwrap_or(">>>>>>>");
 
     let mut last_output_line = 0;
 
@@ -950,39 +998,57 @@ fn generate_merged_output(
                 last_output_line = region.mine_start.saturating_add(region.mine_count);
             }
             ConflictType::OverlappingConflict => {
-                writeln!(&mut output, "<<<<<<< {}", mine_label)?;
-                let mine_end_idx = region
-                    .mine_start
-                    .saturating_add(region.mine_count)
-                    .min(mine_lines.len());
-                for line in &mine_lines[region.mine_start..mine_end_idx] {
-                    writeln!(&mut output, "{}", String::from_utf8_lossy(line))?;
-                }
-
-                // Show overlap section if in Merged mode with -A (default) or ShowOverlap format
-                // GNU diff3 -m shows middle section by default (like -A)
-                if params.format == Diff3Format::Merged || params.format == Diff3Format::ShowOverlap
+                // For -X or -x (OverlapOnlyMarked/OverlapOnly) in merged format,
+                // output yours without markers, matching ed script behavior
+                if (params.output_mode == Diff3OutputMode::OverlapOnlyMarked
+                    || params.output_mode == Diff3OutputMode::OverlapOnly)
+                    && params.format == Diff3Format::Merged
                 {
-                    writeln!(&mut output, "||||||| {}", older_label)?;
-                    let older_end_idx = region
-                        .older_start
-                        .saturating_add(region.older_count)
-                        .min(older_lines.len());
-                    for line in &older_lines[region.older_start..older_end_idx] {
+                    let yours_end_idx = region
+                        .yours_start
+                        .saturating_add(region.yours_count)
+                        .min(yours_lines.len());
+                    for line in &yours_lines[region.yours_start..yours_end_idx] {
                         writeln!(&mut output, "{}", String::from_utf8_lossy(line))?;
                     }
-                }
+                    last_output_line = region.mine_start.saturating_add(region.mine_count);
+                } else {
+                    // Normal merged output with conflict markers
+                    writeln!(&mut output, "<<<<<<< {}", mine_label)?;
+                    let mine_end_idx = region
+                        .mine_start
+                        .saturating_add(region.mine_count)
+                        .min(mine_lines.len());
+                    for line in &mine_lines[region.mine_start..mine_end_idx] {
+                        writeln!(&mut output, "{}", String::from_utf8_lossy(line))?;
+                    }
 
-                writeln!(&mut output, "=======")?;
-                let yours_end_idx = region
-                    .yours_start
-                    .saturating_add(region.yours_count)
-                    .min(yours_lines.len());
-                for line in &yours_lines[region.yours_start..yours_end_idx] {
-                    writeln!(&mut output, "{}", String::from_utf8_lossy(line))?;
+                    // Show overlap section if in Merged mode with -A (default) or ShowOverlap format
+                    // GNU diff3 -m shows middle section by default (like -A)
+                    if params.format == Diff3Format::Merged
+                        || params.format == Diff3Format::ShowOverlap
+                    {
+                        writeln!(&mut output, "||||||| {}", older_label)?;
+                        let older_end_idx = region
+                            .older_start
+                            .saturating_add(region.older_count)
+                            .min(older_lines.len());
+                        for line in &older_lines[region.older_start..older_end_idx] {
+                            writeln!(&mut output, "{}", String::from_utf8_lossy(line))?;
+                        }
+                    }
+
+                    writeln!(&mut output, "=======")?;
+                    let yours_end_idx = region
+                        .yours_start
+                        .saturating_add(region.yours_count)
+                        .min(yours_lines.len());
+                    for line in &yours_lines[region.yours_start..yours_end_idx] {
+                        writeln!(&mut output, "{}", String::from_utf8_lossy(line))?;
+                    }
+                    writeln!(&mut output, ">>>>>>> {}", yours_label)?;
+                    last_output_line = region.mine_start.saturating_add(region.mine_count);
                 }
-                writeln!(&mut output, ">>>>>>> {}", yours_label)?;
-                last_output_line = region.mine_start.saturating_add(region.mine_count);
             }
         }
     }
@@ -1025,7 +1091,8 @@ fn generate_ed_script(
     // to maintain line number accuracy
     let mut commands: Vec<String> = Vec::new();
 
-    let use_conflict_markers = params.output_mode == Diff3OutputMode::ShowOverlapEd;
+    let use_conflict_markers = params.output_mode == Diff3OutputMode::ShowOverlapEd
+        || params.output_mode == Diff3OutputMode::All;
 
     for region in regions.iter().rev() {
         if !should_include_region(region, params.output_mode) {
@@ -1131,53 +1198,47 @@ fn generate_ed_script(
             }
             ConflictType::OverlappingConflict => {
                 if use_conflict_markers {
-                    // -E mode: Insert conflict markers as text
-                    let start_line = region.mine_start + 1;
-                    let end_line = region.mine_start + region.mine_count;
+                    // -E or -A mode: Insert conflict markers by splitting into separate commands
+                    // This matches GNU diff3 behavior which preserves the original content
+                    // and inserts markers around it
 
-                    // Build the conflict text
-                    let mut conflict_lines = Vec::new();
-                    conflict_lines.push(format!("<<<<<<< {}", mine_label));
-                    for line in mine_lines
-                        .iter()
-                        .skip(region.mine_start)
-                        .take(region.mine_count)
-                    {
-                        conflict_lines.push(String::from_utf8_lossy(line).to_string());
-                    }
+                    // First command: Insert the closing marker and yours content after mine's end line
+                    let mine_end_line = region.mine_start + region.mine_count;
+                    commands.push(format!("{}a", mine_end_line));
 
-                    if params.format == Diff3Format::ShowOverlap {
-                        conflict_lines.push(format!("||||||| {}", older_label));
+                    // For -A mode, include the middle section (older content)
+                    if params.output_mode == Diff3OutputMode::All {
+                        commands.push(format!("||||||| {}", older_label));
                         for line in older_lines
                             .iter()
                             .skip(region.older_start)
                             .take(region.older_count)
                         {
-                            conflict_lines.push(String::from_utf8_lossy(line).to_string());
+                            commands.push(String::from_utf8_lossy(line).to_string());
                         }
                     }
 
-                    conflict_lines.push("=======".to_string());
+                    // Add separator, yours content, and closing marker
+                    commands.push("=======".to_string());
                     for line in yours_lines
                         .iter()
                         .skip(region.yours_start)
                         .take(region.yours_count)
                     {
-                        conflict_lines.push(String::from_utf8_lossy(line).to_string());
+                        commands.push(String::from_utf8_lossy(line).to_string());
                     }
-                    conflict_lines.push(format!(">>>>>>> {}", yours_label));
+                    commands.push(format!(">>>>>>> {}", yours_label));
+                    commands.push(".".to_string());
 
-                    if region.mine_count == 0 {
+                    // Second command: Insert the opening marker before mine content
+                    // This goes after line (mine_start), which puts it before mine content
+                    if region.mine_start > 0 {
                         commands.push(format!("{}a", region.mine_start));
-                    } else if start_line == end_line {
-                        commands.push(format!("{}c", start_line));
                     } else {
-                        commands.push(format!("{},{}c", start_line, end_line));
+                        // For first line, use 0a to insert at beginning
+                        commands.push("0a".to_string());
                     }
-
-                    for line in conflict_lines {
-                        commands.push(line);
-                    }
+                    commands.push(format!("<<<<<<< {}", mine_label));
                     commands.push(".".to_string());
                 } else {
                     let start_line = region.mine_start + 1;
