@@ -326,9 +326,6 @@ fn compute_diff3(
         for line in &mut mine_lines {
             *line = strip_trailing_cr(line);
         }
-        for line in &mut mine_lines {
-            *line = strip_trailing_cr(line);
-        }
         for line in &mut older_lines {
             *line = strip_trailing_cr(line);
         }
