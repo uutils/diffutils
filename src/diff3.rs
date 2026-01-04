@@ -437,42 +437,15 @@ fn compute_diff3(
 
     Ok(match params.format {
         Diff3Format::Normal => (
-            generate_normal_output(
-                &diff_mine_older,
-                &diff_older_yours,
-                &diff_mine_yours,
-                mine_lines,
-                older_lines,
-                yours_lines,
-                &regions,
-                params,
-            )?,
+            generate_normal_output(mine_lines, older_lines, yours_lines, &regions, params)?,
             should_report_conflict,
         ),
         Diff3Format::Merged => (
-            generate_merged_output(
-                &diff_mine_older,
-                &diff_older_yours,
-                &diff_mine_yours,
-                mine_lines,
-                older_lines,
-                yours_lines,
-                &regions,
-                params,
-            )?,
+            generate_merged_output(mine_lines, older_lines, yours_lines, &regions, params)?,
             should_report_conflict,
         ),
         Diff3Format::Ed | Diff3Format::ShowOverlap => (
-            generate_ed_script(
-                &diff_mine_older,
-                &diff_older_yours,
-                &diff_mine_yours,
-                mine_lines,
-                older_lines,
-                yours_lines,
-                &regions,
-                params,
-            )?,
+            generate_ed_script(mine_lines, older_lines, yours_lines, &regions, params)?,
             should_report_conflict,
         ),
     })
@@ -788,11 +761,7 @@ fn should_include_region(region: &Diff3Region, output_mode: Diff3OutputMode) -> 
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn generate_normal_output(
-    _diff_mine_older: &[diff::Result<&&[u8]>],
-    _diff_older_yours: &[diff::Result<&&[u8]>],
-    _diff_mine_yours: &[diff::Result<&&[u8]>],
     mine_lines: &[&[u8]],
     older_lines: &[&[u8]],
     yours_lines: &[&[u8]],
@@ -848,7 +817,10 @@ fn generate_normal_output(
             } else {
                 writeln!(&mut output, "1:{},{}c", start_line, end_line)?;
             }
-            let end_idx = region.mine_start.saturating_add(region.mine_count).min(mine_lines.len());
+            let end_idx = region
+                .mine_start
+                .saturating_add(region.mine_count)
+                .min(mine_lines.len());
             for line in &mine_lines[region.mine_start..end_idx] {
                 writeln!(
                     &mut output,
@@ -869,7 +841,10 @@ fn generate_normal_output(
             } else {
                 writeln!(&mut output, "2:{},{}c", start_line, end_line)?;
             }
-            let end_idx = region.older_start.saturating_add(region.older_count).min(older_lines.len());
+            let end_idx = region
+                .older_start
+                .saturating_add(region.older_count)
+                .min(older_lines.len());
             for line in &older_lines[region.older_start..end_idx] {
                 writeln!(
                     &mut output,
@@ -890,7 +865,10 @@ fn generate_normal_output(
             } else {
                 writeln!(&mut output, "3:{},{}c", start_line, end_line)?;
             }
-            let end_idx = region.yours_start.saturating_add(region.yours_count).min(yours_lines.len());
+            let end_idx = region
+                .yours_start
+                .saturating_add(region.yours_count)
+                .min(yours_lines.len());
             for line in &yours_lines[region.yours_start..end_idx] {
                 writeln!(
                     &mut output,
@@ -905,11 +883,7 @@ fn generate_normal_output(
     Ok(output)
 }
 
-#[allow(clippy::too_many_arguments)]
 fn generate_merged_output(
-    _diff_mine_older: &[diff::Result<&&[u8]>],
-    _diff_older_yours: &[diff::Result<&&[u8]>],
-    _diff_mine_yours: &[diff::Result<&&[u8]>],
     mine_lines: &[&[u8]],
     older_lines: &[&[u8]],
     yours_lines: &[&[u8]],
@@ -940,7 +914,10 @@ fn generate_merged_output(
 
         match region.conflict {
             ConflictType::NoConflict => {
-                let end_idx = region.mine_start.saturating_add(region.mine_count).min(mine_lines.len());
+                let end_idx = region
+                    .mine_start
+                    .saturating_add(region.mine_count)
+                    .min(mine_lines.len());
                 for line in &mine_lines[region.mine_start..end_idx] {
                     writeln!(&mut output, "{}", String::from_utf8_lossy(line))?;
                 }
@@ -948,12 +925,18 @@ fn generate_merged_output(
             }
             ConflictType::EasyConflict => {
                 if region.mine_count != region.older_count {
-                    let end_idx = region.mine_start.saturating_add(region.mine_count).min(mine_lines.len());
+                    let end_idx = region
+                        .mine_start
+                        .saturating_add(region.mine_count)
+                        .min(mine_lines.len());
                     for line in &mine_lines[region.mine_start..end_idx] {
                         writeln!(&mut output, "{}", String::from_utf8_lossy(line))?;
                     }
                 } else {
-                    let end_idx = region.yours_start.saturating_add(region.yours_count).min(yours_lines.len());
+                    let end_idx = region
+                        .yours_start
+                        .saturating_add(region.yours_count)
+                        .min(yours_lines.len());
                     for line in &yours_lines[region.yours_start..end_idx] {
                         writeln!(&mut output, "{}", String::from_utf8_lossy(line))?;
                     }
@@ -961,7 +944,10 @@ fn generate_merged_output(
                 last_output_line = region.mine_start.saturating_add(region.mine_count);
             }
             ConflictType::NonOverlapping => {
-                let end_idx = region.mine_start.saturating_add(region.mine_count).min(mine_lines.len());
+                let end_idx = region
+                    .mine_start
+                    .saturating_add(region.mine_count)
+                    .min(mine_lines.len());
                 for line in &mine_lines[region.mine_start..end_idx] {
                     writeln!(&mut output, "{}", String::from_utf8_lossy(line))?;
                 }
@@ -969,7 +955,10 @@ fn generate_merged_output(
             }
             ConflictType::OverlappingConflict => {
                 writeln!(&mut output, "<<<<<<< {}", mine_label)?;
-                let mine_end_idx = region.mine_start.saturating_add(region.mine_count).min(mine_lines.len());
+                let mine_end_idx = region
+                    .mine_start
+                    .saturating_add(region.mine_count)
+                    .min(mine_lines.len());
                 for line in &mine_lines[region.mine_start..mine_end_idx] {
                     writeln!(&mut output, "{}", String::from_utf8_lossy(line))?;
                 }
@@ -979,14 +968,20 @@ fn generate_merged_output(
                 if params.format == Diff3Format::Merged || params.format == Diff3Format::ShowOverlap
                 {
                     writeln!(&mut output, "||||||| {}", older_label)?;
-                    let older_end_idx = region.older_start.saturating_add(region.older_count).min(older_lines.len());
+                    let older_end_idx = region
+                        .older_start
+                        .saturating_add(region.older_count)
+                        .min(older_lines.len());
                     for line in &older_lines[region.older_start..older_end_idx] {
                         writeln!(&mut output, "{}", String::from_utf8_lossy(line))?;
                     }
                 }
 
                 writeln!(&mut output, "=======")?;
-                let yours_end_idx = region.yours_start.saturating_add(region.yours_count).min(yours_lines.len());
+                let yours_end_idx = region
+                    .yours_start
+                    .saturating_add(region.yours_count)
+                    .min(yours_lines.len());
                 for line in &yours_lines[region.yours_start..yours_end_idx] {
                     writeln!(&mut output, "{}", String::from_utf8_lossy(line))?;
                 }
@@ -1008,11 +1003,7 @@ fn generate_merged_output(
     Ok(output)
 }
 
-#[allow(clippy::too_many_arguments)]
 fn generate_ed_script(
-    _diff_mine_older: &[diff::Result<&&[u8]>],
-    _diff_older_yours: &[diff::Result<&&[u8]>],
-    _diff_mine_yours: &[diff::Result<&&[u8]>],
     mine_lines: &[&[u8]],
     older_lines: &[&[u8]],
     yours_lines: &[&[u8]],
@@ -2251,7 +2242,7 @@ mod tests {
             compute_diff3(mine, older, yours, &params).expect("compute_diff3 failed");
 
         // Should treat files as identical despite CRLF
-        assert_eq!(has_conflicts, false);
+        assert!(!has_conflicts);
         assert!(output.is_empty());
     }
 
@@ -2280,7 +2271,7 @@ mod tests {
             compute_diff3(mine, older, yours, &params).expect("compute_diff3 failed");
 
         // Should detect the real conflict (not the CRLF)
-        assert_eq!(has_conflicts, true);
+        assert!(has_conflicts);
         assert!(!output.is_empty(), "Should produce output for conflicts");
     }
 
@@ -2309,7 +2300,7 @@ mod tests {
             compute_diff3(mine, older, yours, &params).expect("compute_diff3 failed");
 
         // Should treat files as identical when only line endings differ
-        assert_eq!(has_conflicts, false);
+        assert!(!has_conflicts);
         assert!(output.is_empty());
     }
 
