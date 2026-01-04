@@ -496,6 +496,11 @@ fn detect_conflicts(
 }
 
 /// Analyzes diffs to build conflict regions with classification
+///
+/// This function implements proper three-way merge logic by:
+/// 1. Identifying change hunks in both mine-older and older-yours diffs
+/// 2. Correlating hunks that affect overlapping base (older) line ranges
+/// 3. Classifying each region based on what changed
 fn build_conflict_regions(
     diff_mine_older: &[diff::Result<&&[u8]>],
     diff_older_yours: &[diff::Result<&&[u8]>],
@@ -504,96 +509,212 @@ fn build_conflict_regions(
     older_lines: &[&[u8]],
     yours_lines: &[&[u8]],
 ) -> Vec<Diff3Region> {
-    let mut regions = Vec::new();
+    // Hunk represents a contiguous region of changes
+    #[derive(Debug, Clone)]
+    struct Hunk {
+        mine_start: usize,
+        mine_count: usize,
+        older_start: usize,
+        older_count: usize,
+        yours_start: usize,
+        yours_count: usize,
+        mine_changed: bool,
+        yours_changed: bool,
+    }
 
-    // Track which lines differ in each diff using Vec<bool> for better performance
-    // Pre-allocate with expected sizes to minimize reallocations
-    let mut mine_changed = vec![false; mine_lines.len()];
-    let mut older_changed_by_mine = vec![false; older_lines.len()];
-    let mut older_changed_by_yours = vec![false; older_lines.len()];
-    let mut yours_changed = vec![false; yours_lines.len()];
+    let mut hunks: Vec<Hunk> = Vec::new();
 
-    let mut mine_line = 0;
-    let mut older_line = 0;
+    // Parse mine-older diff to identify changes
+    let mut mine_idx = 0;
+    let mut older_idx = 0;
+    let mut current_hunk_start_mine = 0;
+    let mut current_hunk_start_older = 0;
+    let mut in_mine_change = false;
 
-    // Analyze mine vs older
     for result in diff_mine_older {
         match result {
-            diff::Result::Left(_) => {
-                if mine_line < mine_changed.len() {
-                    mine_changed[mine_line] = true;
+            diff::Result::Both(_, _) => {
+                if in_mine_change {
+                    // End of change hunk from mine
+                    hunks.push(Hunk {
+                        mine_start: current_hunk_start_mine,
+                        mine_count: mine_idx - current_hunk_start_mine,
+                        older_start: current_hunk_start_older,
+                        older_count: older_idx - current_hunk_start_older,
+                        yours_start: current_hunk_start_older,
+                        yours_count: older_idx - current_hunk_start_older,
+                        mine_changed: true,
+                        yours_changed: false,
+                    });
+                    in_mine_change = false;
                 }
-                mine_line += 1;
+                mine_idx += 1;
+                older_idx += 1;
+            }
+            diff::Result::Left(_) => {
+                if !in_mine_change {
+                    current_hunk_start_mine = mine_idx;
+                    current_hunk_start_older = older_idx;
+                    in_mine_change = true;
+                }
+                mine_idx += 1;
             }
             diff::Result::Right(_) => {
-                if older_line < older_changed_by_mine.len() {
-                    older_changed_by_mine[older_line] = true;
+                if !in_mine_change {
+                    current_hunk_start_mine = mine_idx;
+                    current_hunk_start_older = older_idx;
+                    in_mine_change = true;
                 }
-                older_line += 1;
-            }
-            diff::Result::Both(_, _) => {
-                mine_line += 1;
-                older_line += 1;
+                older_idx += 1;
             }
         }
     }
 
-    let mut older_line = 0;
-    let mut yours_line = 0;
+    // Handle final hunk if we ended in a change
+    if in_mine_change {
+        hunks.push(Hunk {
+            mine_start: current_hunk_start_mine,
+            mine_count: mine_idx - current_hunk_start_mine,
+            older_start: current_hunk_start_older,
+            older_count: older_idx - current_hunk_start_older,
+            yours_start: current_hunk_start_older,
+            yours_count: older_idx - current_hunk_start_older,
+            mine_changed: true,
+            yours_changed: false,
+        });
+    }
 
-    // Analyze older vs yours
+    // Parse older-yours diff and merge with existing hunks
+    older_idx = 0;
+    let mut yours_idx = 0;
+    let mut current_hunk_start_yours = 0;
+    current_hunk_start_older = 0;
+    let mut in_yours_change = false;
+    let mut yours_hunks: Vec<(usize, usize, usize, usize)> = Vec::new();
+
     for result in diff_older_yours {
         match result {
-            diff::Result::Left(_) => {
-                if older_line < older_changed_by_yours.len() {
-                    older_changed_by_yours[older_line] = true;
+            diff::Result::Both(_, _) => {
+                if in_yours_change {
+                    yours_hunks.push((
+                        current_hunk_start_older,
+                        older_idx - current_hunk_start_older,
+                        current_hunk_start_yours,
+                        yours_idx - current_hunk_start_yours,
+                    ));
+                    in_yours_change = false;
                 }
-                older_line += 1;
+                older_idx += 1;
+                yours_idx += 1;
+            }
+            diff::Result::Left(_) => {
+                if !in_yours_change {
+                    current_hunk_start_older = older_idx;
+                    current_hunk_start_yours = yours_idx;
+                    in_yours_change = true;
+                }
+                older_idx += 1;
             }
             diff::Result::Right(_) => {
-                if yours_line < yours_changed.len() {
-                    yours_changed[yours_line] = true;
+                if !in_yours_change {
+                    current_hunk_start_older = older_idx;
+                    current_hunk_start_yours = yours_idx;
+                    in_yours_change = true;
                 }
-                yours_line += 1;
-            }
-            diff::Result::Both(_, _) => {
-                older_line += 1;
-                yours_line += 1;
+                yours_idx += 1;
             }
         }
     }
 
-    // Determine conflict types based on which files changed
-    let has_mine_changes = mine_changed.iter().any(|&v| v);
-    let has_yours_changes = yours_changed.iter().any(|&v| v);
+    if in_yours_change {
+        yours_hunks.push((
+            current_hunk_start_older,
+            older_idx - current_hunk_start_older,
+            current_hunk_start_yours,
+            yours_idx - current_hunk_start_yours,
+        ));
+    }
 
-    let conflict_type = if has_mine_changes && has_yours_changes {
-        // Both mine and yours changed - check if changes are compatible
-        let mine_change_count = mine_changed.iter().filter(|&&v| v).count();
-        let yours_change_count = yours_changed.iter().filter(|&&v| v).count();
-        if mine_change_count == yours_change_count {
-            // Same number of changes might indicate they changed identically
-            ConflictType::NonOverlapping
-        } else {
-            // Different numbers of changes - likely overlapping
-            ConflictType::OverlappingConflict
+    // Merge yours changes into hunks, creating new hunks or updating existing ones
+    for (yours_older_start, yours_older_count, yours_start, yours_count) in yours_hunks {
+        let yours_older_end = yours_older_start + yours_older_count;
+
+        // Find if this overlaps with any existing hunk
+        let mut merged = false;
+        for hunk in &mut hunks {
+            let hunk_older_end = hunk.older_start + hunk.older_count;
+
+            // Check for overlap in the older (base) file
+            if yours_older_start < hunk_older_end && yours_older_end > hunk.older_start {
+                // Overlapping region - mark yours as changed
+                hunk.yours_changed = true;
+                hunk.yours_start = yours_start;
+                hunk.yours_count = yours_count;
+                merged = true;
+                break;
+            }
         }
-    } else if has_mine_changes || has_yours_changes {
-        // Only one side changed - check if it differs from older
-        if (has_mine_changes && mine_lines.len() != older_lines.len())
-            || (has_yours_changes && yours_lines.len() != older_lines.len())
-        {
+
+        // If no overlap, create a new hunk for yours-only change
+        if !merged {
+            hunks.push(Hunk {
+                mine_start: yours_older_start,
+                mine_count: yours_older_count,
+                older_start: yours_older_start,
+                older_count: yours_older_count,
+                yours_start,
+                yours_count,
+                mine_changed: false,
+                yours_changed: true,
+            });
+        }
+    }
+
+    // Sort hunks by older_start to maintain order
+    hunks.sort_by_key(|h| h.older_start);
+
+    // Convert hunks to regions with conflict classification
+    let mut regions: Vec<Diff3Region> = Vec::new();
+
+    for hunk in hunks {
+        let conflict = if !hunk.mine_changed && !hunk.yours_changed {
+            // No changes
+            ConflictType::NoConflict
+        } else if hunk.mine_changed && !hunk.yours_changed {
+            // Only mine changed
+            ConflictType::EasyConflict
+        } else if !hunk.mine_changed && hunk.yours_changed {
+            // Only yours changed
             ConflictType::EasyConflict
         } else {
-            ConflictType::NoConflict
-        }
-    } else {
-        // No changes detected - check if files are actually identical
-        ConflictType::NoConflict
-    };
+            // Both changed - need to check if they changed the same way
+            let mine_content = &mine_lines[hunk.mine_start..hunk.mine_start + hunk.mine_count];
+            let yours_content = &yours_lines[hunk.yours_start..hunk.yours_start + hunk.yours_count];
 
-    // Create a single region representing the whole file
-    if !mine_lines.is_empty() || !older_lines.is_empty() || !yours_lines.is_empty() {
+            if mine_content == yours_content {
+                // Both changed identically
+                ConflictType::NonOverlapping
+            } else {
+                // Both changed differently - true conflict
+                ConflictType::OverlappingConflict
+            }
+        };
+
+        regions.push(Diff3Region {
+            mine_start: hunk.mine_start,
+            mine_count: hunk.mine_count,
+            older_start: hunk.older_start,
+            older_count: hunk.older_count,
+            yours_start: hunk.yours_start,
+            yours_count: hunk.yours_count,
+            conflict,
+        });
+    }
+
+    // If no hunks were created, files are identical - create a no-conflict region
+    if regions.is_empty()
+        && (!mine_lines.is_empty() || !older_lines.is_empty() || !yours_lines.is_empty())
+    {
         regions.push(Diff3Region {
             mine_start: 0,
             mine_count: mine_lines.len(),
@@ -601,7 +722,7 @@ fn build_conflict_regions(
             older_count: older_lines.len(),
             yours_start: 0,
             yours_count: yours_lines.len(),
-            conflict: conflict_type,
+            conflict: ConflictType::NoConflict,
         });
     }
 
@@ -633,37 +754,130 @@ fn generate_normal_output(
     _diff_older_yours: &[diff::Result<&&[u8]>],
     _diff_mine_yours: &[diff::Result<&&[u8]>],
     mine_lines: &[&[u8]],
-    _older_lines: &[&[u8]],
+    older_lines: &[&[u8]],
     yours_lines: &[&[u8]],
-    _regions: &[Diff3Region],
+    regions: &[Diff3Region],
     params: &Diff3Params,
 ) -> Vec<u8> {
     let mut output = Vec::new();
-
-    // Generate diff3 normal format output
-    // For now, generate simple diff output between mine and yours
     let tab_prefix = if params.initial_tab { "\t" } else { "" };
-    for line_num in 0..mine_lines.len().max(yours_lines.len()) {
-        if line_num < mine_lines.len()
-            && line_num < yours_lines.len()
-            && mine_lines[line_num] != yours_lines[line_num]
-        {
-            writeln!(&mut output, "{}c{}", line_num + 1, line_num + 1).unwrap();
-            writeln!(
-                &mut output,
-                "{}< {}",
-                tab_prefix,
-                String::from_utf8_lossy(mine_lines[line_num])
-            )
-            .unwrap();
-            writeln!(&mut output, "---").unwrap();
-            writeln!(
-                &mut output,
-                "{}> {}",
-                tab_prefix,
-                String::from_utf8_lossy(yours_lines[line_num])
-            )
-            .unwrap();
+
+    // Process each region
+    for region in regions {
+        // Check if this region should be included based on output mode
+        if !should_include_region(region, params.output_mode) {
+            continue;
+        }
+
+        // Only output regions that have conflicts
+        if region.conflict == ConflictType::NoConflict {
+            continue;
+        }
+
+        // Determine conflict type marker
+        match region.conflict {
+            ConflictType::EasyConflict => {
+                // Only one side changed
+                if region.mine_count != region.older_count
+                    || (region.mine_count > 0
+                        && region.mine_count <= mine_lines.len()
+                        && region.older_count > 0
+                        && region.older_count <= older_lines.len()
+                        && &mine_lines[region.mine_start..region.mine_start + region.mine_count]
+                            != &older_lines
+                                [region.older_start..region.older_start + region.older_count])
+                {
+                    // Mine changed
+                    writeln!(&mut output, "====1").unwrap();
+                } else {
+                    // Yours changed
+                    writeln!(&mut output, "====3").unwrap();
+                }
+            }
+            ConflictType::NonOverlapping => {
+                // Both changed identically
+                writeln!(&mut output, "====").unwrap();
+            }
+            ConflictType::OverlappingConflict => {
+                // Both changed differently
+                writeln!(&mut output, "====").unwrap();
+            }
+            ConflictType::NoConflict => {
+                // Already skipped above
+                continue;
+            }
+        }
+
+        // Output mine section
+        if region.mine_count == 0 {
+            writeln!(&mut output, "1:{}a", region.mine_start).unwrap();
+        } else {
+            let start_line = region.mine_start + 1;
+            let end_line = region.mine_start + region.mine_count;
+            if start_line == end_line {
+                writeln!(&mut output, "1:{}c", start_line).unwrap();
+            } else {
+                writeln!(&mut output, "1:{},{}c", start_line, end_line).unwrap();
+            }
+            for i in region.mine_start..region.mine_start + region.mine_count {
+                if i < mine_lines.len() {
+                    writeln!(
+                        &mut output,
+                        "{}  {}",
+                        tab_prefix,
+                        String::from_utf8_lossy(mine_lines[i])
+                    )
+                    .unwrap();
+                }
+            }
+        }
+
+        // Output older section
+        if region.older_count == 0 {
+            writeln!(&mut output, "2:{}a", region.older_start).unwrap();
+        } else {
+            let start_line = region.older_start + 1;
+            let end_line = region.older_start + region.older_count;
+            if start_line == end_line {
+                writeln!(&mut output, "2:{}c", start_line).unwrap();
+            } else {
+                writeln!(&mut output, "2:{},{}c", start_line, end_line).unwrap();
+            }
+            for i in region.older_start..region.older_start + region.older_count {
+                if i < older_lines.len() {
+                    writeln!(
+                        &mut output,
+                        "{}  {}",
+                        tab_prefix,
+                        String::from_utf8_lossy(older_lines[i])
+                    )
+                    .unwrap();
+                }
+            }
+        }
+
+        // Output yours section
+        if region.yours_count == 0 {
+            writeln!(&mut output, "3:{}a", region.yours_start).unwrap();
+        } else {
+            let start_line = region.yours_start + 1;
+            let end_line = region.yours_start + region.yours_count;
+            if start_line == end_line {
+                writeln!(&mut output, "3:{}c", start_line).unwrap();
+            } else {
+                writeln!(&mut output, "3:{},{}c", start_line, end_line).unwrap();
+            }
+            for i in region.yours_start..region.yours_start + region.yours_count {
+                if i < yours_lines.len() {
+                    writeln!(
+                        &mut output,
+                        "{}  {}",
+                        tab_prefix,
+                        String::from_utf8_lossy(yours_lines[i])
+                    )
+                    .unwrap();
+                }
+            }
         }
     }
 
@@ -676,7 +890,7 @@ fn generate_merged_output(
     _diff_older_yours: &[diff::Result<&&[u8]>],
     _diff_mine_yours: &[diff::Result<&&[u8]>],
     mine_lines: &[&[u8]],
-    _older_lines: &[&[u8]],
+    older_lines: &[&[u8]],
     yours_lines: &[&[u8]],
     regions: &[Diff3Region],
     params: &Diff3Params,
@@ -685,83 +899,117 @@ fn generate_merged_output(
 
     // Get labels
     let mine_label = params.labels[0].as_deref().unwrap_or("<<<<<<<");
+    let older_label = params.labels[1].as_deref().unwrap_or("|||||||");
     let yours_label = params.labels[2].as_deref().unwrap_or(">>>>>>>");
 
-    // Check if we should filter based on output mode
-    let should_filter = !matches!(
-        params.output_mode,
-        Diff3OutputMode::All | Diff3OutputMode::EdScript | Diff3OutputMode::ShowOverlapEd
-    );
+    // Process each region
+    let mut last_output_line = 0;
 
-    // If filtering, check if this region should be included
-    let region = regions.first();
-    if should_filter && region.is_some_and(|r| !should_include_region(r, params.output_mode)) {
-        // Output nothing if region doesn't match filter
-        return output;
-    }
+    for region in regions {
+        // Check if this region should be included based on output mode
+        if !should_include_region(region, params.output_mode) {
+            continue;
+        }
 
-    // Generate merged output with conflict markers
-    let max_lines = mine_lines.len().max(yours_lines.len());
-    for i in 0..max_lines {
-        match (i < mine_lines.len(), i < yours_lines.len()) {
-            (true, true) => {
-                if mine_lines[i] == yours_lines[i] {
-                    writeln!(&mut output, "{}", String::from_utf8_lossy(mine_lines[i])).unwrap();
-                } else {
-                    // Only output conflict if it matches the filter
-                    if !should_filter
-                        || region.is_none_or(|r| should_include_region(r, params.output_mode))
-                    {
-                        // Conflict with optional markers based on output mode
-                        match params.output_mode {
-                            Diff3OutputMode::OverlapOnlyMarked => {
-                                // Show conflict markers for overlapping conflicts
-                                if region.is_some_and(|r| {
-                                    r.conflict == ConflictType::OverlappingConflict
-                                }) {
-                                    writeln!(&mut output, "<<<<<<< {}", mine_label).unwrap();
-                                    writeln!(
-                                        &mut output,
-                                        "{}",
-                                        String::from_utf8_lossy(mine_lines[i])
-                                    )
-                                    .unwrap();
-                                    writeln!(&mut output, "=======").unwrap();
-                                    writeln!(
-                                        &mut output,
-                                        "{}",
-                                        String::from_utf8_lossy(yours_lines[i])
-                                    )
-                                    .unwrap();
-                                    writeln!(&mut output, ">>>>>>> {}", yours_label).unwrap();
-                                }
-                            }
-                            _ => {
-                                // Standard conflict markers
-                                writeln!(&mut output, "<<<<<<< {}", mine_label).unwrap();
-                                writeln!(&mut output, "{}", String::from_utf8_lossy(mine_lines[i]))
-                                    .unwrap();
-                                writeln!(&mut output, "=======").unwrap();
-                                writeln!(
-                                    &mut output,
-                                    "{}",
-                                    String::from_utf8_lossy(yours_lines[i])
-                                )
+        // Output unchanged lines before this region
+        while last_output_line < region.mine_start && last_output_line < mine_lines.len() {
+            writeln!(
+                &mut output,
+                "{}",
+                String::from_utf8_lossy(mine_lines[last_output_line])
+            )
+            .unwrap();
+            last_output_line += 1;
+        }
+
+        // Output the region based on conflict type
+        match region.conflict {
+            ConflictType::NoConflict => {
+                // All files agree - output from any file
+                for i in region.mine_start..region.mine_start + region.mine_count {
+                    if i < mine_lines.len() {
+                        writeln!(&mut output, "{}", String::from_utf8_lossy(mine_lines[i]))
+                            .unwrap();
+                    }
+                }
+                last_output_line = region.mine_start + region.mine_count;
+            }
+            ConflictType::EasyConflict => {
+                // Only one side changed - prefer the changed version
+                if region.mine_count != region.older_count {
+                    // Mine changed, output mine
+                    for i in region.mine_start..region.mine_start + region.mine_count {
+                        if i < mine_lines.len() {
+                            writeln!(&mut output, "{}", String::from_utf8_lossy(mine_lines[i]))
                                 .unwrap();
-                                writeln!(&mut output, ">>>>>>> {}", yours_label).unwrap();
-                            }
+                        }
+                    }
+                } else {
+                    // Yours changed, output yours
+                    for i in region.yours_start..region.yours_start + region.yours_count {
+                        if i < yours_lines.len() {
+                            writeln!(&mut output, "{}", String::from_utf8_lossy(yours_lines[i]))
+                                .unwrap();
                         }
                     }
                 }
+                last_output_line = region.mine_start + region.mine_count;
             }
-            (true, false) => {
-                writeln!(&mut output, "{}", String::from_utf8_lossy(mine_lines[i])).unwrap();
+            ConflictType::NonOverlapping => {
+                // Both changed identically - output either (they're the same)
+                for i in region.mine_start..region.mine_start + region.mine_count {
+                    if i < mine_lines.len() {
+                        writeln!(&mut output, "{}", String::from_utf8_lossy(mine_lines[i]))
+                            .unwrap();
+                    }
+                }
+                last_output_line = region.mine_start + region.mine_count;
             }
-            (false, true) => {
-                writeln!(&mut output, "{}", String::from_utf8_lossy(yours_lines[i])).unwrap();
+            ConflictType::OverlappingConflict => {
+                // True conflict - output with markers
+                writeln!(&mut output, "<<<<<<< {}", mine_label).unwrap();
+                for i in region.mine_start..region.mine_start + region.mine_count {
+                    if i < mine_lines.len() {
+                        writeln!(&mut output, "{}", String::from_utf8_lossy(mine_lines[i]))
+                            .unwrap();
+                    }
+                }
+
+                // Show overlap section if in Merged mode with -A (default) or ShowOverlap format
+                // GNU diff3 -m shows middle section by default (like -A)
+                if params.format == Diff3Format::Merged || params.format == Diff3Format::ShowOverlap
+                {
+                    writeln!(&mut output, "||||||| {}", older_label).unwrap();
+                    for i in region.older_start..region.older_start + region.older_count {
+                        if i < older_lines.len() {
+                            writeln!(&mut output, "{}", String::from_utf8_lossy(older_lines[i]))
+                                .unwrap();
+                        }
+                    }
+                }
+
+                writeln!(&mut output, "=======").unwrap();
+                for i in region.yours_start..region.yours_start + region.yours_count {
+                    if i < yours_lines.len() {
+                        writeln!(&mut output, "{}", String::from_utf8_lossy(yours_lines[i]))
+                            .unwrap();
+                    }
+                }
+                writeln!(&mut output, ">>>>>>> {}", yours_label).unwrap();
+                last_output_line = region.mine_start + region.mine_count;
             }
-            (false, false) => {}
         }
+    }
+
+    // Output any remaining unchanged lines
+    while last_output_line < mine_lines.len() {
+        writeln!(
+            &mut output,
+            "{}",
+            String::from_utf8_lossy(mine_lines[last_output_line])
+        )
+        .unwrap();
+        last_output_line += 1;
     }
 
     output
@@ -773,7 +1021,7 @@ fn generate_ed_script(
     _diff_older_yours: &[diff::Result<&&[u8]>],
     _diff_mine_yours: &[diff::Result<&&[u8]>],
     mine_lines: &[&[u8]],
-    _older_lines: &[&[u8]],
+    older_lines: &[&[u8]],
     yours_lines: &[&[u8]],
     regions: &[Diff3Region],
     params: &Diff3Params,
@@ -782,65 +1030,110 @@ fn generate_ed_script(
 
     // Generate ed script to transform mine into merged version
     let mine_label = params.labels[0].as_deref().unwrap_or("mine");
+    let older_label = params.labels[1].as_deref().unwrap_or("older");
     let yours_label = params.labels[2].as_deref().unwrap_or("yours");
 
-    // Check if we should filter based on output mode
-    let should_filter = !matches!(
-        params.output_mode,
-        Diff3OutputMode::All | Diff3OutputMode::EdScript | Diff3OutputMode::ShowOverlapEd
-    );
+    // Ed scripts are applied in reverse order, so process regions backward
+    let mut commands: Vec<String> = Vec::new();
 
-    // If filtering, check if this region should be included
-    let region = regions.first();
-    if should_filter && region.is_some_and(|r| !should_include_region(r, params.output_mode)) {
-        // Output nothing if region doesn't match filter
-        return output;
-    }
+    for region in regions.iter().rev() {
+        // Check if this region should be included based on output mode
+        if !should_include_region(region, params.output_mode) {
+            continue;
+        }
 
-    // Collect differences
-    let max_len = mine_lines.len().max(yours_lines.len());
-    for line_num in 0..max_len {
-        let mine_line = mine_lines.get(line_num);
-        let yours_line = yours_lines.get(line_num);
+        match region.conflict {
+            ConflictType::NoConflict | ConflictType::NonOverlapping => {
+                // No conflict or both changed identically - no ed command needed
+                continue;
+            }
+            ConflictType::EasyConflict => {
+                // Only one side changed - use the changed version
+                if region.mine_count != region.older_count {
+                    // Mine changed - keep mine (no change needed in ed script)
+                    continue;
+                } else if region.yours_count != region.older_count {
+                    // Yours changed - replace with yours
+                    let start_line = region.mine_start + 1;
+                    let end_line = region.mine_start + region.mine_count;
 
-        match (mine_line, yours_line) {
-            (Some(mine), Some(yours)) => {
-                if mine != yours {
-                    // Only output if it matches the filter
-                    if !should_filter
-                        || region.is_none_or(|r| should_include_region(r, params.output_mode))
-                    {
-                        // Change command
-                        writeln!(&mut output, "{}c", line_num + 1).unwrap();
-                        writeln!(&mut output, "<<<<<<< {}", mine_label).unwrap();
-                        writeln!(&mut output, "{}", String::from_utf8_lossy(yours)).unwrap();
-                        writeln!(&mut output, "=======").unwrap();
-                        writeln!(&mut output, "{}", String::from_utf8_lossy(mine)).unwrap();
-                        writeln!(&mut output, ">>>>>>> {}", yours_label).unwrap();
-                        writeln!(&mut output, ".").unwrap();
+                    if region.mine_count == 0 {
+                        // Insertion
+                        commands.push(format!("{}a", region.mine_start));
+                        for i in region.yours_start..region.yours_start + region.yours_count {
+                            if i < yours_lines.len() {
+                                commands.push(String::from_utf8_lossy(yours_lines[i]).to_string());
+                            }
+                        }
+                        commands.push(".".to_string());
+                    } else if region.yours_count == 0 {
+                        // Deletion
+                        if start_line == end_line {
+                            commands.push(format!("{}d", start_line));
+                        } else {
+                            commands.push(format!("{},{}d", start_line, end_line));
+                        }
+                    } else {
+                        // Change
+                        if start_line == end_line {
+                            commands.push(format!("{}c", start_line));
+                        } else {
+                            commands.push(format!("{},{}c", start_line, end_line));
+                        }
+                        for i in region.yours_start..region.yours_start + region.yours_count {
+                            if i < yours_lines.len() {
+                                commands.push(String::from_utf8_lossy(yours_lines[i]).to_string());
+                            }
+                        }
+                        commands.push(".".to_string());
                     }
                 }
             }
-            (Some(_), None) => {
-                // Delete command (only if not filtering or filter passes)
-                if !should_filter
-                    || region.is_none_or(|r| should_include_region(r, params.output_mode))
-                {
-                    writeln!(&mut output, "{}d", line_num + 1).unwrap();
+            ConflictType::OverlappingConflict => {
+                // True conflict - output with conflict markers
+                let start_line = region.mine_start + 1;
+                let end_line = region.mine_start + region.mine_count;
+
+                if start_line == end_line && region.mine_count > 0 {
+                    commands.push(format!("{}c", start_line));
+                } else if region.mine_count > 0 {
+                    commands.push(format!("{},{}c", start_line, end_line));
+                } else {
+                    commands.push(format!("{}a", region.mine_start));
                 }
-            }
-            (None, Some(yours)) => {
-                // Add command (only if not filtering or filter passes)
-                if !should_filter
-                    || region.is_none_or(|r| should_include_region(r, params.output_mode))
-                {
-                    writeln!(&mut output, "{}a", line_num).unwrap();
-                    writeln!(&mut output, "{}", String::from_utf8_lossy(yours)).unwrap();
-                    writeln!(&mut output, ".").unwrap();
+
+                commands.push(format!("<<<<<<< {}", mine_label));
+                for i in region.mine_start..region.mine_start + region.mine_count {
+                    if i < mine_lines.len() {
+                        commands.push(String::from_utf8_lossy(mine_lines[i]).to_string());
+                    }
                 }
+
+                // Show overlap section if in ShowOverlap mode
+                if params.format == Diff3Format::ShowOverlap {
+                    commands.push(format!("||||||| {}", older_label));
+                    for i in region.older_start..region.older_start + region.older_count {
+                        if i < older_lines.len() {
+                            commands.push(String::from_utf8_lossy(older_lines[i]).to_string());
+                        }
+                    }
+                }
+
+                commands.push("=======".to_string());
+                for i in region.yours_start..region.yours_start + region.yours_count {
+                    if i < yours_lines.len() {
+                        commands.push(String::from_utf8_lossy(yours_lines[i]).to_string());
+                    }
+                }
+                commands.push(format!(">>>>>>> {}", yours_label));
+                commands.push(".".to_string());
             }
-            (None, None) => {}
         }
+    }
+
+    // Output all commands
+    for cmd in commands {
+        writeln!(&mut output, "{}", cmd).unwrap();
     }
 
     // If -i flag is set, append write and quit commands for automatic application
@@ -1912,8 +2205,11 @@ mod tests {
         let (output, _has_conflicts) = compute_diff3(mine, older, yours, &params);
         let output_str = String::from_utf8_lossy(&output);
 
-        // With initial_tab, lines should be prefixed with a tab before < or >
-        assert!(output_str.contains("\t<"), "Should have tab before <");
+        // With initial_tab, content lines should be prefixed with a tab and two spaces
+        assert!(
+            output_str.contains("\t  "),
+            "Should have tab and two spaces before content"
+        );
     }
 
     #[test]
@@ -1939,8 +2235,14 @@ mod tests {
         let (output, _has_conflicts) = compute_diff3(mine, older, yours, &params);
         let output_str = String::from_utf8_lossy(&output);
 
-        // Without initial_tab, lines should NOT have tab before < or >
-        assert!(!output_str.contains("\t<"), "Should not have tab before <");
-        assert!(output_str.contains("< "), "Should have '< ' prefix");
+        // Without initial_tab, content lines should have two spaces but no tab
+        assert!(
+            output_str.contains("  changed_mine"),
+            "Should have two-space prefix for content"
+        );
+        assert!(
+            !output_str.contains("\t  "),
+            "Should not have tab before two-space prefix"
+        );
     }
 }
