@@ -2329,8 +2329,14 @@ mod tests {
 
         // Normal format always returns false for has_conflicts (exit code 0)
         // but should still produce diff output showing the differences
-        assert!(!has_conflicts, "Normal format always returns false for conflicts");
-        assert!(!output.is_empty(), "Should produce output showing differences");
+        assert!(
+            !has_conflicts,
+            "Normal format always returns false for conflicts"
+        );
+        assert!(
+            !output.is_empty(),
+            "Should produce output showing differences"
+        );
     }
 
     #[test]
@@ -2388,10 +2394,7 @@ mod tests {
 
         // With initial_tab, content lines should be prefixed with a tab
         // (without initial_tab they would be prefixed with two spaces)
-        assert!(
-            output_str.contains("\t"),
-            "Should have tab before content"
-        );
+        assert!(output_str.contains("\t"), "Should have tab before content");
     }
 
     #[test]
