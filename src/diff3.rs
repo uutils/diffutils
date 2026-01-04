@@ -848,15 +848,14 @@ fn generate_normal_output(
             } else {
                 writeln!(&mut output, "1:{},{}c", start_line, end_line)?;
             }
-            for i in region.mine_start..region.mine_start + region.mine_count {
-                if i < mine_lines.len() {
-                    writeln!(
-                        &mut output,
-                        "{}  {}",
-                        tab_prefix,
-                        String::from_utf8_lossy(mine_lines[i])
-                    )?;
-                }
+            let end_idx = region.mine_start.saturating_add(region.mine_count).min(mine_lines.len());
+            for line in &mine_lines[region.mine_start..end_idx] {
+                writeln!(
+                    &mut output,
+                    "{}  {}",
+                    tab_prefix,
+                    String::from_utf8_lossy(line)
+                )?;
             }
         }
 
@@ -870,15 +869,14 @@ fn generate_normal_output(
             } else {
                 writeln!(&mut output, "2:{},{}c", start_line, end_line)?;
             }
-            for i in region.older_start..region.older_start + region.older_count {
-                if i < older_lines.len() {
-                    writeln!(
-                        &mut output,
-                        "{}  {}",
-                        tab_prefix,
-                        String::from_utf8_lossy(older_lines[i])
-                    )?;
-                }
+            let end_idx = region.older_start.saturating_add(region.older_count).min(older_lines.len());
+            for line in &older_lines[region.older_start..end_idx] {
+                writeln!(
+                    &mut output,
+                    "{}  {}",
+                    tab_prefix,
+                    String::from_utf8_lossy(line)
+                )?;
             }
         }
 
@@ -892,15 +890,14 @@ fn generate_normal_output(
             } else {
                 writeln!(&mut output, "3:{},{}c", start_line, end_line)?;
             }
-            for i in region.yours_start..region.yours_start + region.yours_count {
-                if i < yours_lines.len() {
-                    writeln!(
-                        &mut output,
-                        "{}  {}",
-                        tab_prefix,
-                        String::from_utf8_lossy(yours_lines[i])
-                    )?;
-                }
+            let end_idx = region.yours_start.saturating_add(region.yours_count).min(yours_lines.len());
+            for line in &yours_lines[region.yours_start..end_idx] {
+                writeln!(
+                    &mut output,
+                    "{}  {}",
+                    tab_prefix,
+                    String::from_utf8_lossy(line)
+                )?;
             }
         }
     }
@@ -943,43 +940,38 @@ fn generate_merged_output(
 
         match region.conflict {
             ConflictType::NoConflict => {
-                for i in region.mine_start..region.mine_start + region.mine_count {
-                    if i < mine_lines.len() {
-                        writeln!(&mut output, "{}", String::from_utf8_lossy(mine_lines[i]))?;
-                    }
+                let end_idx = region.mine_start.saturating_add(region.mine_count).min(mine_lines.len());
+                for line in &mine_lines[region.mine_start..end_idx] {
+                    writeln!(&mut output, "{}", String::from_utf8_lossy(line))?;
                 }
-                last_output_line = region.mine_start + region.mine_count;
+                last_output_line = region.mine_start.saturating_add(region.mine_count);
             }
             ConflictType::EasyConflict => {
                 if region.mine_count != region.older_count {
-                    for i in region.mine_start..region.mine_start + region.mine_count {
-                        if i < mine_lines.len() {
-                            writeln!(&mut output, "{}", String::from_utf8_lossy(mine_lines[i]))?;
-                        }
+                    let end_idx = region.mine_start.saturating_add(region.mine_count).min(mine_lines.len());
+                    for line in &mine_lines[region.mine_start..end_idx] {
+                        writeln!(&mut output, "{}", String::from_utf8_lossy(line))?;
                     }
                 } else {
-                    for i in region.yours_start..region.yours_start + region.yours_count {
-                        if i < yours_lines.len() {
-                            writeln!(&mut output, "{}", String::from_utf8_lossy(yours_lines[i]))?;
-                        }
+                    let end_idx = region.yours_start.saturating_add(region.yours_count).min(yours_lines.len());
+                    for line in &yours_lines[region.yours_start..end_idx] {
+                        writeln!(&mut output, "{}", String::from_utf8_lossy(line))?;
                     }
                 }
-                last_output_line = region.mine_start + region.mine_count;
+                last_output_line = region.mine_start.saturating_add(region.mine_count);
             }
             ConflictType::NonOverlapping => {
-                for i in region.mine_start..region.mine_start + region.mine_count {
-                    if i < mine_lines.len() {
-                        writeln!(&mut output, "{}", String::from_utf8_lossy(mine_lines[i]))?;
-                    }
+                let end_idx = region.mine_start.saturating_add(region.mine_count).min(mine_lines.len());
+                for line in &mine_lines[region.mine_start..end_idx] {
+                    writeln!(&mut output, "{}", String::from_utf8_lossy(line))?;
                 }
-                last_output_line = region.mine_start + region.mine_count;
+                last_output_line = region.mine_start.saturating_add(region.mine_count);
             }
             ConflictType::OverlappingConflict => {
                 writeln!(&mut output, "<<<<<<< {}", mine_label)?;
-                for i in region.mine_start..region.mine_start + region.mine_count {
-                    if i < mine_lines.len() {
-                        writeln!(&mut output, "{}", String::from_utf8_lossy(mine_lines[i]))?;
-                    }
+                let mine_end_idx = region.mine_start.saturating_add(region.mine_count).min(mine_lines.len());
+                for line in &mine_lines[region.mine_start..mine_end_idx] {
+                    writeln!(&mut output, "{}", String::from_utf8_lossy(line))?;
                 }
 
                 // Show overlap section if in Merged mode with -A (default) or ShowOverlap format
@@ -987,21 +979,19 @@ fn generate_merged_output(
                 if params.format == Diff3Format::Merged || params.format == Diff3Format::ShowOverlap
                 {
                     writeln!(&mut output, "||||||| {}", older_label)?;
-                    for i in region.older_start..region.older_start + region.older_count {
-                        if i < older_lines.len() {
-                            writeln!(&mut output, "{}", String::from_utf8_lossy(older_lines[i]))?;
-                        }
+                    let older_end_idx = region.older_start.saturating_add(region.older_count).min(older_lines.len());
+                    for line in &older_lines[region.older_start..older_end_idx] {
+                        writeln!(&mut output, "{}", String::from_utf8_lossy(line))?;
                     }
                 }
 
                 writeln!(&mut output, "=======")?;
-                for i in region.yours_start..region.yours_start + region.yours_count {
-                    if i < yours_lines.len() {
-                        writeln!(&mut output, "{}", String::from_utf8_lossy(yours_lines[i]))?;
-                    }
+                let yours_end_idx = region.yours_start.saturating_add(region.yours_count).min(yours_lines.len());
+                for line in &yours_lines[region.yours_start..yours_end_idx] {
+                    writeln!(&mut output, "{}", String::from_utf8_lossy(line))?;
                 }
                 writeln!(&mut output, ">>>>>>> {}", yours_label)?;
-                last_output_line = region.mine_start + region.mine_count;
+                last_output_line = region.mine_start.saturating_add(region.mine_count);
             }
         }
     }
