@@ -1028,13 +1028,26 @@ fn generate_ed_script(
 ) -> Vec<u8> {
     let mut output = Vec::new();
 
-    // Generate ed script to transform mine into merged version
-    let mine_label = params.labels[0].as_deref().unwrap_or("mine");
-    let older_label = params.labels[1].as_deref().unwrap_or("older");
-    let yours_label = params.labels[2].as_deref().unwrap_or("yours");
+    // Get label for conflict markers (only used in ShowOverlapEd mode)
+    let mine_label = params.labels[0]
+        .as_deref()
+        .or_else(|| params.mine.to_str())
+        .unwrap_or("mine");
+    let older_label = params.labels[1]
+        .as_deref()
+        .or_else(|| params.older.to_str())
+        .unwrap_or("older");
+    let yours_label = params.labels[2]
+        .as_deref()
+        .or_else(|| params.yours.to_str())
+        .unwrap_or("yours");
 
-    // Ed scripts are applied in reverse order, so process regions backward
+    // Ed scripts must be applied in reverse order (bottom to top)
+    // to maintain line number accuracy
     let mut commands: Vec<String> = Vec::new();
+
+    // Determine if we're in ShowOverlapEd mode (use conflict markers)
+    let use_conflict_markers = params.output_mode == Diff3OutputMode::ShowOverlapEd;
 
     for region in regions.iter().rev() {
         // Check if this region should be included based on output mode
@@ -1043,90 +1056,209 @@ fn generate_ed_script(
         }
 
         match region.conflict {
-            ConflictType::NoConflict | ConflictType::NonOverlapping => {
-                // No conflict or both changed identically - no ed command needed
+            ConflictType::NoConflict => {
+                // No changes needed
                 continue;
             }
+            ConflictType::NonOverlapping => {
+                // Both changed identically - no conflict, use either version
+                let start_line = region.mine_start + 1;
+                let end_line = region.mine_start + region.mine_count;
+
+                // Only generate command if there's an actual change
+                if region.mine_count == region.older_count
+                    && region.mine_start < mine_lines.len()
+                    && region.older_start < older_lines.len()
+                {
+                    // Check if content actually differs
+                    let mine_slice = &mine_lines[region.mine_start
+                        ..std::cmp::min(region.mine_start + region.mine_count, mine_lines.len())];
+                    let older_slice = &older_lines[region.older_start
+                        ..std::cmp::min(
+                            region.older_start + region.older_count,
+                            older_lines.len(),
+                        )];
+
+                    if mine_slice == older_slice {
+                        // No actual change
+                        continue;
+                    }
+                }
+
+                // Generate change command (both versions are the same)
+                if region.mine_count == 0 {
+                    // Insertion
+                    commands.push(format!("{}a", region.mine_start));
+                    for i in region.mine_start
+                        ..region.mine_start + region.mine_count.max(region.yours_count)
+                    {
+                        if i < mine_lines.len() {
+                            commands.push(String::from_utf8_lossy(mine_lines[i]).to_string());
+                        }
+                    }
+                    commands.push(".".to_string());
+                } else {
+                    // Change (no deletion since both versions exist)
+                    if start_line == end_line {
+                        commands.push(format!("{}c", start_line));
+                    } else {
+                        commands.push(format!("{},{}c", start_line, end_line));
+                    }
+                    // Use mine since it's identical to yours
+                    for i in region.mine_start
+                        ..std::cmp::min(region.mine_start + region.mine_count, mine_lines.len())
+                    {
+                        commands.push(String::from_utf8_lossy(mine_lines[i]).to_string());
+                    }
+                    commands.push(".".to_string());
+                }
+            }
             ConflictType::EasyConflict => {
-                // Only one side changed - use the changed version
-                if region.mine_count != region.older_count {
-                    // Mine changed - keep mine (no change needed in ed script)
-                    continue;
-                } else if region.yours_count != region.older_count {
-                    // Yours changed - replace with yours
+                // Only one side changed from the base
+                let mine_differs = region.mine_count != region.older_count
+                    || (region.mine_count > 0
+                        && region.mine_start + region.mine_count <= mine_lines.len()
+                        && region.older_start + region.older_count <= older_lines.len()
+                        && &mine_lines[region.mine_start..region.mine_start + region.mine_count]
+                            != &older_lines
+                                [region.older_start..region.older_start + region.older_count]);
+
+                if !mine_differs {
+                    // Only yours changed - apply yours changes
                     let start_line = region.mine_start + 1;
                     let end_line = region.mine_start + region.mine_count;
 
-                    if region.mine_count == 0 {
+                    if region.mine_count == 0 && region.yours_count > 0 {
                         // Insertion
                         commands.push(format!("{}a", region.mine_start));
-                        for i in region.yours_start..region.yours_start + region.yours_count {
-                            if i < yours_lines.len() {
-                                commands.push(String::from_utf8_lossy(yours_lines[i]).to_string());
-                            }
+                        for i in region.yours_start
+                            ..std::cmp::min(
+                                region.yours_start + region.yours_count,
+                                yours_lines.len(),
+                            )
+                        {
+                            commands.push(String::from_utf8_lossy(yours_lines[i]).to_string());
                         }
                         commands.push(".".to_string());
-                    } else if region.yours_count == 0 {
+                    } else if region.yours_count == 0 && region.mine_count > 0 {
                         // Deletion
                         if start_line == end_line {
                             commands.push(format!("{}d", start_line));
                         } else {
                             commands.push(format!("{},{}d", start_line, end_line));
                         }
-                    } else {
+                    } else if region.yours_count > 0 {
                         // Change
                         if start_line == end_line {
                             commands.push(format!("{}c", start_line));
                         } else {
                             commands.push(format!("{},{}c", start_line, end_line));
                         }
-                        for i in region.yours_start..region.yours_start + region.yours_count {
-                            if i < yours_lines.len() {
-                                commands.push(String::from_utf8_lossy(yours_lines[i]).to_string());
-                            }
+                        for i in region.yours_start
+                            ..std::cmp::min(
+                                region.yours_start + region.yours_count,
+                                yours_lines.len(),
+                            )
+                        {
+                            commands.push(String::from_utf8_lossy(yours_lines[i]).to_string());
                         }
                         commands.push(".".to_string());
                     }
                 }
+                // If only mine changed, do nothing (keep mine)
             }
             ConflictType::OverlappingConflict => {
-                // True conflict - output with conflict markers
-                let start_line = region.mine_start + 1;
-                let end_line = region.mine_start + region.mine_count;
+                // Both sides changed differently - true conflict
+                if use_conflict_markers {
+                    // -E mode: Insert conflict markers as text
+                    let start_line = region.mine_start + 1;
+                    let end_line = region.mine_start + region.mine_count;
 
-                if start_line == end_line && region.mine_count > 0 {
-                    commands.push(format!("{}c", start_line));
-                } else if region.mine_count > 0 {
-                    commands.push(format!("{},{}c", start_line, end_line));
-                } else {
-                    commands.push(format!("{}a", region.mine_start));
-                }
-
-                commands.push(format!("<<<<<<< {}", mine_label));
-                for i in region.mine_start..region.mine_start + region.mine_count {
-                    if i < mine_lines.len() {
-                        commands.push(String::from_utf8_lossy(mine_lines[i]).to_string());
+                    // Build the conflict text
+                    let mut conflict_lines = Vec::new();
+                    conflict_lines.push(format!("<<<<<<< {}", mine_label));
+                    for i in region.mine_start
+                        ..std::cmp::min(region.mine_start + region.mine_count, mine_lines.len())
+                    {
+                        conflict_lines.push(String::from_utf8_lossy(mine_lines[i]).to_string());
                     }
-                }
 
-                // Show overlap section if in ShowOverlap mode
-                if params.format == Diff3Format::ShowOverlap {
-                    commands.push(format!("||||||| {}", older_label));
-                    for i in region.older_start..region.older_start + region.older_count {
-                        if i < older_lines.len() {
-                            commands.push(String::from_utf8_lossy(older_lines[i]).to_string());
+                    if params.format == Diff3Format::ShowOverlap {
+                        conflict_lines.push(format!("||||||| {}", older_label));
+                        for i in region.older_start
+                            ..std::cmp::min(
+                                region.older_start + region.older_count,
+                                older_lines.len(),
+                            )
+                        {
+                            conflict_lines
+                                .push(String::from_utf8_lossy(older_lines[i]).to_string());
                         }
                     }
-                }
 
-                commands.push("=======".to_string());
-                for i in region.yours_start..region.yours_start + region.yours_count {
-                    if i < yours_lines.len() {
-                        commands.push(String::from_utf8_lossy(yours_lines[i]).to_string());
+                    conflict_lines.push("=======".to_string());
+                    for i in region.yours_start
+                        ..std::cmp::min(region.yours_start + region.yours_count, yours_lines.len())
+                    {
+                        conflict_lines.push(String::from_utf8_lossy(yours_lines[i]).to_string());
+                    }
+                    conflict_lines.push(format!(">>>>>>> {}", yours_label));
+
+                    // Generate ed command to replace with conflict markers
+                    if region.mine_count == 0 {
+                        commands.push(format!("{}a", region.mine_start));
+                    } else if start_line == end_line {
+                        commands.push(format!("{}c", start_line));
+                    } else {
+                        commands.push(format!("{},{}c", start_line, end_line));
+                    }
+
+                    for line in conflict_lines {
+                        commands.push(line);
+                    }
+                    commands.push(".".to_string());
+                } else {
+                    // -e mode: Just apply yours changes (automatic merge choice)
+                    let start_line = region.mine_start + 1;
+                    let end_line = region.mine_start + region.mine_count;
+
+                    if region.mine_count == 0 && region.yours_count > 0 {
+                        // Insertion
+                        commands.push(format!("{}a", region.mine_start));
+                        for i in region.yours_start
+                            ..std::cmp::min(
+                                region.yours_start + region.yours_count,
+                                yours_lines.len(),
+                            )
+                        {
+                            commands.push(String::from_utf8_lossy(yours_lines[i]).to_string());
+                        }
+                        commands.push(".".to_string());
+                    } else if region.yours_count == 0 && region.mine_count > 0 {
+                        // Deletion
+                        if start_line == end_line {
+                            commands.push(format!("{}d", start_line));
+                        } else {
+                            commands.push(format!("{},{}d", start_line, end_line));
+                        }
+                    } else if region.yours_count > 0 {
+                        // Change - prefer yours
+                        if start_line == end_line {
+                            commands.push(format!("{}c", start_line));
+                        } else {
+                            commands.push(format!("{},{}c", start_line, end_line));
+                        }
+                        for i in region.yours_start
+                            ..std::cmp::min(
+                                region.yours_start + region.yours_count,
+                                yours_lines.len(),
+                            )
+                        {
+                            commands.push(String::from_utf8_lossy(yours_lines[i]).to_string());
+                        }
+                        commands.push(".".to_string());
                     }
                 }
-                commands.push(format!(">>>>>>> {}", yours_label));
-                commands.push(".".to_string());
             }
         }
     }
