@@ -783,8 +783,8 @@ fn generate_normal_output(
                         && region.mine_count <= mine_lines.len()
                         && region.older_count > 0
                         && region.older_count <= older_lines.len()
-                        && &mine_lines[region.mine_start..region.mine_start + region.mine_count]
-                            != &older_lines
+                        && mine_lines[region.mine_start..region.mine_start + region.mine_count]
+                            != older_lines
                                 [region.older_start..region.older_start + region.older_count])
                 {
                     // Mine changed
@@ -1105,10 +1105,12 @@ fn generate_ed_script(
                         commands.push(format!("{},{}c", start_line, end_line));
                     }
                     // Use mine since it's identical to yours
-                    for i in region.mine_start
-                        ..std::cmp::min(region.mine_start + region.mine_count, mine_lines.len())
+                    for line in mine_lines
+                        .iter()
+                        .skip(region.mine_start)
+                        .take(region.mine_count)
                     {
-                        commands.push(String::from_utf8_lossy(mine_lines[i]).to_string());
+                        commands.push(String::from_utf8_lossy(line).to_string());
                     }
                     commands.push(".".to_string());
                 }
@@ -1119,8 +1121,8 @@ fn generate_ed_script(
                     || (region.mine_count > 0
                         && region.mine_start + region.mine_count <= mine_lines.len()
                         && region.older_start + region.older_count <= older_lines.len()
-                        && &mine_lines[region.mine_start..region.mine_start + region.mine_count]
-                            != &older_lines
+                        && mine_lines[region.mine_start..region.mine_start + region.mine_count]
+                            != older_lines
                                 [region.older_start..region.older_start + region.older_count]);
 
                 if !mine_differs {
@@ -1131,13 +1133,12 @@ fn generate_ed_script(
                     if region.mine_count == 0 && region.yours_count > 0 {
                         // Insertion
                         commands.push(format!("{}a", region.mine_start));
-                        for i in region.yours_start
-                            ..std::cmp::min(
-                                region.yours_start + region.yours_count,
-                                yours_lines.len(),
-                            )
+                        for line in yours_lines
+                            .iter()
+                            .skip(region.yours_start)
+                            .take(region.yours_count)
                         {
-                            commands.push(String::from_utf8_lossy(yours_lines[i]).to_string());
+                            commands.push(String::from_utf8_lossy(line).to_string());
                         }
                         commands.push(".".to_string());
                     } else if region.yours_count == 0 && region.mine_count > 0 {
@@ -1154,13 +1155,12 @@ fn generate_ed_script(
                         } else {
                             commands.push(format!("{},{}c", start_line, end_line));
                         }
-                        for i in region.yours_start
-                            ..std::cmp::min(
-                                region.yours_start + region.yours_count,
-                                yours_lines.len(),
-                            )
+                        for line in yours_lines
+                            .iter()
+                            .skip(region.yours_start)
+                            .take(region.yours_count)
                         {
-                            commands.push(String::from_utf8_lossy(yours_lines[i]).to_string());
+                            commands.push(String::from_utf8_lossy(line).to_string());
                         }
                         commands.push(".".to_string());
                     }
@@ -1177,30 +1177,32 @@ fn generate_ed_script(
                     // Build the conflict text
                     let mut conflict_lines = Vec::new();
                     conflict_lines.push(format!("<<<<<<< {}", mine_label));
-                    for i in region.mine_start
-                        ..std::cmp::min(region.mine_start + region.mine_count, mine_lines.len())
+                    for line in mine_lines
+                        .iter()
+                        .skip(region.mine_start)
+                        .take(region.mine_count)
                     {
-                        conflict_lines.push(String::from_utf8_lossy(mine_lines[i]).to_string());
+                        conflict_lines.push(String::from_utf8_lossy(line).to_string());
                     }
 
                     if params.format == Diff3Format::ShowOverlap {
                         conflict_lines.push(format!("||||||| {}", older_label));
-                        for i in region.older_start
-                            ..std::cmp::min(
-                                region.older_start + region.older_count,
-                                older_lines.len(),
-                            )
+                        for line in older_lines
+                            .iter()
+                            .skip(region.older_start)
+                            .take(region.older_count)
                         {
-                            conflict_lines
-                                .push(String::from_utf8_lossy(older_lines[i]).to_string());
+                            conflict_lines.push(String::from_utf8_lossy(line).to_string());
                         }
                     }
 
                     conflict_lines.push("=======".to_string());
-                    for i in region.yours_start
-                        ..std::cmp::min(region.yours_start + region.yours_count, yours_lines.len())
+                    for line in yours_lines
+                        .iter()
+                        .skip(region.yours_start)
+                        .take(region.yours_count)
                     {
-                        conflict_lines.push(String::from_utf8_lossy(yours_lines[i]).to_string());
+                        conflict_lines.push(String::from_utf8_lossy(line).to_string());
                     }
                     conflict_lines.push(format!(">>>>>>> {}", yours_label));
 
@@ -1225,13 +1227,12 @@ fn generate_ed_script(
                     if region.mine_count == 0 && region.yours_count > 0 {
                         // Insertion
                         commands.push(format!("{}a", region.mine_start));
-                        for i in region.yours_start
-                            ..std::cmp::min(
-                                region.yours_start + region.yours_count,
-                                yours_lines.len(),
-                            )
+                        for line in yours_lines
+                            .iter()
+                            .skip(region.yours_start)
+                            .take(region.yours_count)
                         {
-                            commands.push(String::from_utf8_lossy(yours_lines[i]).to_string());
+                            commands.push(String::from_utf8_lossy(line).to_string());
                         }
                         commands.push(".".to_string());
                     } else if region.yours_count == 0 && region.mine_count > 0 {
@@ -1248,13 +1249,12 @@ fn generate_ed_script(
                         } else {
                             commands.push(format!("{},{}c", start_line, end_line));
                         }
-                        for i in region.yours_start
-                            ..std::cmp::min(
-                                region.yours_start + region.yours_count,
-                                yours_lines.len(),
-                            )
+                        for line in yours_lines
+                            .iter()
+                            .skip(region.yours_start)
+                            .take(region.yours_count)
                         {
-                            commands.push(String::from_utf8_lossy(yours_lines[i]).to_string());
+                            commands.push(String::from_utf8_lossy(line).to_string());
                         }
                         commands.push(".".to_string());
                     }
