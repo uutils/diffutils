@@ -46,8 +46,6 @@ pub struct Diff3Params {
     pub compat_i: bool, // -i option for ed script compatibility
 }
 
-// Default is derived above
-
 pub fn parse_params<I: Iterator<Item = OsString>>(
     mut opts: Peekable<I>,
 ) -> Result<Diff3Params, String> {
@@ -77,9 +75,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
             continue;
         }
 
-        // Handle options
         if param_str.starts_with('-') && param_str != "-" {
-            // Check for combined short options
             if param_str == "-a" || param_str == "--text" {
                 params.text = true;
                 continue;
@@ -163,12 +159,10 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
 
             return Err(format!("Unknown option: \"{}\"", param_str));
         } else {
-            // Regular file argument
             push_file_arg(param, &mut mine, &mut older, &mut yours, &params.executable)?;
         }
     }
 
-    // Collect remaining arguments
     for param in opts {
         push_file_arg(param, &mut mine, &mut older, &mut yours, &params.executable)?;
     }
@@ -220,13 +214,11 @@ fn print_help(executable: &OsString) {
     println!("  -v, --version              Display version information");
 }
 
-/// Checks if two files are identical with early exit on first difference
 #[inline]
 fn are_files_identical(file_a: &[u8], file_b: &[u8]) -> bool {
     if file_a.len() != file_b.len() {
         return false;
     }
-    // Use memcmp for fast comparison
     file_a == file_b
 }
 
@@ -276,68 +268,65 @@ fn strip_trailing_cr(line: &[u8]) -> &[u8] {
 }
 
 // Main diff3 computation engine with performance optimizations
-fn compute_diff3(mine: &[u8], older: &[u8], yours: &[u8], params: &Diff3Params) -> (Vec<u8>, bool) {
-    // Early termination: check if all files are identical
-    // This is the fastest path for the common case of no changes
+fn compute_diff3(
+    mine: &[u8],
+    older: &[u8],
+    yours: &[u8],
+    params: &Diff3Params,
+) -> io::Result<(Vec<u8>, bool)> {
     if are_files_identical(mine, older) && are_files_identical(older, yours) {
-        return (Vec::new(), false);
+        return Ok((Vec::new(), false));
     }
 
-    // Binary file detection and handling
     let mine_is_binary = !params.text && is_binary_content(mine);
     let older_is_binary = !params.text && is_binary_content(older);
     let yours_is_binary = !params.text && is_binary_content(yours);
 
-    // If any file is binary and --text flag is not set, handle as binary comparison
     if mine_is_binary || older_is_binary || yours_is_binary {
-        // For binary files, report if they differ and exit with appropriate code
         let all_identical = are_files_identical(mine, older) && are_files_identical(older, yours);
 
         if all_identical {
-            return (Vec::new(), false);
+            return Ok((Vec::new(), false));
         } else {
             let mut output = Vec::new();
 
             let mine_name = params.mine.to_string_lossy();
             let older_name = params.older.to_string_lossy();
             let yours_name = params.yours.to_string_lossy();
-            // Report binary file differences in a format similar to GNU diff
             if mine_is_binary && older_is_binary && mine != older {
                 writeln!(
                     &mut output,
                     "Binary files {} and {} differ",
                     mine_name, older_name
-                )
-                .unwrap();
+                )?;
             }
             if older_is_binary && yours_is_binary && older != yours {
                 writeln!(
                     &mut output,
                     "Binary files {} and {} differ",
                     older_name, yours_name
-                )
-                .unwrap();
+                )?;
             }
             if mine_is_binary && yours_is_binary && mine != yours {
                 writeln!(
                     &mut output,
                     "Binary files {} and {} differ",
                     mine_name, yours_name
-                )
-                .unwrap();
+                )?;
             }
 
-            return (output, true); // Has conflicts (binary differences)
+            return Ok((output, true));
         }
     }
 
-    // Split files into lines
     let mut mine_lines: Vec<&[u8]> = mine.split(|&c| c == b'\n').collect();
     let mut older_lines: Vec<&[u8]> = older.split(|&c| c == b'\n').collect();
     let mut yours_lines: Vec<&[u8]> = yours.split(|&c| c == b'\n').collect();
 
-    // Strip trailing carriage returns if requested
     if params.strip_trailing_cr {
+        for line in &mut mine_lines {
+            *line = strip_trailing_cr(line);
+        }
         for line in &mut mine_lines {
             *line = strip_trailing_cr(line);
         }
@@ -349,7 +338,6 @@ fn compute_diff3(mine: &[u8], older: &[u8], yours: &[u8], params: &Diff3Params) 
         }
     }
 
-    // Remove trailing empty line if present
     let mine_lines = if mine_lines.last() == Some(&&b""[..]) {
         &mine_lines[..mine_lines.len() - 1]
     } else {
@@ -366,12 +354,10 @@ fn compute_diff3(mine: &[u8], older: &[u8], yours: &[u8], params: &Diff3Params) 
         &yours_lines
     };
 
-    // Early termination for other identical combinations
     if mine_lines == older_lines && older_lines == yours_lines {
-        return (Vec::new(), false);
+        return Ok((Vec::new(), false));
     }
 
-    // Compute diffs
     let diff_mine_older: Vec<_> = diff::slice(mine_lines, older_lines);
     let diff_older_yours: Vec<_> = diff::slice(older_lines, yours_lines);
     let diff_mine_yours: Vec<_> = diff::slice(mine_lines, yours_lines);
@@ -385,7 +371,6 @@ fn compute_diff3(mine: &[u8], older: &[u8], yours: &[u8], params: &Diff3Params) 
         yours_lines,
     );
 
-    // Build conflict regions for filtering
     let regions = build_conflict_regions(
         &diff_mine_older,
         &diff_older_yours,
@@ -450,7 +435,7 @@ fn compute_diff3(mine: &[u8], older: &[u8], yours: &[u8], params: &Diff3Params) 
         }
     };
 
-    match params.format {
+    Ok(match params.format {
         Diff3Format::Normal => (
             generate_normal_output(
                 &diff_mine_older,
@@ -461,7 +446,7 @@ fn compute_diff3(mine: &[u8], older: &[u8], yours: &[u8], params: &Diff3Params) 
                 yours_lines,
                 &regions,
                 params,
-            ),
+            )?,
             should_report_conflict,
         ),
         Diff3Format::Merged => (
@@ -474,7 +459,7 @@ fn compute_diff3(mine: &[u8], older: &[u8], yours: &[u8], params: &Diff3Params) 
                 yours_lines,
                 &regions,
                 params,
-            ),
+            )?,
             should_report_conflict,
         ),
         Diff3Format::Ed | Diff3Format::ShowOverlap => (
@@ -487,10 +472,10 @@ fn compute_diff3(mine: &[u8], older: &[u8], yours: &[u8], params: &Diff3Params) 
                 yours_lines,
                 &regions,
                 params,
-            ),
+            )?,
             should_report_conflict,
         ),
-    }
+    })
 }
 
 /// Types of conflicts that can occur in three-way merge
@@ -813,26 +798,21 @@ fn generate_normal_output(
     yours_lines: &[&[u8]],
     regions: &[Diff3Region],
     params: &Diff3Params,
-) -> Vec<u8> {
+) -> io::Result<Vec<u8>> {
     let mut output = Vec::new();
     let tab_prefix = if params.initial_tab { "\t" } else { "" };
 
-    // Process each region
     for region in regions {
-        // Check if this region should be included based on output mode
         if !should_include_region(region, params.output_mode) {
             continue;
         }
 
-        // Only output regions that have conflicts
         if region.conflict == ConflictType::NoConflict {
             continue;
         }
 
-        // Determine conflict type marker
         match region.conflict {
             ConflictType::EasyConflict => {
-                // Only one side changed
                 if region.mine_count != region.older_count
                     || (region.mine_count > 0
                         && region.mine_count <= mine_lines.len()
@@ -842,37 +822,31 @@ fn generate_normal_output(
                             != older_lines
                                 [region.older_start..region.older_start + region.older_count])
                 {
-                    // Mine changed
-                    writeln!(&mut output, "====1").unwrap();
+                    writeln!(&mut output, "====1")?;
                 } else {
-                    // Yours changed
-                    writeln!(&mut output, "====3").unwrap();
+                    writeln!(&mut output, "====3")?;
                 }
             }
             ConflictType::NonOverlapping => {
-                // Both changed identically
-                writeln!(&mut output, "====").unwrap();
+                writeln!(&mut output, "====")?;
             }
             ConflictType::OverlappingConflict => {
-                // Both changed differently
-                writeln!(&mut output, "====").unwrap();
+                writeln!(&mut output, "====")?;
             }
             ConflictType::NoConflict => {
-                // Already skipped above
                 continue;
             }
         }
 
-        // Output mine section
         if region.mine_count == 0 {
-            writeln!(&mut output, "1:{}a", region.mine_start).unwrap();
+            writeln!(&mut output, "1:{}a", region.mine_start)?;
         } else {
             let start_line = region.mine_start + 1;
             let end_line = region.mine_start + region.mine_count;
             if start_line == end_line {
-                writeln!(&mut output, "1:{}c", start_line).unwrap();
+                writeln!(&mut output, "1:{}c", start_line)?;
             } else {
-                writeln!(&mut output, "1:{},{}c", start_line, end_line).unwrap();
+                writeln!(&mut output, "1:{},{}c", start_line, end_line)?;
             }
             for i in region.mine_start..region.mine_start + region.mine_count {
                 if i < mine_lines.len() {
@@ -881,22 +855,20 @@ fn generate_normal_output(
                         "{}  {}",
                         tab_prefix,
                         String::from_utf8_lossy(mine_lines[i])
-                    )
-                    .unwrap();
+                    )?;
                 }
             }
         }
 
-        // Output older section
         if region.older_count == 0 {
-            writeln!(&mut output, "2:{}a", region.older_start).unwrap();
+            writeln!(&mut output, "2:{}a", region.older_start)?;
         } else {
             let start_line = region.older_start + 1;
             let end_line = region.older_start + region.older_count;
             if start_line == end_line {
-                writeln!(&mut output, "2:{}c", start_line).unwrap();
+                writeln!(&mut output, "2:{}c", start_line)?;
             } else {
-                writeln!(&mut output, "2:{},{}c", start_line, end_line).unwrap();
+                writeln!(&mut output, "2:{},{}c", start_line, end_line)?;
             }
             for i in region.older_start..region.older_start + region.older_count {
                 if i < older_lines.len() {
@@ -905,22 +877,20 @@ fn generate_normal_output(
                         "{}  {}",
                         tab_prefix,
                         String::from_utf8_lossy(older_lines[i])
-                    )
-                    .unwrap();
+                    )?;
                 }
             }
         }
 
-        // Output yours section
         if region.yours_count == 0 {
-            writeln!(&mut output, "3:{}a", region.yours_start).unwrap();
+            writeln!(&mut output, "3:{}a", region.yours_start)?;
         } else {
             let start_line = region.yours_start + 1;
             let end_line = region.yours_start + region.yours_count;
             if start_line == end_line {
-                writeln!(&mut output, "3:{}c", start_line).unwrap();
+                writeln!(&mut output, "3:{}c", start_line)?;
             } else {
-                writeln!(&mut output, "3:{},{}c", start_line, end_line).unwrap();
+                writeln!(&mut output, "3:{},{}c", start_line, end_line)?;
             }
             for i in region.yours_start..region.yours_start + region.yours_count {
                 if i < yours_lines.len() {
@@ -929,14 +899,13 @@ fn generate_normal_output(
                         "{}  {}",
                         tab_prefix,
                         String::from_utf8_lossy(yours_lines[i])
-                    )
-                    .unwrap();
+                    )?;
                 }
             }
         }
     }
 
-    output
+    Ok(output)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -949,84 +918,67 @@ fn generate_merged_output(
     yours_lines: &[&[u8]],
     regions: &[Diff3Region],
     params: &Diff3Params,
-) -> Vec<u8> {
+) -> io::Result<Vec<u8>> {
     let mut output = Vec::new();
 
-    // Get labels
     let mine_label = params.labels[0].as_deref().unwrap_or("<<<<<<<");
     let older_label = params.labels[1].as_deref().unwrap_or("|||||||");
     let yours_label = params.labels[2].as_deref().unwrap_or(">>>>>>>");
 
-    // Process each region
     let mut last_output_line = 0;
 
     for region in regions {
-        // Check if this region should be included based on output mode
         if !should_include_region(region, params.output_mode) {
             continue;
         }
 
-        // Output unchanged lines before this region
         while last_output_line < region.mine_start && last_output_line < mine_lines.len() {
             writeln!(
                 &mut output,
                 "{}",
                 String::from_utf8_lossy(mine_lines[last_output_line])
-            )
-            .unwrap();
+            )?;
             last_output_line += 1;
         }
 
-        // Output the region based on conflict type
         match region.conflict {
             ConflictType::NoConflict => {
-                // All files agree - output from any file
                 for i in region.mine_start..region.mine_start + region.mine_count {
                     if i < mine_lines.len() {
-                        writeln!(&mut output, "{}", String::from_utf8_lossy(mine_lines[i]))
-                            .unwrap();
+                        writeln!(&mut output, "{}", String::from_utf8_lossy(mine_lines[i]))?;
                     }
                 }
                 last_output_line = region.mine_start + region.mine_count;
             }
             ConflictType::EasyConflict => {
-                // Only one side changed - prefer the changed version
                 if region.mine_count != region.older_count {
-                    // Mine changed, output mine
                     for i in region.mine_start..region.mine_start + region.mine_count {
                         if i < mine_lines.len() {
-                            writeln!(&mut output, "{}", String::from_utf8_lossy(mine_lines[i]))
-                                .unwrap();
+                            writeln!(&mut output, "{}", String::from_utf8_lossy(mine_lines[i]))?;
                         }
                     }
                 } else {
-                    // Yours changed, output yours
                     for i in region.yours_start..region.yours_start + region.yours_count {
                         if i < yours_lines.len() {
-                            writeln!(&mut output, "{}", String::from_utf8_lossy(yours_lines[i]))
-                                .unwrap();
+                            writeln!(&mut output, "{}", String::from_utf8_lossy(yours_lines[i]))?;
                         }
                     }
                 }
                 last_output_line = region.mine_start + region.mine_count;
             }
             ConflictType::NonOverlapping => {
-                // Both changed identically - output either (they're the same)
                 for i in region.mine_start..region.mine_start + region.mine_count {
                     if i < mine_lines.len() {
-                        writeln!(&mut output, "{}", String::from_utf8_lossy(mine_lines[i]))
-                            .unwrap();
+                        writeln!(&mut output, "{}", String::from_utf8_lossy(mine_lines[i]))?;
                     }
                 }
                 last_output_line = region.mine_start + region.mine_count;
             }
             ConflictType::OverlappingConflict => {
-                // True conflict - output with markers
-                writeln!(&mut output, "<<<<<<< {}", mine_label).unwrap();
+                writeln!(&mut output, "<<<<<<< {}", mine_label)?;
                 for i in region.mine_start..region.mine_start + region.mine_count {
                     if i < mine_lines.len() {
-                        writeln!(&mut output, "{}", String::from_utf8_lossy(mine_lines[i]))
-                            .unwrap();
+                        writeln!(&mut output, "{}", String::from_utf8_lossy(mine_lines[i]))?;
                     }
                 }
 
@@ -1034,40 +986,36 @@ fn generate_merged_output(
                 // GNU diff3 -m shows middle section by default (like -A)
                 if params.format == Diff3Format::Merged || params.format == Diff3Format::ShowOverlap
                 {
-                    writeln!(&mut output, "||||||| {}", older_label).unwrap();
+                    writeln!(&mut output, "||||||| {}", older_label)?;
                     for i in region.older_start..region.older_start + region.older_count {
                         if i < older_lines.len() {
-                            writeln!(&mut output, "{}", String::from_utf8_lossy(older_lines[i]))
-                                .unwrap();
+                            writeln!(&mut output, "{}", String::from_utf8_lossy(older_lines[i]))?;
                         }
                     }
                 }
 
-                writeln!(&mut output, "=======").unwrap();
+                writeln!(&mut output, "=======")?;
                 for i in region.yours_start..region.yours_start + region.yours_count {
                     if i < yours_lines.len() {
-                        writeln!(&mut output, "{}", String::from_utf8_lossy(yours_lines[i]))
-                            .unwrap();
+                        writeln!(&mut output, "{}", String::from_utf8_lossy(yours_lines[i]))?;
                     }
                 }
-                writeln!(&mut output, ">>>>>>> {}", yours_label).unwrap();
+                writeln!(&mut output, ">>>>>>> {}", yours_label)?;
                 last_output_line = region.mine_start + region.mine_count;
             }
         }
     }
 
-    // Output any remaining unchanged lines
     while last_output_line < mine_lines.len() {
         writeln!(
             &mut output,
             "{}",
             String::from_utf8_lossy(mine_lines[last_output_line])
-        )
-        .unwrap();
+        )?;
         last_output_line += 1;
     }
 
-    output
+    Ok(output)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1080,10 +1028,9 @@ fn generate_ed_script(
     yours_lines: &[&[u8]],
     regions: &[Diff3Region],
     params: &Diff3Params,
-) -> Vec<u8> {
+) -> io::Result<Vec<u8>> {
     let mut output = Vec::new();
 
-    // Get label for conflict markers (only used in ShowOverlapEd mode)
     let mine_label = params.labels[0]
         .as_deref()
         .or_else(|| params.mine.to_str())
@@ -1101,31 +1048,25 @@ fn generate_ed_script(
     // to maintain line number accuracy
     let mut commands: Vec<String> = Vec::new();
 
-    // Determine if we're in ShowOverlapEd mode (use conflict markers)
     let use_conflict_markers = params.output_mode == Diff3OutputMode::ShowOverlapEd;
 
     for region in regions.iter().rev() {
-        // Check if this region should be included based on output mode
         if !should_include_region(region, params.output_mode) {
             continue;
         }
 
         match region.conflict {
             ConflictType::NoConflict => {
-                // No changes needed
                 continue;
             }
             ConflictType::NonOverlapping => {
-                // Both changed identically - no conflict, use either version
                 let start_line = region.mine_start + 1;
                 let end_line = region.mine_start + region.mine_count;
 
-                // Only generate command if there's an actual change
                 if region.mine_count == region.older_count
                     && region.mine_start < mine_lines.len()
                     && region.older_start < older_lines.len()
                 {
-                    // Check if content actually differs
                     let mine_slice = &mine_lines[region.mine_start
                         ..std::cmp::min(region.mine_start + region.mine_count, mine_lines.len())];
                     let older_slice = &older_lines[region.older_start
@@ -1135,14 +1076,11 @@ fn generate_ed_script(
                         )];
 
                     if mine_slice == older_slice {
-                        // No actual change
                         continue;
                     }
                 }
 
-                // Generate change command (both versions are the same)
                 if region.mine_count == 0 {
-                    // Insertion
                     commands.push(format!("{}a", region.mine_start));
                     for i in region.mine_start
                         ..region.mine_start + region.mine_count.max(region.yours_count)
@@ -1153,13 +1091,11 @@ fn generate_ed_script(
                     }
                     commands.push(".".to_string());
                 } else {
-                    // Change (no deletion since both versions exist)
                     if start_line == end_line {
                         commands.push(format!("{}c", start_line));
                     } else {
                         commands.push(format!("{},{}c", start_line, end_line));
                     }
-                    // Use mine since it's identical to yours
                     for line in mine_lines
                         .iter()
                         .skip(region.mine_start)
@@ -1171,7 +1107,6 @@ fn generate_ed_script(
                 }
             }
             ConflictType::EasyConflict => {
-                // Only one side changed from the base
                 let mine_differs = region.mine_count != region.older_count
                     || (region.mine_count > 0
                         && region.mine_start + region.mine_count <= mine_lines.len()
@@ -1181,12 +1116,10 @@ fn generate_ed_script(
                                 [region.older_start..region.older_start + region.older_count]);
 
                 if !mine_differs {
-                    // Only yours changed - apply yours changes
                     let start_line = region.mine_start + 1;
                     let end_line = region.mine_start + region.mine_count;
 
                     if region.mine_count == 0 && region.yours_count > 0 {
-                        // Insertion
                         commands.push(format!("{}a", region.mine_start));
                         for line in yours_lines
                             .iter()
@@ -1197,14 +1130,12 @@ fn generate_ed_script(
                         }
                         commands.push(".".to_string());
                     } else if region.yours_count == 0 && region.mine_count > 0 {
-                        // Deletion
                         if start_line == end_line {
                             commands.push(format!("{}d", start_line));
                         } else {
                             commands.push(format!("{},{}d", start_line, end_line));
                         }
                     } else if region.yours_count > 0 {
-                        // Change
                         if start_line == end_line {
                             commands.push(format!("{}c", start_line));
                         } else {
@@ -1220,10 +1151,8 @@ fn generate_ed_script(
                         commands.push(".".to_string());
                     }
                 }
-                // If only mine changed, do nothing (keep mine)
             }
             ConflictType::OverlappingConflict => {
-                // Both sides changed differently - true conflict
                 if use_conflict_markers {
                     // -E mode: Insert conflict markers as text
                     let start_line = region.mine_start + 1;
@@ -1261,7 +1190,6 @@ fn generate_ed_script(
                     }
                     conflict_lines.push(format!(">>>>>>> {}", yours_label));
 
-                    // Generate ed command to replace with conflict markers
                     if region.mine_count == 0 {
                         commands.push(format!("{}a", region.mine_start));
                     } else if start_line == end_line {
@@ -1275,12 +1203,10 @@ fn generate_ed_script(
                     }
                     commands.push(".".to_string());
                 } else {
-                    // -e mode: Just apply yours changes (automatic merge choice)
                     let start_line = region.mine_start + 1;
                     let end_line = region.mine_start + region.mine_count;
 
                     if region.mine_count == 0 && region.yours_count > 0 {
-                        // Insertion
                         commands.push(format!("{}a", region.mine_start));
                         for line in yours_lines
                             .iter()
@@ -1298,7 +1224,6 @@ fn generate_ed_script(
                             commands.push(format!("{},{}d", start_line, end_line));
                         }
                     } else if region.yours_count > 0 {
-                        // Change - prefer yours
                         if start_line == end_line {
                             commands.push(format!("{}c", start_line));
                         } else {
@@ -1318,18 +1243,16 @@ fn generate_ed_script(
         }
     }
 
-    // Output all commands
     for cmd in commands {
-        writeln!(&mut output, "{}", cmd).unwrap();
+        writeln!(&mut output, "{}", cmd)?;
     }
 
-    // If -i flag is set, append write and quit commands for automatic application
     if params.compat_i {
-        writeln!(&mut output, "w").unwrap();
-        writeln!(&mut output, "q").unwrap();
+        writeln!(&mut output, "w")?;
+        writeln!(&mut output, "q")?;
     }
 
-    output
+    Ok(output)
 }
 
 pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
@@ -1387,9 +1310,26 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
 
     // Compute diff3
     let (result, has_conflicts) =
-        compute_diff3(&mine_content, &older_content, &yours_content, &params);
+        match compute_diff3(&mine_content, &older_content, &yours_content, &params) {
+            Ok(res) => res,
+            Err(e) => {
+                eprintln!(
+                    "{}: failed to generate output: {}",
+                    params.executable.to_string_lossy(),
+                    e
+                );
+                return ExitCode::from(2);
+            }
+        };
 
-    io::stdout().write_all(&result).unwrap();
+    if let Err(e) = io::stdout().write_all(&result) {
+        eprintln!(
+            "{}: failed to write output: {}",
+            params.executable.to_string_lossy(),
+            e
+        );
+        return ExitCode::from(2);
+    }
 
     if has_conflicts {
         ExitCode::from(1)
@@ -1599,7 +1539,8 @@ mod tests {
         };
 
         let content = b"line1\nline2\nline3\n";
-        let (output, has_conflicts) = compute_diff3(content, content, content, &params);
+        let (output, has_conflicts) =
+            compute_diff3(content, content, content, &params).expect("compute_diff3 failed");
 
         // Identical files should produce no output
         assert!(output.is_empty());
@@ -1626,7 +1567,8 @@ mod tests {
         let older = b"line1\nline2\nline3\n";
         let yours = b"line1\nline2\nline3\n";
 
-        let (output, _has_conflicts) = compute_diff3(mine, older, yours, &params);
+        let (output, _has_conflicts) =
+            compute_diff3(mine, older, yours, &params).expect("compute_diff3 failed");
 
         // Should have some output indicating differences
         assert!(!output.is_empty());
@@ -1652,7 +1594,8 @@ mod tests {
         let older = b"line1\noriginal\nline3\n";
         let yours = b"line1\nyours_version\nline3\n";
 
-        let (output, _has_conflicts) = compute_diff3(mine, older, yours, &params);
+        let (output, _has_conflicts) =
+            compute_diff3(mine, older, yours, &params).expect("compute_diff3 failed");
 
         let output_str = String::from_utf8_lossy(&output);
 
@@ -1678,7 +1621,8 @@ mod tests {
 
         // When mine and yours are identical, should pass through unchanged
         let content = b"line1\nline2\nline3\n";
-        let (output, _has_conflicts) = compute_diff3(content, b"different\n", content, &params);
+        let (output, _has_conflicts) =
+            compute_diff3(content, b"different\n", content, &params).expect("compute_diff3 failed");
 
         let output_str = String::from_utf8_lossy(&output);
         assert!(output_str.contains("line1"));
@@ -1702,7 +1646,8 @@ mod tests {
             compat_i: false,
         };
 
-        let (output, has_conflicts) = compute_diff3(b"", b"", b"", &params);
+        let (output, has_conflicts) =
+            compute_diff3(b"", b"", b"", &params).expect("compute_diff3 failed");
 
         assert!(output.is_empty());
         assert!(!has_conflicts);
@@ -1728,7 +1673,8 @@ mod tests {
         let older = b"line1\n";
         let yours = b"different\n";
 
-        let (output, _has_conflicts) = compute_diff3(mine, older, yours, &params);
+        let (output, _has_conflicts) =
+            compute_diff3(mine, older, yours, &params).expect("compute_diff3 failed");
 
         // Should produce output for the difference
         assert!(!output.is_empty());
@@ -2094,7 +2040,8 @@ mod tests {
         let older = b"line1\noriginal\nline3\n";
         let yours = b"line1\nmodified\nline3\n";
 
-        let (output, _has_conflicts) = compute_diff3(mine, older, yours, &params);
+        let (output, _has_conflicts) =
+            compute_diff3(mine, older, yours, &params).expect("compute_diff3 failed");
 
         let output_str = String::from_utf8_lossy(&output);
         // With -i, output should contain write (w) and quit (q) commands
@@ -2128,7 +2075,8 @@ mod tests {
         let older = b"line1\noriginal\nline3\n";
         let yours = b"line1\nmodified\nline3\n";
 
-        let (output, _has_conflicts) = compute_diff3(mine, older, yours, &params);
+        let (output, _has_conflicts) =
+            compute_diff3(mine, older, yours, &params).expect("compute_diff3 failed");
 
         let output_str = String::from_utf8_lossy(&output);
         // Without -i, output should NOT contain write (w) and quit (q) at the end
@@ -2204,7 +2152,8 @@ mod tests {
         let older = b"GIF89a\x00\x10\x00\x10";
         let yours = b"PNG\x89\x50\x4E\x47\x0D";
 
-        let (output, has_conflicts) = compute_diff3(mine, older, yours, &params);
+        let (output, has_conflicts) =
+            compute_diff3(mine, older, yours, &params).expect("compute_diff3 failed");
 
         // Should report binary file differences
         let output_str = String::from_utf8_lossy(&output);
@@ -2238,7 +2187,8 @@ mod tests {
         // Identical binary files
         let content = b"GIF89a\x00\x10\x00\x10\xFF\xFF\xFF";
 
-        let (output, has_conflicts) = compute_diff3(content, content, content, &params);
+        let (output, has_conflicts) =
+            compute_diff3(content, content, content, &params).expect("compute_diff3 failed");
 
         // Identical files should have no output and no conflicts
         assert!(
@@ -2272,7 +2222,8 @@ mod tests {
         let older = b"line1\x00\nline2\n";
         let yours = b"line1\x00\nline3\n";
 
-        let (output, _has_conflicts) = compute_diff3(mine, older, yours, &params);
+        let (output, _has_conflicts) =
+            compute_diff3(mine, older, yours, &params).expect("compute_diff3 failed");
 
         // With --text flag, should process as text, not report as binary
         let output_str = String::from_utf8_lossy(&output);
@@ -2306,7 +2257,8 @@ mod tests {
         let older = b"line1\r\nline2\r\nline3\r\n";
         let yours = b"line1\r\nline2\r\nline3\r\n";
 
-        let (output, has_conflicts) = compute_diff3(mine, older, yours, &params);
+        let (output, has_conflicts) =
+            compute_diff3(mine, older, yours, &params).expect("compute_diff3 failed");
 
         // Should treat files as identical despite CRLF
         assert_eq!(has_conflicts, false);
@@ -2334,7 +2286,8 @@ mod tests {
         let older = b"line1\r\nline2\r\nline3\r\n";
         let yours = b"line1\r\nmodified_yours\r\nline3\r\n";
 
-        let (output, has_conflicts) = compute_diff3(mine, older, yours, &params);
+        let (output, has_conflicts) =
+            compute_diff3(mine, older, yours, &params).expect("compute_diff3 failed");
 
         // Should detect the real conflict (not the CRLF)
         assert_eq!(has_conflicts, true);
@@ -2362,7 +2315,8 @@ mod tests {
         let older = b"line1\nline2\nline3\n";
         let yours = b"line1\nline2\nline3\n";
 
-        let (output, has_conflicts) = compute_diff3(mine, older, yours, &params);
+        let (output, has_conflicts) =
+            compute_diff3(mine, older, yours, &params).expect("compute_diff3 failed");
 
         // Should treat files as identical when only line endings differ
         assert_eq!(has_conflicts, false);
@@ -2389,7 +2343,8 @@ mod tests {
         let older = b"line1\nline2\nline3\n";
         let yours = b"line1\nline2\nline3\n";
 
-        let (output, _has_conflicts) = compute_diff3(mine, older, yours, &params);
+        let (output, _has_conflicts) =
+            compute_diff3(mine, older, yours, &params).expect("compute_diff3 failed");
         let output_str = String::from_utf8_lossy(&output);
 
         // With initial_tab, content lines should be prefixed with a tab and two spaces
@@ -2419,7 +2374,8 @@ mod tests {
         let older = b"line1\nline2\nline3\n";
         let yours = b"line1\nline2\nline3\n";
 
-        let (output, _has_conflicts) = compute_diff3(mine, older, yours, &params);
+        let (output, _has_conflicts) =
+            compute_diff3(mine, older, yours, &params).expect("compute_diff3 failed");
         let output_str = String::from_utf8_lossy(&output);
 
         // Without initial_tab, content lines should have two spaces but no tab
