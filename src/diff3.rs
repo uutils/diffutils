@@ -62,8 +62,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
     let mut yours = None;
     let mut label_count = 0;
 
-    #[allow(clippy::while_let_on_iterator)]
-    while let Some(param) = opts.next() {
+    while let Some(param) = opts.by_ref().next() {
         let param_str = param.to_string_lossy();
 
         if param_str == "--" {
