@@ -14,6 +14,7 @@ use std::{
 mod cmp;
 mod context_diff;
 mod diff;
+mod diff3;
 mod ed_diff;
 mod macros;
 mod normal_diff;
@@ -43,7 +44,7 @@ fn usage(name: &str) {
     println!("{name} {VERSION} (multi-call binary)\n");
     println!("Usage: {name} [function [arguments...]]\n");
     println!("Currently defined functions:\n");
-    println!("    cmp, diff\n");
+    println!("    cmp, diff, diff3\n");
 }
 
 fn second_arg_error(name: &OsStr) -> ! {
@@ -71,6 +72,7 @@ fn main() -> ExitCode {
 
     match util_name.to_str() {
         Some("diff") => diff::main(args),
+        Some("diff3") => diff3::main(args),
         Some("cmp") => cmp::main(args),
         Some(name) => {
             eprintln!("{name}: utility not supported");
