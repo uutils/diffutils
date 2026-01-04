@@ -1631,6 +1631,15 @@ mod diff3 {
     // These tests compare our implementation directly against GNU diff3
     // ============================================================================
 
+    /// Check if the system has GNU diff3 (as opposed to BSD diff3)
+    fn is_gnu_diff3() -> bool {
+        std::process::Command::new("diff3")
+            .arg("--version")
+            .output()
+            .map(|output| String::from_utf8_lossy(&output.stdout).contains("GNU"))
+            .unwrap_or(false)
+    }
+
     /// Helper function to run GNU diff3 if available, otherwise skip test
     fn run_gnu_diff3(
         mine: &std::path::Path,
@@ -1815,6 +1824,15 @@ mod diff3 {
 
     #[test]
     fn gnu_compat_ed_with_overlap() -> Result<(), Box<dyn std::error::Error>> {
+        // BSD diff3 (default on macOS) has different exit code behavior than GNU diff3
+        // for the -E flag. BSD diff3 returns 0 even with overlapping conflicts,
+        // while GNU diff3 returns 1. Since this project aims for GNU compatibility,
+        // we skip this test on systems with BSD diff3.
+        if !is_gnu_diff3() {
+            eprintln!("Skipping test: GNU diff3 not available (BSD diff3 detected)");
+            return Ok(());
+        }
+
         let tmp_dir = tempdir()?;
 
         let mine_path = tmp_dir.path().join("mine");
