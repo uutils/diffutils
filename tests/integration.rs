@@ -1311,8 +1311,9 @@ mod diff3 {
         cmd.arg("-e");
         cmd.arg("-i");
         cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
-        // Even with conflicts, -e -i should produce a valid ed script with w and q
-        cmd.assert().code(predicate::eq(1)).failure();
+        // -e mode auto-resolves conflicts by choosing "yours", so exit code is 0
+        // The -i flag adds w and q commands for ed compatibility
+        cmd.assert().code(predicate::eq(0)).success();
 
         Ok(())
     }

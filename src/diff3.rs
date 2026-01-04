@@ -376,7 +376,7 @@ fn compute_diff3(mine: &[u8], older: &[u8], yours: &[u8], params: &Diff3Params) 
     let diff_older_yours: Vec<_> = diff::slice(older_lines, yours_lines);
     let diff_mine_yours: Vec<_> = diff::slice(mine_lines, yours_lines);
 
-    let has_conflicts = detect_conflicts(
+    let _has_conflicts = detect_conflicts(
         &diff_mine_older,
         &diff_older_yours,
         &diff_mine_yours,
@@ -395,6 +395,61 @@ fn compute_diff3(mine: &[u8], older: &[u8], yours: &[u8], params: &Diff3Params) 
         yours_lines,
     );
 
+    // Determine the appropriate exit code based on format and output mode
+    let should_report_conflict = match params.format {
+        Diff3Format::Ed => {
+            // -e mode: conflicts are auto-resolved by choosing "yours", so return 0
+            // unless we're in ShowOverlapEd mode which needs manual resolution
+            match params.output_mode {
+                Diff3OutputMode::ShowOverlapEd => {
+                    // -E mode: return 1 if there are overlapping conflicts
+                    regions
+                        .iter()
+                        .any(|r| r.conflict == ConflictType::OverlappingConflict)
+                }
+                _ => false, // -e mode always succeeds
+            }
+        }
+        Diff3Format::ShowOverlap => {
+            // -E mode: return 1 if there are overlapping conflicts
+            regions
+                .iter()
+                .any(|r| r.conflict == ConflictType::OverlappingConflict)
+        }
+        Diff3Format::Normal => {
+            // Normal format: return 1 only if both sides changed differently
+            match params.output_mode {
+                Diff3OutputMode::EasyOnly => {
+                    // -3: showing easy conflicts doesn't count as failure (exit 0)
+                    false
+                }
+                Diff3OutputMode::OverlapOnly | Diff3OutputMode::OverlapOnlyMarked => {
+                    // -x or -X: return 1 if there are overlapping conflicts
+                    regions
+                        .iter()
+                        .any(|r| r.conflict == ConflictType::OverlappingConflict)
+                }
+                _ => {
+                    // Default: return 1 only if there are overlapping conflicts
+                    // (both sides changed differently)
+                    regions
+                        .iter()
+                        .any(|r| r.conflict == ConflictType::OverlappingConflict)
+                }
+            }
+        }
+        Diff3Format::Merged => {
+            // Merged format: return 1 if there are ANY conflicts needing resolution
+            // This includes both easy conflicts (one side changed) and overlapping (both changed)
+            regions.iter().any(|r| {
+                matches!(
+                    r.conflict,
+                    ConflictType::EasyConflict | ConflictType::OverlappingConflict
+                )
+            })
+        }
+    };
+
     match params.format {
         Diff3Format::Normal => (
             generate_normal_output(
@@ -407,7 +462,7 @@ fn compute_diff3(mine: &[u8], older: &[u8], yours: &[u8], params: &Diff3Params) 
                 &regions,
                 params,
             ),
-            has_conflicts,
+            should_report_conflict,
         ),
         Diff3Format::Merged => (
             generate_merged_output(
@@ -420,7 +475,7 @@ fn compute_diff3(mine: &[u8], older: &[u8], yours: &[u8], params: &Diff3Params) 
                 &regions,
                 params,
             ),
-            has_conflicts,
+            should_report_conflict,
         ),
         Diff3Format::Ed | Diff3Format::ShowOverlap => (
             generate_ed_script(
@@ -433,7 +488,7 @@ fn compute_diff3(mine: &[u8], older: &[u8], yours: &[u8], params: &Diff3Params) 
                 &regions,
                 params,
             ),
-            has_conflicts,
+            should_report_conflict,
         ),
     }
 }
