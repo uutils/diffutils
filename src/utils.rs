@@ -4,7 +4,8 @@
 // files that was distributed with this source code.
 
 use regex::Regex;
-use std::{ffi::OsString, io::Write};
+use std::io::{self, Error, Read, Write};
+use std::{ffi::OsString, fs};
 use unicode_width::UnicodeWidthStr;
 
 /// Replace tabs by spaces in the input line.
@@ -87,15 +88,22 @@ pub fn format_failure_to_read_input_file(
     )
 }
 
-pub fn report_failure_to_read_input_file(
-    executable: &OsString,
-    filepath: &OsString,
-    error: &std::io::Error,
-) {
-    eprintln!(
-        "{}",
-        format_failure_to_read_input_file(executable, filepath, error)
-    );
+pub fn read_file_contents(filepath: &OsString) -> io::Result<Vec<u8>> {
+    if filepath == "-" {
+        let mut content = Vec::new();
+        io::stdin().read_to_end(&mut content).and(Ok(content))
+    } else {
+        fs::read(filepath)
+    }
+}
+
+pub fn read_both_files(
+    from: &OsString,
+    to: &OsString,
+) -> Result<(Vec<u8>, Vec<u8>), (OsString, Error)> {
+    let from_content = read_file_contents(from).map_err(|e| (from.clone(), e))?;
+    let to_content = read_file_contents(to).map_err(|e| (to.clone(), e))?;
+    Ok((from_content, to_content))
 }
 
 #[cfg(test)]

@@ -4,12 +4,10 @@
 // files that was distributed with this source code.
 
 use crate::params::{parse_params, Format};
-use crate::utils::report_failure_to_read_input_file;
+use crate::utils;
 use crate::{context_diff, ed_diff, normal_diff, side_diff, unified_diff};
 use std::env::ArgsOs;
-use std::ffi::OsString;
-use std::fs;
-use std::io::{self, stdout, Read, Write};
+use std::io::{self, stdout, Write};
 use std::iter::Peekable;
 use std::process::{exit, ExitCode};
 
@@ -23,6 +21,7 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
         eprintln!("{error}");
         exit(2);
     });
+
     // if from and to are the same file, no need to perform any comparison
     let maybe_report_identical_files = || {
         if params.report_identical_files {
@@ -40,35 +39,16 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
-    // read files
-    fn read_file_contents(filepath: &OsString) -> io::Result<Vec<u8>> {
-        if filepath == "-" {
-            let mut content = Vec::new();
-            io::stdin().read_to_end(&mut content).and(Ok(content))
-        } else {
-            fs::read(filepath)
-        }
-    }
-    let mut io_error = false;
-    let from_content = match read_file_contents(&params.from) {
-        Ok(from_content) => from_content,
-        Err(e) => {
-            report_failure_to_read_input_file(&params.executable, &params.from, &e);
-            io_error = true;
-            vec![]
+    let (from_content, to_content) = match utils::read_both_files(&params.from, &params.to) {
+        Ok(contents) => contents,
+        Err((filepath, error)) => {
+            eprintln!(
+                "{}",
+                utils::format_failure_to_read_input_file(&params.executable, &filepath, &error)
+            );
+            return ExitCode::from(2);
         }
     };
-    let to_content = match read_file_contents(&params.to) {
-        Ok(to_content) => to_content,
-        Err(e) => {
-            report_failure_to_read_input_file(&params.executable, &params.to, &e);
-            io_error = true;
-            vec![]
-        }
-    };
-    if io_error {
-        return ExitCode::from(2);
-    }
 
     // run diff
     let result: Vec<u8> = match params.format {
