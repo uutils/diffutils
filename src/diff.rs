@@ -61,7 +61,16 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
         }),
         Format::SideBySide => {
             let mut output = stdout().lock();
-            side_diff::diff(&from_content, &to_content, &mut output, &params)
+            side_diff::diff(
+                &from_content,
+                &to_content,
+                &mut output,
+                &side_diff::Params {
+                    tabsize: params.tabsize,
+                    width: params.width,
+                    expand_tabs: params.expand_tabs,
+                },
+            )
         }
     };
     if params.brief && !result.is_empty() {
