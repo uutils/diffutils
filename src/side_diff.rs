@@ -8,8 +8,6 @@ use diff::Result;
 use std::{io::Write, vec};
 use unicode_width::UnicodeWidthStr;
 
-use crate::params::Params;
-
 const GUTTER_WIDTH_MIN: usize = 3;
 
 struct CharIter<'a> {
@@ -304,6 +302,13 @@ fn push_output<T: Write>(
     }
 
     Ok(())
+}
+
+#[derive(Default)]
+pub struct Params {
+    pub width: usize,
+    pub tabsize: usize,
+    pub expand_tabs: bool,
 }
 
 pub fn diff<T: Write>(
