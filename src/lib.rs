@@ -1,5 +1,6 @@
 pub mod cmp;
 pub mod context_diff;
+pub mod diff3;
 pub mod ed_diff;
 pub mod macros;
 pub mod normal_diff;
@@ -10,6 +11,7 @@ pub mod utils;
 
 // Re-export the public functions/types you need
 pub use context_diff::diff as context_diff;
+pub use diff3::main as diff3;
 pub use ed_diff::diff as ed_diff;
 pub use normal_diff::diff as normal_diff;
 pub use side_diff::diff as side_by_side_diff;

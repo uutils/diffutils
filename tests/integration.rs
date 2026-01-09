@@ -888,3 +888,1322 @@ mod cmp {
         Ok(())
     }
 }
+
+mod diff3 {
+    use super::*;
+
+    #[test]
+    fn diff3_identical_files() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+
+        let mine_path = tmp_dir.path().join("mine");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(b"line1\nline2\nline3\n")?;
+
+        let older_path = tmp_dir.path().join("older");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(b"line1\nline2\nline3\n")?;
+
+        let yours_path = tmp_dir.path().join("yours");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(b"line1\nline2\nline3\n")?;
+
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff3");
+        cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
+        cmd.assert()
+            .code(predicate::eq(0))
+            .success()
+            .stdout(predicate::eq(""));
+
+        Ok(())
+    }
+
+    #[test]
+    fn diff3_with_changes() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+
+        let mine_path = tmp_dir.path().join("mine");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(b"line1\nmodified\nline3\n")?;
+
+        let older_path = tmp_dir.path().join("older");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(b"line1\nline2\nline3\n")?;
+
+        let yours_path = tmp_dir.path().join("yours");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(b"line1\nline2\nline3\n")?;
+
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff3");
+        cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
+        cmd.assert().code(predicate::eq(0)).success();
+
+        Ok(())
+    }
+
+    #[test]
+    fn diff3_merged_format() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+
+        let mine_path = tmp_dir.path().join("mine");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(b"line1\nmine_version\nline3\n")?;
+
+        let older_path = tmp_dir.path().join("older");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(b"line1\noriginal\nline3\n")?;
+
+        let yours_path = tmp_dir.path().join("yours");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(b"line1\nyours_version\nline3\n")?;
+
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff3");
+        cmd.arg("-m");
+        cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
+        cmd.assert().code(predicate::eq(1)).failure();
+
+        Ok(())
+    }
+
+    #[test]
+    fn diff3_ed_format() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+
+        let mine_path = tmp_dir.path().join("mine");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(b"line1\nline2\nline3\n")?;
+
+        let older_path = tmp_dir.path().join("older");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(b"line1\nline2\nline3\n")?;
+
+        let yours_path = tmp_dir.path().join("yours");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(b"line1\nmodified\nline3\n")?;
+
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff3");
+        cmd.arg("-e");
+        cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
+        cmd.assert().code(predicate::eq(0)).success();
+
+        Ok(())
+    }
+
+    #[test]
+    fn diff3_with_text_flag() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+
+        let mine_path = tmp_dir.path().join("mine");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(b"line1\nline2\nline3\n")?;
+
+        let older_path = tmp_dir.path().join("older");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(b"line1\nline2\nline3\n")?;
+
+        let yours_path = tmp_dir.path().join("yours");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(b"line1\nline2\nline3\n")?;
+
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff3");
+        cmd.arg("-a");
+        cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
+        cmd.assert()
+            .code(predicate::eq(0))
+            .success()
+            .stdout(predicate::eq(""));
+
+        Ok(())
+    }
+
+    #[test]
+    fn diff3_with_labels() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+
+        let mine_path = tmp_dir.path().join("mine");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(b"line1\nmine_version\nline3\n")?;
+
+        let older_path = tmp_dir.path().join("older");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(b"line1\noriginal\nline3\n")?;
+
+        let yours_path = tmp_dir.path().join("yours");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(b"line1\nyours_version\nline3\n")?;
+
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff3");
+        cmd.arg("-m");
+        cmd.arg("--label=mine_version");
+        cmd.arg("--label=original");
+        cmd.arg("--label=yours_version");
+        cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
+        cmd.assert().code(predicate::eq(1)).failure();
+
+        Ok(())
+    }
+
+    #[test]
+    fn diff3_easy_only() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+
+        let mine_path = tmp_dir.path().join("mine");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(b"line1\nmodified\nline3\n")?;
+
+        let older_path = tmp_dir.path().join("older");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(b"line1\noriginal\nline3\n")?;
+
+        let yours_path = tmp_dir.path().join("yours");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(b"line1\noriginal\nline3\n")?;
+
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff3");
+        cmd.arg("-3");
+        cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
+        cmd.assert().code(predicate::eq(0)).success();
+
+        Ok(())
+    }
+
+    #[test]
+    fn diff3_missing_file() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+
+        let mine_path = tmp_dir.path().join("mine");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(b"content\n")?;
+
+        let nofile = tmp_dir.path().join("nonexistent");
+
+        #[cfg(not(windows))]
+        let error_message = "No such file or directory";
+        #[cfg(windows)]
+        let error_message = "The system cannot find the file specified.";
+
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff3");
+        cmd.arg(&mine_path).arg(&nofile).arg(&mine_path);
+        cmd.assert()
+            .code(predicate::eq(2))
+            .failure()
+            .stderr(predicate::str::contains(error_message));
+
+        Ok(())
+    }
+
+    #[test]
+    fn diff3_stdin() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+
+        let older_path = tmp_dir.path().join("older");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(b"line1\nline2\nline3\n")?;
+
+        let yours_path = tmp_dir.path().join("yours");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(b"line1\nline2\nline3\n")?;
+
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff3");
+        cmd.arg("-").arg(&older_path).arg(&yours_path);
+        cmd.write_stdin(b"line1\nline2\nline3\n");
+        cmd.assert().code(predicate::eq(0)).success();
+
+        Ok(())
+    }
+
+    #[test]
+    fn diff3_show_all_flag() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+
+        let mine_path = tmp_dir.path().join("mine");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(b"line1\nmine_version\nline3\n")?;
+
+        let older_path = tmp_dir.path().join("older");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(b"line1\noriginal\nline3\n")?;
+
+        let yours_path = tmp_dir.path().join("yours");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(b"line1\nyours_version\nline3\n")?;
+
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff3");
+        cmd.arg("-A");
+        cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
+        cmd.assert().code(predicate::eq(1)).failure();
+
+        Ok(())
+    }
+
+    #[test]
+    fn diff3_three_way_conflict() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+
+        // All three files have different content at line 2
+        let mine_path = tmp_dir.path().join("mine");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(b"line1\nversion_a\nline3\n")?;
+
+        let older_path = tmp_dir.path().join("older");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(b"line1\noriginal\nline3\n")?;
+
+        let yours_path = tmp_dir.path().join("yours");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(b"line1\nversion_b\nline3\n")?;
+
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff3");
+        cmd.arg("-m");
+        cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
+        cmd.assert().code(predicate::eq(1)).failure();
+
+        Ok(())
+    }
+
+    #[test]
+    fn diff3_overlap_only_option() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+
+        // Create files where all three differ (overlapping conflict)
+        let mine_path = tmp_dir.path().join("mine");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(b"line1\nversion_a\nline3\n")?;
+
+        let older_path = tmp_dir.path().join("older");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(b"line1\noriginal\nline3\n")?;
+
+        let yours_path = tmp_dir.path().join("yours");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(b"line1\nversion_b\nline3\n")?;
+
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff3");
+        cmd.arg("-x");
+        cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
+        // Ed script modes (-e, -x, -X, -3) always return 0 unless there's an error
+        cmd.assert().code(predicate::eq(0)).success();
+
+        Ok(())
+    }
+
+    #[test]
+    fn diff3_easy_only_option() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+
+        // Create files where only yours changed (easy conflict)
+        let mine_path = tmp_dir.path().join("mine");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(b"line1\noriginal\nline3\n")?;
+
+        let older_path = tmp_dir.path().join("older");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(b"line1\noriginal\nline3\n")?;
+
+        let yours_path = tmp_dir.path().join("yours");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(b"line1\nmodified\nline3\n")?;
+
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff3");
+        cmd.arg("-3");
+        cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
+        cmd.assert().code(predicate::eq(0)).success();
+
+        Ok(())
+    }
+
+    #[test]
+    fn diff3_merged_with_overlap_only() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+
+        // Create files where all three differ (overlapping conflict)
+        let mine_path = tmp_dir.path().join("mine");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(b"line1\nversion_a\nline3\n")?;
+
+        let older_path = tmp_dir.path().join("older");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(b"line1\noriginal\nline3\n")?;
+
+        let yours_path = tmp_dir.path().join("yours");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(b"line1\nversion_b\nline3\n")?;
+
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff3");
+        cmd.arg("-m");
+        cmd.arg("-X");
+        cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
+        // -X with -m outputs resolved content (yours) and returns 0 like ed scripts
+        cmd.assert().code(predicate::eq(0)).success();
+
+        Ok(())
+    }
+
+    #[test]
+    fn diff3_ed_with_compat_i_flag() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+
+        let mine_path = tmp_dir.path().join("mine");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(b"line1\noriginal\nline3\n")?;
+
+        let older_path = tmp_dir.path().join("older");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(b"line1\noriginal\nline3\n")?;
+
+        let yours_path = tmp_dir.path().join("yours");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(b"line1\nmodified\nline3\n")?;
+
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff3");
+        cmd.arg("-e");
+        cmd.arg("-i");
+        cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
+        cmd.assert()
+            .code(predicate::eq(0))
+            .success()
+            .stdout(predicate::str::contains("w").or(predicate::str::contains("q")));
+
+        Ok(())
+    }
+
+    #[test]
+    fn diff3_ed_without_compat_i_flag() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+
+        let mine_path = tmp_dir.path().join("mine");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(b"line1\noriginal\nline3\n")?;
+
+        let older_path = tmp_dir.path().join("older");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(b"line1\noriginal\nline3\n")?;
+
+        let yours_path = tmp_dir.path().join("yours");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(b"line1\nmodified\nline3\n")?;
+
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff3");
+        cmd.arg("-e");
+        cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
+        cmd.assert().code(predicate::eq(0)).success();
+
+        Ok(())
+    }
+
+    #[test]
+    fn diff3_ed_compat_i_with_conflict() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+
+        let mine_path = tmp_dir.path().join("mine");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(b"line1\nmine_version\nline3\n")?;
+
+        let older_path = tmp_dir.path().join("older");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(b"line1\noriginal\nline3\n")?;
+
+        let yours_path = tmp_dir.path().join("yours");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(b"line1\nyours_version\nline3\n")?;
+
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff3");
+        cmd.arg("-e");
+        cmd.arg("-i");
+        cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
+        // -e mode auto-resolves conflicts by choosing "yours", so exit code is 0
+        // The -i flag adds w and q commands for ed compatibility
+        cmd.assert().code(predicate::eq(0)).success();
+
+        Ok(())
+    }
+
+    #[test]
+    fn diff3_identical_large_files() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+
+        // Create identical large files (10,000 lines each)
+        let mut large_content = String::new();
+        for i in 0..10000 {
+            large_content.push_str(&format!("line {}\n", i));
+        }
+        let content_bytes = large_content.as_bytes();
+
+        let mine_path = tmp_dir.path().join("mine");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(content_bytes)?;
+
+        let older_path = tmp_dir.path().join("older");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(content_bytes)?;
+
+        let yours_path = tmp_dir.path().join("yours");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(content_bytes)?;
+
+        // With identical files, output should be empty
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff3");
+        cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
+        cmd.assert().code(0).stdout("");
+
+        Ok(())
+    }
+
+    #[test]
+    fn diff3_large_file_with_single_line_change() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+
+        // Create large file with single change in both mine and yours differently
+        let mut older_content = String::new();
+        let mut mine_content = String::new();
+        let mut yours_content = String::new();
+        for i in 0..10000 {
+            let line = format!("line {}\n", i);
+            older_content.push_str(&line);
+
+            if i == 5000 {
+                mine_content.push_str("line 5000 MINE\n");
+                yours_content.push_str("line 5000 YOURS\n");
+            } else {
+                mine_content.push_str(&line);
+                yours_content.push_str(&line);
+            }
+        }
+
+        let mine_path = tmp_dir.path().join("mine");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(mine_content.as_bytes())?;
+
+        let older_path = tmp_dir.path().join("older");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(older_content.as_bytes())?;
+
+        let yours_path = tmp_dir.path().join("yours");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(yours_content.as_bytes())?;
+
+        // Should detect the conflict in line 5000
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff3");
+        cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
+        // Normal format returns 0 even with conflicts (GNU behavior)
+        cmd.assert().code(0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn diff3_large_file_merged_format() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+
+        // Create large files with changes in different sections
+        let mut mine_content = String::new();
+        let mut older_content = String::new();
+        let mut yours_content = String::new();
+
+        for i in 0..5000 {
+            let line = format!("line {}\n", i);
+            older_content.push_str(&line);
+
+            if i < 2500 {
+                mine_content.push_str(&line);
+                yours_content.push_str(&line);
+            } else if i < 3750 {
+                mine_content.push_str(&format!("mine {}\n", i));
+                yours_content.push_str(&line);
+            } else {
+                mine_content.push_str(&line);
+                yours_content.push_str(&format!("yours {}\n", i));
+            }
+        }
+
+        let mine_path = tmp_dir.path().join("mine");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(mine_content.as_bytes())?;
+
+        let older_path = tmp_dir.path().join("older");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(older_content.as_bytes())?;
+
+        let yours_path = tmp_dir.path().join("yours");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(yours_content.as_bytes())?;
+
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff3");
+        cmd.arg("-m");
+        cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
+        // Should produce merged output with some conflicts
+        cmd.assert().code(1);
+
+        Ok(())
+    }
+
+    #[test]
+    fn diff3_binary_files_with_null_bytes() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+
+        // Create binary files with null bytes (like image files)
+        let mine_path = tmp_dir.path().join("mine.bin");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(b"GIF89a\x00\x10\x00\x10\xFF\xFF\xFF")?;
+
+        let older_path = tmp_dir.path().join("older.bin");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(b"GIF89a\x00\x10\x00\x10\xFF\xFF\xFF")?;
+
+        let yours_path = tmp_dir.path().join("yours.bin");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(b"PNG\x89\x50\x4E\x47\x0D\x0A\x1A\x0A")?;
+
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff3");
+        cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
+        // Binary files should be detected and reported as different
+        cmd.assert().code(1);
+
+        Ok(())
+    }
+
+    #[test]
+    fn diff3_identical_binary_files() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+
+        let content = b"GIF89a\x00\x10\x00\x10\xFF\xFF\xFF";
+
+        let mine_path = tmp_dir.path().join("mine.bin");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(content)?;
+
+        let older_path = tmp_dir.path().join("older.bin");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(content)?;
+
+        let yours_path = tmp_dir.path().join("yours.bin");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(content)?;
+
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff3");
+        cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
+        // Identical binary files should produce no output
+        cmd.assert().code(0).stdout("");
+
+        Ok(())
+    }
+
+    #[test]
+    fn diff3_binary_files_with_text_flag() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+
+        // Create files with null bytes but use --text to force text processing
+        let mine_path = tmp_dir.path().join("mine");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(b"line1\x00\nline2\n")?;
+
+        let older_path = tmp_dir.path().join("older");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(b"line1\x00\nline2\n")?;
+
+        let yours_path = tmp_dir.path().join("yours");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(b"line1\x00\nline3\n")?;
+
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff3");
+        cmd.arg("-a"); // --text flag to force text mode
+        cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
+        // With --text flag, should process as text despite null byte
+        // The output should show differences but not report as "Binary files differ"
+        let output = cmd.output()?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        // Should not contain "Binary files differ" message
+        assert!(
+            !stdout.contains("Binary files differ"),
+            "Should not report binary when --text flag is used"
+        );
+        // Should have changes detected (exit code 0 or 1 depending on conflicts)
+        assert!(
+            output.status.code() == Some(0) || output.status.code() == Some(1),
+            "Exit code should indicate success or conflicts"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn diff3_strip_trailing_cr() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+
+        // Create files with CRLF line endings
+        let mine_path = tmp_dir.path().join("mine");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(b"line1\r\nline2\r\nline3\r\n")?;
+
+        let older_path = tmp_dir.path().join("older");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(b"line1\r\nline2\r\nline3\r\n")?;
+
+        let yours_path = tmp_dir.path().join("yours");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(b"line1\r\nline2\r\nline3\r\n")?;
+
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff3");
+        cmd.arg("--strip-trailing-cr");
+        cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
+        cmd.assert()
+            .code(predicate::eq(0))
+            .success()
+            .stdout(predicate::eq(""));
+
+        Ok(())
+    }
+
+    #[test]
+    fn diff3_strip_trailing_cr_mixed_endings() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+
+        // Mine has CRLF, others have LF - should be identical with --strip-trailing-cr
+        let mine_path = tmp_dir.path().join("mine");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(b"line1\r\nline2\r\nline3\r\n")?;
+
+        let older_path = tmp_dir.path().join("older");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(b"line1\nline2\nline3\n")?;
+
+        let yours_path = tmp_dir.path().join("yours");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(b"line1\nline2\nline3\n")?;
+
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff3");
+        cmd.arg("--strip-trailing-cr");
+        cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
+        cmd.assert()
+            .code(predicate::eq(0))
+            .success()
+            .stdout(predicate::eq(""));
+
+        Ok(())
+    }
+
+    #[test]
+    fn diff3_without_strip_trailing_cr_shows_differences() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let tmp_dir = tempdir()?;
+
+        // Mine has CRLF, others have LF - should show differences without --strip-trailing-cr
+        let mine_path = tmp_dir.path().join("mine");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(b"line1\r\nline2\r\nline3\r\n")?;
+
+        let older_path = tmp_dir.path().join("older");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(b"line1\nline2\nline3\n")?;
+
+        let yours_path = tmp_dir.path().join("yours");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(b"line1\nline2\nline3\n")?;
+
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff3");
+        cmd.arg(&mine_path).arg(&older_path).arg(&yours_path);
+
+        let output = cmd.output()?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        // Without --strip-trailing-cr, files with different line endings should be detected as different
+        // Exit code should be 1 (conflicts/differences) or output should show changes
+        assert!(
+            output.status.code() == Some(1) || !stdout.is_empty(),
+            "Should detect differences when line endings differ without --strip-trailing-cr"
+        );
+
+        Ok(())
+    }
+
+    // ============================================================================
+    // GNU diff3 Compatibility Tests
+    // These tests compare our implementation directly against GNU diff3
+    // ============================================================================
+
+    /// Check if the system has GNU diff3 (as opposed to BSD diff3)
+    fn is_gnu_diff3() -> bool {
+        std::process::Command::new("diff3")
+            .arg("--version")
+            .output()
+            .map(|output| String::from_utf8_lossy(&output.stdout).contains("GNU"))
+            .unwrap_or(false)
+    }
+
+    /// Helper function to run GNU diff3 if available, otherwise skip test
+    fn run_gnu_diff3(
+        mine: &std::path::Path,
+        older: &std::path::Path,
+        yours: &std::path::Path,
+        args: &[&str],
+    ) -> Option<std::process::Output> {
+        let mut cmd = std::process::Command::new("diff3");
+        for arg in args {
+            cmd.arg(arg);
+        }
+        cmd.arg(mine).arg(older).arg(yours);
+        cmd.output().ok()
+    }
+
+    /// Helper function to run our diff3 implementation
+    fn run_our_diff3(
+        mine: &std::path::Path,
+        older: &std::path::Path,
+        yours: &std::path::Path,
+        args: &[&str],
+    ) -> std::process::Output {
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff3");
+        for arg in args {
+            cmd.arg(arg);
+        }
+        cmd.arg(mine).arg(older).arg(yours);
+        cmd.output().unwrap()
+    }
+
+    #[test]
+    fn gnu_compat_identical_files() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+
+        let mine_path = tmp_dir.path().join("mine");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(b"line1\nline2\nline3\n")?;
+
+        let older_path = tmp_dir.path().join("older");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(b"line1\nline2\nline3\n")?;
+
+        let yours_path = tmp_dir.path().join("yours");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(b"line1\nline2\nline3\n")?;
+
+        let gnu_output = run_gnu_diff3(&mine_path, &older_path, &yours_path, &[]);
+        if gnu_output.is_none() {
+            eprintln!("Skipping test: GNU diff3 not available");
+            return Ok(());
+        }
+        let gnu = gnu_output.unwrap();
+        let our = run_our_diff3(&mine_path, &older_path, &yours_path, &[]);
+
+        assert_eq!(
+            gnu.status.code(),
+            our.status.code(),
+            "Exit codes should match"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&gnu.stdout),
+            String::from_utf8_lossy(&our.stdout),
+            "Output should match"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn gnu_compat_simple_conflict() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+
+        let mine_path = tmp_dir.path().join("mine");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(b"line1\nmine_version\nline3\n")?;
+
+        let older_path = tmp_dir.path().join("older");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(b"line1\noriginal\nline3\n")?;
+
+        let yours_path = tmp_dir.path().join("yours");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(b"line1\nyours_version\nline3\n")?;
+
+        let gnu_output = run_gnu_diff3(&mine_path, &older_path, &yours_path, &[]);
+        if gnu_output.is_none() {
+            eprintln!("Skipping test: GNU diff3 not available");
+            return Ok(());
+        }
+        let gnu = gnu_output.unwrap();
+        let our = run_our_diff3(&mine_path, &older_path, &yours_path, &[]);
+
+        assert_eq!(
+            gnu.status.code(),
+            our.status.code(),
+            "Exit codes should match for simple conflict"
+        );
+        // Compare outputs - they should be identical
+        let gnu_stdout = String::from_utf8_lossy(&gnu.stdout);
+        let our_stdout = String::from_utf8_lossy(&our.stdout);
+        assert_eq!(gnu_stdout, our_stdout, "Normal format output should match");
+
+        Ok(())
+    }
+
+    #[test]
+    fn gnu_compat_merged_format() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+
+        let mine_path = tmp_dir.path().join("mine");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(b"line1\nmine_version\nline3\n")?;
+
+        let older_path = tmp_dir.path().join("older");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(b"line1\noriginal\nline3\n")?;
+
+        let yours_path = tmp_dir.path().join("yours");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(b"line1\nyours_version\nline3\n")?;
+
+        let gnu_output = run_gnu_diff3(&mine_path, &older_path, &yours_path, &["-m"]);
+        if gnu_output.is_none() {
+            eprintln!("Skipping test: GNU diff3 not available");
+            return Ok(());
+        }
+        let gnu = gnu_output.unwrap();
+        let our = run_our_diff3(&mine_path, &older_path, &yours_path, &["-m"]);
+
+        assert_eq!(
+            gnu.status.code(),
+            our.status.code(),
+            "Exit codes should match for merged format"
+        );
+
+        // Merged format output should match
+        let gnu_stdout = String::from_utf8_lossy(&gnu.stdout);
+        let our_stdout = String::from_utf8_lossy(&our.stdout);
+        assert_eq!(gnu_stdout, our_stdout, "Merged format output should match");
+
+        Ok(())
+    }
+
+    #[test]
+    fn gnu_compat_ed_format() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+
+        let mine_path = tmp_dir.path().join("mine");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(b"line1\noriginal\nline3\n")?;
+
+        let older_path = tmp_dir.path().join("older");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(b"line1\noriginal\nline3\n")?;
+
+        let yours_path = tmp_dir.path().join("yours");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(b"line1\nmodified\nline3\n")?;
+
+        let gnu_output = run_gnu_diff3(&mine_path, &older_path, &yours_path, &["-e"]);
+        if gnu_output.is_none() {
+            eprintln!("Skipping test: GNU diff3 not available");
+            return Ok(());
+        }
+        let gnu = gnu_output.unwrap();
+        let our = run_our_diff3(&mine_path, &older_path, &yours_path, &["-e"]);
+
+        assert_eq!(
+            gnu.status.code(),
+            our.status.code(),
+            "Exit codes should match for ed format"
+        );
+
+        // Ed format output should match
+        let gnu_stdout = String::from_utf8_lossy(&gnu.stdout);
+        let our_stdout = String::from_utf8_lossy(&our.stdout);
+        assert_eq!(gnu_stdout, our_stdout, "Ed format output should match");
+
+        Ok(())
+    }
+
+    #[test]
+    fn gnu_compat_ed_with_overlap() -> Result<(), Box<dyn std::error::Error>> {
+        // BSD diff3 (default on macOS) has different exit code behavior than GNU diff3
+        // for the -E flag. BSD diff3 returns 0 even with overlapping conflicts,
+        // while GNU diff3 returns 1. Since this project aims for GNU compatibility,
+        // we skip this test on systems with BSD diff3.
+        if !is_gnu_diff3() {
+            eprintln!("Skipping test: GNU diff3 not available (BSD diff3 detected)");
+            return Ok(());
+        }
+
+        let tmp_dir = tempdir()?;
+
+        let mine_path = tmp_dir.path().join("mine");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(b"line1\nmine_version\nline3\n")?;
+
+        let older_path = tmp_dir.path().join("older");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(b"line1\noriginal\nline3\n")?;
+
+        let yours_path = tmp_dir.path().join("yours");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(b"line1\nyours_version\nline3\n")?;
+
+        let gnu_output = run_gnu_diff3(&mine_path, &older_path, &yours_path, &["-E"]);
+        if gnu_output.is_none() {
+            eprintln!("Skipping test: GNU diff3 not available");
+            return Ok(());
+        }
+        let gnu = gnu_output.unwrap();
+        let our = run_our_diff3(&mine_path, &older_path, &yours_path, &["-E"]);
+
+        assert_eq!(
+            gnu.status.code(),
+            our.status.code(),
+            "Exit codes should match for -E format"
+        );
+
+        // -E format output should match
+        let gnu_stdout = String::from_utf8_lossy(&gnu.stdout);
+        let our_stdout = String::from_utf8_lossy(&our.stdout);
+        assert_eq!(gnu_stdout, our_stdout, "-E format output should match");
+
+        Ok(())
+    }
+
+    #[test]
+    fn gnu_compat_easy_only() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+
+        let mine_path = tmp_dir.path().join("mine");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(b"line1\nmodified\nline3\n")?;
+
+        let older_path = tmp_dir.path().join("older");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(b"line1\noriginal\nline3\n")?;
+
+        let yours_path = tmp_dir.path().join("yours");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(b"line1\noriginal\nline3\n")?;
+
+        let gnu_output = run_gnu_diff3(&mine_path, &older_path, &yours_path, &["-3"]);
+        if gnu_output.is_none() {
+            eprintln!("Skipping test: GNU diff3 not available");
+            return Ok(());
+        }
+        let gnu = gnu_output.unwrap();
+        let our = run_our_diff3(&mine_path, &older_path, &yours_path, &["-3"]);
+
+        assert_eq!(
+            gnu.status.code(),
+            our.status.code(),
+            "Exit codes should match for -3 (easy only)"
+        );
+
+        let gnu_stdout = String::from_utf8_lossy(&gnu.stdout);
+        let our_stdout = String::from_utf8_lossy(&our.stdout);
+        assert_eq!(gnu_stdout, our_stdout, "-3 format output should match");
+
+        Ok(())
+    }
+
+    #[test]
+    fn gnu_compat_overlap_only() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+
+        let mine_path = tmp_dir.path().join("mine");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(b"line1\nmine_version\nline3\n")?;
+
+        let older_path = tmp_dir.path().join("older");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(b"line1\noriginal\nline3\n")?;
+
+        let yours_path = tmp_dir.path().join("yours");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(b"line1\nyours_version\nline3\n")?;
+
+        let gnu_output = run_gnu_diff3(&mine_path, &older_path, &yours_path, &["-x"]);
+        if gnu_output.is_none() {
+            eprintln!("Skipping test: GNU diff3 not available");
+            return Ok(());
+        }
+        let gnu = gnu_output.unwrap();
+        let our = run_our_diff3(&mine_path, &older_path, &yours_path, &["-x"]);
+
+        assert_eq!(
+            gnu.status.code(),
+            our.status.code(),
+            "Exit codes should match for -x (overlap only)"
+        );
+
+        let gnu_stdout = String::from_utf8_lossy(&gnu.stdout);
+        let our_stdout = String::from_utf8_lossy(&our.stdout);
+        assert_eq!(gnu_stdout, our_stdout, "-x format output should match");
+
+        Ok(())
+    }
+
+    #[test]
+    fn gnu_compat_with_labels() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+
+        let mine_path = tmp_dir.path().join("mine");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(b"line1\nmine_version\nline3\n")?;
+
+        let older_path = tmp_dir.path().join("older");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(b"line1\noriginal\nline3\n")?;
+
+        let yours_path = tmp_dir.path().join("yours");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(b"line1\nyours_version\nline3\n")?;
+
+        let gnu_output = run_gnu_diff3(
+            &mine_path,
+            &older_path,
+            &yours_path,
+            &["-m", "--label=MINE", "--label=OLDER", "--label=YOURS"],
+        );
+        if gnu_output.is_none() {
+            eprintln!("Skipping test: GNU diff3 not available");
+            return Ok(());
+        }
+        let gnu = gnu_output.unwrap();
+        let our = run_our_diff3(
+            &mine_path,
+            &older_path,
+            &yours_path,
+            &["-m", "--label=MINE", "--label=OLDER", "--label=YOURS"],
+        );
+
+        assert_eq!(
+            gnu.status.code(),
+            our.status.code(),
+            "Exit codes should match with labels"
+        );
+
+        let gnu_stdout = String::from_utf8_lossy(&gnu.stdout);
+        let our_stdout = String::from_utf8_lossy(&our.stdout);
+
+        // Both should contain the custom labels
+        assert!(gnu_stdout.contains("MINE"));
+        assert!(our_stdout.contains("MINE"));
+        assert_eq!(gnu_stdout, our_stdout, "Output with labels should match");
+
+        Ok(())
+    }
+
+    #[test]
+    fn gnu_compat_initial_tab() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+
+        let mine_path = tmp_dir.path().join("mine");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(b"line1\nmine_version\nline3\n")?;
+
+        let older_path = tmp_dir.path().join("older");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(b"line1\noriginal\nline3\n")?;
+
+        let yours_path = tmp_dir.path().join("yours");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(b"line1\noriginal\nline3\n")?;
+
+        let gnu_output = run_gnu_diff3(&mine_path, &older_path, &yours_path, &["-T"]);
+        if gnu_output.is_none() {
+            eprintln!("Skipping test: GNU diff3 not available");
+            return Ok(());
+        }
+        let gnu = gnu_output.unwrap();
+        let our = run_our_diff3(&mine_path, &older_path, &yours_path, &["-T"]);
+
+        assert_eq!(
+            gnu.status.code(),
+            our.status.code(),
+            "Exit codes should match with -T"
+        );
+
+        let gnu_stdout = String::from_utf8_lossy(&gnu.stdout);
+        let our_stdout = String::from_utf8_lossy(&our.stdout);
+        assert_eq!(
+            gnu_stdout, our_stdout,
+            "Output with initial tab should match"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn gnu_compat_ed_with_compat_i() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+
+        let mine_path = tmp_dir.path().join("mine");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(b"line1\noriginal\nline3\n")?;
+
+        let older_path = tmp_dir.path().join("older");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(b"line1\noriginal\nline3\n")?;
+
+        let yours_path = tmp_dir.path().join("yours");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(b"line1\nmodified\nline3\n")?;
+
+        let gnu_output = run_gnu_diff3(&mine_path, &older_path, &yours_path, &["-e", "-i"]);
+        if gnu_output.is_none() {
+            eprintln!("Skipping test: GNU diff3 not available");
+            return Ok(());
+        }
+        let gnu = gnu_output.unwrap();
+        let our = run_our_diff3(&mine_path, &older_path, &yours_path, &["-e", "-i"]);
+
+        assert_eq!(
+            gnu.status.code(),
+            our.status.code(),
+            "Exit codes should match for -e -i"
+        );
+
+        let gnu_stdout = String::from_utf8_lossy(&gnu.stdout);
+        let our_stdout = String::from_utf8_lossy(&our.stdout);
+
+        // Both should end with w and q commands
+        assert!(gnu_stdout.contains("w\n"));
+        assert!(our_stdout.contains("w\n"));
+        assert_eq!(gnu_stdout, our_stdout, "Ed -i output should match");
+
+        Ok(())
+    }
+
+    #[test]
+    fn gnu_compat_multiple_conflicts() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+
+        let mine_path = tmp_dir.path().join("mine");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(b"line1\nmine2\nline3\nmine4\nline5\n")?;
+
+        let older_path = tmp_dir.path().join("older");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(b"line1\nold2\nline3\nold4\nline5\n")?;
+
+        let yours_path = tmp_dir.path().join("yours");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(b"line1\nyours2\nline3\nyours4\nline5\n")?;
+
+        let gnu_output = run_gnu_diff3(&mine_path, &older_path, &yours_path, &[]);
+        if gnu_output.is_none() {
+            eprintln!("Skipping test: GNU diff3 not available");
+            return Ok(());
+        }
+        let gnu = gnu_output.unwrap();
+        let our = run_our_diff3(&mine_path, &older_path, &yours_path, &[]);
+
+        assert_eq!(
+            gnu.status.code(),
+            our.status.code(),
+            "Exit codes should match for multiple conflicts"
+        );
+
+        let gnu_stdout = String::from_utf8_lossy(&gnu.stdout);
+        let our_stdout = String::from_utf8_lossy(&our.stdout);
+        assert_eq!(
+            gnu_stdout, our_stdout,
+            "Output with multiple conflicts should match"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn gnu_compat_empty_files() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+
+        let mine_path = tmp_dir.path().join("mine");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(b"")?;
+
+        let older_path = tmp_dir.path().join("older");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(b"")?;
+
+        let yours_path = tmp_dir.path().join("yours");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(b"")?;
+
+        let gnu_output = run_gnu_diff3(&mine_path, &older_path, &yours_path, &[]);
+        if gnu_output.is_none() {
+            eprintln!("Skipping test: GNU diff3 not available");
+            return Ok(());
+        }
+        let gnu = gnu_output.unwrap();
+        let our = run_our_diff3(&mine_path, &older_path, &yours_path, &[]);
+
+        assert_eq!(
+            gnu.status.code(),
+            our.status.code(),
+            "Exit codes should match for empty files"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&gnu.stdout),
+            String::from_utf8_lossy(&our.stdout),
+            "Output for empty files should match"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn gnu_compat_no_trailing_newline() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+
+        let mine_path = tmp_dir.path().join("mine");
+        let mut mine_file = File::create(&mine_path)?;
+        mine_file.write_all(b"line1\nline2\nline3")?; // No trailing newline
+
+        let older_path = tmp_dir.path().join("older");
+        let mut older_file = File::create(&older_path)?;
+        older_file.write_all(b"line1\nline2\nline3")?;
+
+        let yours_path = tmp_dir.path().join("yours");
+        let mut yours_file = File::create(&yours_path)?;
+        yours_file.write_all(b"line1\nline2\nline3")?;
+
+        let gnu_output = run_gnu_diff3(&mine_path, &older_path, &yours_path, &[]);
+        if gnu_output.is_none() {
+            eprintln!("Skipping test: GNU diff3 not available");
+            return Ok(());
+        }
+        let gnu = gnu_output.unwrap();
+        let our = run_our_diff3(&mine_path, &older_path, &yours_path, &[]);
+
+        assert_eq!(
+            gnu.status.code(),
+            our.status.code(),
+            "Exit codes should match for files without trailing newline"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&gnu.stdout),
+            String::from_utf8_lossy(&our.stdout),
+            "Output should match for files without trailing newline"
+        );
+
+        Ok(())
+    }
+}
