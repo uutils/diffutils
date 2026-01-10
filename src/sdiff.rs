@@ -52,7 +52,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
     let tabsize_re = Regex::new(r"^--tabsize=(?<num>\d+)$").unwrap();
     let width_re = Regex::new(r"--width=(?P<long>\d+)$").unwrap();
 
-    while let Some(param) = opts.next() {
+    for param in opts.by_ref() {
         if param == "-" {
             if from.is_none() {
                 from = Some(param);
@@ -135,7 +135,10 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
     } else if let Some(param) = opts.next() {
         param
     } else {
-        return Err(format!("Err"));
+        return Err(format!(
+            "Usage: {} <from> <to>",
+            params.executable.to_string_lossy()
+        ));
     };
 
     params.to = if let Some(to) = to {
@@ -143,7 +146,10 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
     } else if let Some(param) = opts.next() {
         param
     } else {
-        return Err(format!("Err"));
+        return Err(format!(
+            "Usage: {} <from> <to>",
+            params.executable.to_string_lossy()
+        ));
     };
 
     Ok(params)
