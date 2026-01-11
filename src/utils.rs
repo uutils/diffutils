@@ -153,6 +153,52 @@ mod tests {
         }
     }
 
+    mod read_file {
+        use super::*;
+        use tempfile::NamedTempFile;
+
+        #[test]
+        fn read_two_valid_files() {
+            let content1 = "content-1";
+            let content2 = "content-2";
+
+            let mut from_file = NamedTempFile::new().unwrap();
+            let mut to_file = NamedTempFile::new().unwrap();
+
+            from_file.write_all(content1.as_bytes()).unwrap();
+            to_file.write_all(content2.as_bytes()).unwrap();
+
+            let from_path = OsString::from(from_file.path());
+            let to_path = OsString::from(to_file.path());
+
+            let res = read_both_files(&from_path, &to_path);
+
+            assert!(res.is_ok());
+            let (from_content, to_content) = res.unwrap();
+            assert_eq!(from_content, content1.as_bytes());
+            assert_eq!(to_content, content2.as_bytes());
+        }
+
+        #[test]
+        fn read_not_exist_file() {
+            let mut file = NamedTempFile::new().unwrap();
+            file.write_all(b"valid-file").unwrap();
+            let exist_file_path = OsString::from(file.path());
+
+            let non_exist_file_path = OsString::from("non-exist-file");
+
+            let res = read_both_files(&non_exist_file_path, &exist_file_path);
+            assert!(res.is_err());
+            let (err_path, _) = res.unwrap_err();
+            assert_eq!(err_path, non_exist_file_path);
+
+            let res = read_both_files(&exist_file_path, &non_exist_file_path);
+            assert!(res.is_err());
+            let (err_path, _) = res.unwrap_err();
+            assert_eq!(err_path, non_exist_file_path);
+        }
+    }
+
     mod write_line {
         use super::*;
         use pretty_assertions::assert_eq;
