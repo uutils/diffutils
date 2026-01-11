@@ -2,11 +2,10 @@
 #[macro_use]
 extern crate libfuzzer_sys;
 
-use diffutilslib::side_diff;
+use diffutilslib::side_diff::{self, Params};
 
 use std::fs::File;
 use std::io::Write;
-use diffutilslib::params::Params;
 
 fuzz_target!(|x: (Vec<u8>, Vec<u8>, /* usize, usize */ bool)| {
     let (original, new, /* width, tabsize, */ expand) = x;
@@ -22,7 +21,16 @@ fuzz_target!(|x: (Vec<u8>, Vec<u8>, /* usize, usize */ bool)| {
         ..Default::default()
     };
     let mut output_buf = vec![];
-    side_diff::diff(&original, &new, &mut output_buf, &params);
+    side_diff::diff(
+        &original,
+        &new,
+        &mut output_buf,
+        &Params {
+            width: params.width,
+            tabsize: params.tabsize,
+            expand_tabs: params.expand_tabs,
+        },
+    );
     File::create("target/fuzz.file.original")
         .unwrap()
         .write_all(&original)
@@ -40,3 +48,4 @@ fuzz_target!(|x: (Vec<u8>, Vec<u8>, /* usize, usize */ bool)| {
         .write_all(&output_buf)
         .unwrap();
 });
+
