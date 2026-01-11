@@ -222,6 +222,129 @@ mod tests {
                     .cloned()
                     .peekable()
             )
+        );
+
+        assert_eq!(
+            Ok(Params {
+                executable: os("sdiff"),
+                from: os("foo"),
+                to: os("bar"),
+                ..Default::default()
+            }),
+            parse_params(
+                [os("sdiff"), os("foo"), os("bar")]
+                    .iter()
+                    .cloned()
+                    .peekable()
+            )
+        );
+        for option in ["-t", "--expand-tabs"] {
+            assert_eq!(
+                Ok(Params {
+                    executable: os("sdiff"),
+                    from: os("foo"),
+                    to: os("bar"),
+                    expand_tabs: true,
+                    ..Default::default()
+                }),
+                parse_params(
+                    [os("sdiff"), os(option), os("foo"), os("bar")]
+                        .iter()
+                        .cloned()
+                        .peekable()
+                )
+            );
+        }
+        assert_eq!(
+            Ok(Params {
+                executable: os("sdiff"),
+                from: os("foo"),
+                to: os("bar"),
+                ..Default::default()
+            }),
+            parse_params(
+                [os("sdiff"), os("foo"), os("bar")]
+                    .iter()
+                    .cloned()
+                    .peekable()
+            )
+        );
+        assert_eq!(
+            Ok(Params {
+                executable: os("sdiff"),
+                from: os("foo"),
+                to: os("bar"),
+                tabsize: 1,
+                ..Default::default()
+            }),
+            parse_params(
+                [os("sdiff"), os("--tabsize=1"), os("foo"), os("bar")]
+                    .iter()
+                    .cloned()
+                    .peekable()
+            )
+        );
+        assert_eq!(
+            Ok(Params {
+                executable: os("sdiff"),
+                from: os("foo"),
+                to: os("bar"),
+                tabsize: 42,
+                ..Default::default()
+            }),
+            parse_params(
+                [os("sdiff"), os("--tabsize=42"), os("foo"), os("bar")]
+                    .iter()
+                    .cloned()
+                    .peekable()
+            )
+        );
+        assert!(parse_params(
+            [os("sdiff"), os("--tabsize"), os("foo"), os("bar")]
+                .iter()
+                .cloned()
+                .peekable()
         )
+        .is_err());
+        assert!(parse_params(
+            [os("sdiff"), os("--tabsize="), os("foo"), os("bar")]
+                .iter()
+                .cloned()
+                .peekable()
+        )
+        .is_err());
+        assert!(parse_params(
+            [os("sdiff"), os("--tabsize=r2"), os("foo"), os("bar")]
+                .iter()
+                .cloned()
+                .peekable()
+        )
+        .is_err());
+        assert!(parse_params(
+            [os("sdiff"), os("--tabsize=-1"), os("foo"), os("bar")]
+                .iter()
+                .cloned()
+                .peekable()
+        )
+        .is_err());
+        assert!(parse_params(
+            [os("sdiff"), os("--tabsize=r2"), os("foo"), os("bar")]
+                .iter()
+                .cloned()
+                .peekable()
+        )
+        .is_err());
+        assert!(parse_params(
+            [
+                os("sdiff"),
+                os("--tabsize=92233720368547758088"),
+                os("foo"),
+                os("bar")
+            ]
+            .iter()
+            .cloned()
+            .peekable()
+        )
+        .is_err());
     }
 }
