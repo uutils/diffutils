@@ -5,7 +5,6 @@
 
 use regex::Regex;
 
-// use crate::params::parse_params;
 use crate::side_diff;
 use crate::utils;
 use std::env::ArgsOs;
@@ -227,17 +226,21 @@ mod tests {
         assert_eq!(
             Ok(Params {
                 executable: os("sdiff"),
-                from: os("foo"),
-                to: os("bar"),
+                from: os("-"),
+                to: os("-"),
                 ..Default::default()
             }),
-            parse_params(
-                [os("sdiff"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
+            parse_params([os("sdiff"), os("-"), os("-")].iter().cloned().peekable())
         );
+
+        assert!(parse_params(
+            [os("sdiff"), os("foo"), os("bar"), os("-"), os("-")]
+                .iter()
+                .cloned()
+                .peekable()
+        )
+        .is_err());
+
         for option in ["-t", "--expand-tabs"] {
             assert_eq!(
                 Ok(Params {
@@ -255,6 +258,39 @@ mod tests {
                 )
             );
         }
+
+        assert_eq!(
+            Ok(Params {
+                executable: os("sdiff"),
+                from: os("foo"),
+                to: os("bar"),
+                width: 10,
+                ..Default::default()
+            }),
+            parse_params(
+                [os("sdiff"), os("--width=10"), os("foo"), os("bar")]
+                    .iter()
+                    .cloned()
+                    .peekable()
+            )
+        );
+
+        assert!(parse_params(
+            [os("sdiff"), os("--width=0"), os("foo"), os("bar")]
+                .iter()
+                .cloned()
+                .peekable()
+        )
+        .is_err());
+
+        assert!(parse_params(
+            [os("sdiff"), os("--width=.1"), os("foo"), os("bar")]
+                .iter()
+                .cloned()
+                .peekable()
+        )
+        .is_err());
+
         assert_eq!(
             Ok(Params {
                 executable: os("sdiff"),
@@ -269,6 +305,7 @@ mod tests {
                     .peekable()
             )
         );
+
         assert_eq!(
             Ok(Params {
                 executable: os("sdiff"),
@@ -284,6 +321,15 @@ mod tests {
                     .peekable()
             )
         );
+
+        assert!(parse_params(
+            [os("sdiff"), os("--tabsize=0"), os("foo"), os("bar")]
+                .iter()
+                .cloned()
+                .peekable()
+        )
+        .is_err());
+
         assert_eq!(
             Ok(Params {
                 executable: os("sdiff"),
@@ -299,6 +345,9 @@ mod tests {
                     .peekable()
             )
         );
+
+        assert!(parse_params([os("sdiff")].iter().cloned().peekable()).is_err());
+
         assert!(parse_params(
             [os("sdiff"), os("--tabsize"), os("foo"), os("bar")]
                 .iter()
@@ -306,6 +355,7 @@ mod tests {
                 .peekable()
         )
         .is_err());
+
         assert!(parse_params(
             [os("sdiff"), os("--tabsize="), os("foo"), os("bar")]
                 .iter()
@@ -313,6 +363,7 @@ mod tests {
                 .peekable()
         )
         .is_err());
+
         assert!(parse_params(
             [os("sdiff"), os("--tabsize=r2"), os("foo"), os("bar")]
                 .iter()
@@ -320,6 +371,7 @@ mod tests {
                 .peekable()
         )
         .is_err());
+
         assert!(parse_params(
             [os("sdiff"), os("--tabsize=-1"), os("foo"), os("bar")]
                 .iter()
@@ -327,6 +379,7 @@ mod tests {
                 .peekable()
         )
         .is_err());
+
         assert!(parse_params(
             [os("sdiff"), os("--tabsize=r2"), os("foo"), os("bar")]
                 .iter()
@@ -334,6 +387,7 @@ mod tests {
                 .peekable()
         )
         .is_err());
+
         assert!(parse_params(
             [
                 os("sdiff"),
