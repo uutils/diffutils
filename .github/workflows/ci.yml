@@ -62,12 +62,16 @@ jobs:
       - run: cargo clippy -- -D warnings
 
   gnu-testsuite:
+    permissions:
+      contents: write # Publish diffutils instead of discarding
     name: GNU test suite
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo build --release
+      - run: |
+          cargo build --config=profile.release.strip=true --profile=release #-fast
+          zstd -19 target/release/diffutils -o diffutils-x86_64-unknown-linux-gnu.zst
       # do not fail, the report is merely informative (at least until all tests pass reliably)
       - run: ./tests/run-upstream-testsuite.sh release || true
         env:
@@ -77,6 +81,17 @@ jobs:
           name: test-results.json
           path: tests/test-results.json
       - run: ./tests/print-test-results.sh tests/test-results.json
+      - name: Publish latest commit
+        uses: softprops/action-gh-release@v2
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          tag_name: latest-commit
+          draft: false
+          prerelease: true
+          files: |
+            diffutils-x86_64-unknown-linux-gnu.zst
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   coverage:
     name: Code Coverage
