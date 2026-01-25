@@ -4,6 +4,7 @@ name: Basic CI
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
 
 jobs:
   check:
@@ -15,7 +16,6 @@ jobs:
         os: [ubuntu-latest, macOS-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
       - run: cargo check
 
   test:
@@ -27,7 +27,6 @@ jobs:
         os: [ubuntu-latest, macOS-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
       - name: install GNU patch on MacOS
         if: runner.os == 'macOS'
         run: |
@@ -44,8 +43,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: rustup component add rustfmt
       - run: cargo fmt --all -- --check
 
   clippy:
@@ -57,8 +54,6 @@ jobs:
         os: [ubuntu-latest, macOS-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: rustup component add clippy
       - run: cargo clippy -- -D warnings
 
   gnu-testsuite:
@@ -66,7 +61,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
       - run: cargo build --release
       # do not fail, the report is merely informative (at least until all tests pass reliably)
       - run: ./tests/run-upstream-testsuite.sh release || true
@@ -91,26 +85,19 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Initialize workflow variables
+      env:
+        # Use -Z
+        RUSTC_BOOTSTRAP: 1
       id: vars
       shell: bash
       run: |
         ## VARs setup
         outputs() { step_id="vars"; for var in "$@" ; do echo steps.${step_id}.outputs.${var}="${!var}"; echo "${var}=${!var}" >> $GITHUB_OUTPUT; done; }
-        # toolchain
-        TOOLCHAIN="nightly" ## default to "nightly" toolchain (required for certain required unstable compiler flags) ## !maint: refactor when stable channel has needed support
-        # * specify gnu-type TOOLCHAIN for windows; `grcov` requires gnu-style code coverage data files
-        case ${{ matrix.job.os }} in windows-*) TOOLCHAIN="$TOOLCHAIN-x86_64-pc-windows-gnu" ;; esac;
-        # * use requested TOOLCHAIN if specified
-        if [ -n "${{ matrix.job.toolchain }}" ]; then TOOLCHAIN="${{ matrix.job.toolchain }}" ; fi
-        outputs TOOLCHAIN
         # target-specific options
         # * CODECOV_FLAGS
         CODECOV_FLAGS=$( echo "${{ matrix.job.os }}" | sed 's/[^[:alnum:]]/_/g' )
         outputs CODECOV_FLAGS
 
-    - name: rust toolchain ~ install
-      uses: dtolnay/rust-toolchain@nightly
-    - run: rustup component add llvm-tools-preview
     - name: install GNU patch on MacOS
       if: runner.os == 'macOS'
       run: |
@@ -128,7 +115,12 @@ jobs:
         RUSTFLAGS: "-Cinstrument-coverage -Zcoverage-options=branch -Ccodegen-units=1 -Copt-level=0 -Coverflow-checks=off -Zpanic_abort_tests -Cpanic=abort"
         RUSTDOCFLAGS: "-Cpanic=abort"
         LLVM_PROFILE_FILE: "diffutils-%p-%m.profraw"
+        # Use -Z
+        RUSTC_BOOTSTRAP: 1
     - name: "`grcov` ~ install"
+      env:
+        # Use -Z
+        RUSTC_BOOTSTRAP: 1
       id: build_grcov
       shell: bash
       run: |
