@@ -217,7 +217,10 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
             std::process::exit(0);
         }
         if param_str.starts_with('-') {
-            return Err(format!("unrecognized option: {param:?}"));
+            return Err(format!(
+                "unrecognized option '{}'",
+                param.to_string_lossy()
+            ));
         }
         if from.is_none() {
             from = Some(param);
