@@ -39,7 +39,9 @@ mod common {
             cmd.assert()
                 .code(predicate::eq(2))
                 .failure()
-                .stderr(predicate::str::starts_with("unrecognized option: \"--foobar\""));
+                .stderr(predicate::str::starts_with(
+                    "unrecognized option: \"--foobar\"",
+                ));
         }
         Ok(())
     }
