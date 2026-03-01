@@ -18,6 +18,7 @@ mod ed_diff;
 mod macros;
 mod normal_diff;
 mod params;
+mod sdiff;
 mod side_diff;
 mod unified_diff;
 mod utils;
@@ -72,6 +73,7 @@ fn main() -> ExitCode {
     match util_name.to_str() {
         Some("diff") => diff::main(args),
         Some("cmp") => cmp::main(args),
+        Some("sdiff") => sdiff::main(args),
         Some(name) => {
             eprintln!("{name}: utility not supported");
             ExitCode::from(2)

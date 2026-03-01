@@ -4,7 +4,8 @@
 // files that was distributed with this source code.
 
 use regex::Regex;
-use std::{ffi::OsString, io::Write};
+use std::io::{self, Error, Read, Write};
+use std::{ffi::OsString, fs};
 use unicode_width::UnicodeWidthStr;
 
 /// Replace tabs by spaces in the input line.
@@ -87,15 +88,22 @@ pub fn format_failure_to_read_input_file(
     )
 }
 
-pub fn report_failure_to_read_input_file(
-    executable: &OsString,
-    filepath: &OsString,
-    error: &std::io::Error,
-) {
-    eprintln!(
-        "{}",
-        format_failure_to_read_input_file(executable, filepath, error)
-    );
+pub fn read_file_contents(filepath: &OsString) -> io::Result<Vec<u8>> {
+    if filepath == "-" {
+        let mut content = Vec::new();
+        io::stdin().read_to_end(&mut content).and(Ok(content))
+    } else {
+        fs::read(filepath)
+    }
+}
+
+pub fn read_both_files(
+    from: &OsString,
+    to: &OsString,
+) -> Result<(Vec<u8>, Vec<u8>), (OsString, Error)> {
+    let from_content = read_file_contents(from).map_err(|e| (from.clone(), e))?;
+    let to_content = read_file_contents(to).map_err(|e| (to.clone(), e))?;
+    Ok((from_content, to_content))
 }
 
 #[cfg(test)]
@@ -142,6 +150,52 @@ mod tests {
                 do_expand_tabs(&[240, 240, 152, 137, 9, 102, 111, 111], 8),
                 &[240, 240, 152, 137, 32, 32, 32, 32, 102, 111, 111]
             );
+        }
+    }
+
+    mod read_file {
+        use super::*;
+        use tempfile::NamedTempFile;
+
+        #[test]
+        fn read_two_valid_files() {
+            let content1 = "content-1";
+            let content2 = "content-2";
+
+            let mut from_file = NamedTempFile::new().unwrap();
+            let mut to_file = NamedTempFile::new().unwrap();
+
+            from_file.write_all(content1.as_bytes()).unwrap();
+            to_file.write_all(content2.as_bytes()).unwrap();
+
+            let from_path = OsString::from(from_file.path());
+            let to_path = OsString::from(to_file.path());
+
+            let res = read_both_files(&from_path, &to_path);
+
+            assert!(res.is_ok());
+            let (from_content, to_content) = res.unwrap();
+            assert_eq!(from_content, content1.as_bytes());
+            assert_eq!(to_content, content2.as_bytes());
+        }
+
+        #[test]
+        fn read_not_exist_file() {
+            let mut file = NamedTempFile::new().unwrap();
+            file.write_all(b"valid-file").unwrap();
+            let exist_file_path = OsString::from(file.path());
+
+            let non_exist_file_path = OsString::from("non-exist-file");
+
+            let res = read_both_files(&non_exist_file_path, &exist_file_path);
+            assert!(res.is_err());
+            let (err_path, _) = res.unwrap_err();
+            assert_eq!(err_path, non_exist_file_path);
+
+            let res = read_both_files(&exist_file_path, &non_exist_file_path);
+            assert!(res.is_err());
+            let (err_path, _) = res.unwrap_err();
+            assert_eq!(err_path, non_exist_file_path);
         }
     }
 
