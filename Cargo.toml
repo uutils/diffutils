@@ -26,7 +26,7 @@ unicode-width = "0.2.0"
 pretty_assertions = "1.4.0"
 assert_cmd = "2.0.14"
 predicates = "3.1.0"
-tempfile = "3.10.1"
+tempfile = "3.26.0"
 
 [profile.release]
 lto = "thin"
@@ -40,3 +40,9 @@ panic = "abort"
 [profile.dist]
 inherits = "release"
 lto = "thin"
+
+[features]
+# default = ["cmp_bytes_limit_128_bit"]
+# allows to set the --bytes limit from u64 to u128, if limits larger than Exabyte are required. 
+cmp_bytes_limit_128_bit = []
+
