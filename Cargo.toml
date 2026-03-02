@@ -23,10 +23,12 @@ same-file = "1.0.6"
 unicode-width = "0.2.0"
 
 [dev-dependencies]
-pretty_assertions = "1.4.0"
 assert_cmd = "2.0.14"
+criterion = { version = "0.8.2", features = ["html_reports"] }
+pretty_assertions = "1.4.0"
 predicates = "3.1.0"
-tempfile = "3.10.1"
+rand = "0.10.0"
+tempfile = "3.26.0"
 
 [profile.release]
 lto = "thin"
@@ -40,3 +42,8 @@ panic = "abort"
 [profile.dist]
 inherits = "release"
 lto = "thin"
+
+[[bench]]
+name = "bench_cmp"
+path = "benches/benchmarks-criterion.rs"
+harness = false
