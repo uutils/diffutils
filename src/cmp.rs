@@ -285,7 +285,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
 
 fn prepare_reader(
     path: &OsString,
-    skip: &Option<u64>,
+    skip: &Option<IgnInit>,
     params: &Params,
 ) -> Result<Box<dyn BufRead>, String> {
     let mut reader: Box<dyn BufRead> = if path == "-" {
@@ -304,6 +304,8 @@ fn prepare_reader(
     };
 
     if let Some(skip) = skip {
+        // cast as u64 must remain, because value of IgnInit data type could be changed.
+        #[allow(clippy::unnecessary_cast)]
         if let Err(e) = io::copy(&mut reader.by_ref().take(*skip as u64), &mut io::sink()) {
             return Err(format_failure_to_read_input_file(
                 &params.executable,
