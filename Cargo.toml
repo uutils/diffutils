@@ -24,7 +24,7 @@ unicode-width = "0.2.0"
 
 [dev-dependencies]
 assert_cmd = "2.0.14"
-criterion = { version = "0.8.2", features = ["html_reports"] }
+criterion = { version = "4.3.0", package = "codspeed-criterion-compat" }
 pretty_assertions = "1.4.0"
 predicates = "3.1.0"
 rand = "0.10.0"
