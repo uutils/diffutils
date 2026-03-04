@@ -24,7 +24,7 @@ unicode-width = "0.2.0"
 
 [dev-dependencies]
 assert_cmd = "2.0.14"
-criterion = { version = "4.3.0", package = "codspeed-criterion-compat" }
+divan = { version = "4.3.0", package = "codspeed-divan-compat" }
 pretty_assertions = "1.4.0"
 predicates = "3.1.0"
 rand = "0.10.0"
@@ -44,6 +44,6 @@ inherits = "release"
 lto = "thin"
 
 [[bench]]
-name = "bench_cmp"
-path = "benches/benchmarks-criterion.rs"
+name = "bench_diffutils"
+path = "benches/bench-diffutils.rs"
 harness = false
