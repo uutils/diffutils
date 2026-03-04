@@ -168,10 +168,10 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
 
     let (from_content, to_content) = match utils::read_both_files(&params.from, &params.to) {
         Ok(contents) => contents,
-        Err((filepath, error)) => {
+        Err(e) => {
             eprintln!(
                 "{}",
-                utils::format_failure_to_read_input_file(&params.executable, &filepath, &error)
+                utils::format_failure_to_read_input_files(&params.executable, &e)
             );
             return ExitCode::from(2);
         }
