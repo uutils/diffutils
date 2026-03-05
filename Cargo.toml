@@ -47,3 +47,10 @@ lto = "thin"
 name = "bench_diffutils"
 path = "benches/bench-diffutils.rs"
 harness = false
+
+[features]
+# default = ["feat_bench_not_diff"]
+# Turn bench for diffutils cmp off
+feat_bench_not_cmp = []
+# Turn bench for diffutils diff off
+feat_bench_not_diff = []
