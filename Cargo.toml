@@ -23,10 +23,12 @@ same-file = "1.0.6"
 unicode-width = "0.2.0"
 
 [dev-dependencies]
-pretty_assertions = "1.4.0"
 assert_cmd = "2.0.14"
+divan = { version = "4.3.0", package = "codspeed-divan-compat" }
+pretty_assertions = "1.4.0"
 predicates = "3.1.0"
-tempfile = "3.10.1"
+rand = "0.10.0"
+tempfile = "3.26.0"
 
 [profile.release]
 lto = "thin"
@@ -40,3 +42,15 @@ panic = "abort"
 [profile.dist]
 inherits = "release"
 lto = "thin"
+
+[[bench]]
+name = "bench_diffutils"
+path = "benches/bench-diffutils.rs"
+harness = false
+
+[features]
+# default = ["feat_bench_not_diff"]
+# Turn bench for diffutils cmp off
+feat_bench_not_cmp = []
+# Turn bench for diffutils diff off
+feat_bench_not_diff = []
