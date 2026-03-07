@@ -1085,6 +1085,9 @@ mod tests {
                 from: os("foo"),
                 to: os("bar"),
                 skip_a: Some(1_000_000_000),
+                #[cfg(target_pointer_width = "32")]
+                skip_b: Some((2_147_483_647.5 * 2.0) as usize),
+                #[cfg(target_pointer_width = "64")]
                 skip_b: Some(1_152_921_504_606_846_976 * 2),
                 ..Default::default()
             }),
