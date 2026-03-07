@@ -33,15 +33,11 @@ tempfile = "3.26.0"
 [profile.release]
 lto = "thin"
 codegen-units = 1
-
-[profile.release-fast]
-inherits = "release"
 panic = "abort"
 
-# The profile that 'dist' will build with
+# alias profile for 'dist'
 [profile.dist]
 inherits = "release"
-lto = "thin"
 
 [[bench]]
 name = "bench_diffutils"
