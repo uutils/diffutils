@@ -21,15 +21,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@nightly
       - name: Install `cargo-fuzz`
-        run: cargo install cargo-fuzz
+        run: |
+          echo "RUSTC_BOOTSTRAP=1" >> "${GITHUB_ENV}"
+          echo "CARGO_INCREMENTAL=0" >> "${GITHUB_ENV}"
+          cargo install cargo-fuzz --locked
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: "cargo-fuzz-cache-key"
           cache-directories: "fuzz/target"
       - name: Run `cargo-fuzz build`
-        run: cargo +nightly fuzz build
+        run: cargo fuzz build
 
   fuzz-run:
     needs: fuzz-build
@@ -49,9 +51,11 @@ jobs:
           - { name: fuzz_side, should_pass: true }
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@nightly
       - name: Install `cargo-fuzz`
-        run: cargo install cargo-fuzz
+        run: |
+          echo "RUSTC_BOOTSTRAP=1" >> "${GITHUB_ENV}"
+          echo "CARGO_INCREMENTAL=0" >> "${GITHUB_ENV}"
+          cargo install cargo-fuzz --locked
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: "cargo-fuzz-cache-key"
@@ -66,7 +70,7 @@ jobs:
         shell: bash
         continue-on-error: ${{ !matrix.test-target.name.should_pass }}
         run: |
-          cargo +nightly fuzz run ${{ matrix.test-target.name }} -- -max_total_time=${{ env.RUN_FOR }} -detect_leaks=0
+          cargo fuzz run ${{ matrix.test-target.name }} -- -max_total_time=${{ env.RUN_FOR }} -detect_leaks=0
       - name: Save Corpus Cache
         uses: actions/cache/save@v5
         with:
