@@ -1,4 +1,3 @@
-#![allow(unused)]
 // This file is part of the uutils diffutils package.
 //
 // For the full copyright and license information, please view the LICENSE-*
@@ -67,12 +66,19 @@ pub fn add_copyright(text: &str) -> String {
 
 /// Writes the error message and adds the help hint "Try 'diff \--help' for more information."
 ///
+/// * exe: [Executable]
+/// * msg: The message to output. It will be preceded by 'executable: '.
+///   Sometimes the executable is not available during error message creation,
+///   so #EXE will be replaced by the name of the executable, e.g. 'diff'.
+///
 /// This is the central output function. I affects all utils. \
 /// It allows to just use 'eprintln!("{e}");' in case of an error.
 pub fn format_error_text<T: Error>(executable: &Executable, error: &T) -> String {
     // for messages the have the executable already
     let exe = format!("{executable}: ");
-    let msg = error.to_string();
+    let msg = error
+        .to_string()
+        .replace("#EXE", executable.to_string().as_str());
     if msg.starts_with(&exe) {
         format!("{msg}\n{exe}Try '{executable} --help' for more information.",)
     } else {
@@ -565,7 +571,9 @@ pub enum ParseError {
 
     /// number for an option argument incorrect
     InvalidValueNumber(ParsedOption),
+    #[allow(unused)] // Allow external usage (cmp)
     InvalidValueNumberUnit(ParsedOption),
+    #[allow(unused)] // Allow external usage (cmp)
     InvalidValueNumberOverflow(ParsedOption),
 
     /// 'executable' as first parameter missing.
@@ -582,6 +590,7 @@ pub enum ParseError {
     NoUnicode(OsString),
 
     /// Two options cannot be used together, e.g. cmp --silent and --verbose (output).
+    #[allow(unused)] // Allow external usage (cmp)
     OptionsIncompatible(&'static AppOption, &'static AppOption),
 
     /// Non-existent long option. This is "unrecognized" because the name can be abbreviated.
@@ -683,8 +692,10 @@ impl Display for ParseError {
     }
 }
 
+#[allow(unused)] // required for cmp
 pub struct NumberParser {}
 
+#[allow(unused)] // required for cmp
 impl NumberParser {
     /// Parses a number with an optional unit, e.g. 10MiB.
     ///
@@ -704,10 +715,7 @@ impl NumberParser {
                 if pos == 0 {
                     return Err(ParseError::InvalidValueNumber(parsed_option.clone()));
                 }
-                multiplier = match Self::parse_number_unit(&num_unit[pos..]) {
-                    Some(m) => m,
-                    None => return Err(ParseError::InvalidValueNumberUnit(parsed_option.clone())),
-                };
+                multiplier = Self::parse_number_unit(&num_unit[pos..], parsed_option)?;
                 &num_unit[0..pos]
             }
             None => {
@@ -748,8 +756,7 @@ impl NumberParser {
     /// Units up eo Exabyte (EiB) following GNU documentation: \
     /// <https://www.gnu.org/software/diffutils/manual/html_node/cmp-Options.html>.
     #[cfg(not(feature = "feat_allow_case_insensitive_number_units"))]
-    // #[allow(unused)] // required for cmp
-    pub fn parse_number_unit(unit: &str) -> Option<u64> {
+    fn parse_number_unit(unit: &str, parsed_option: &ParsedOption) -> Result<u64, ParseError> {
         let multiplier = match unit {
             "kB" | "KB" => 1_000,
             "k" | "K" | "KiB" | "kiB" => 1_024,
@@ -772,19 +779,18 @@ impl NumberParser {
             // "YB" => 1_000_000_000_000_000_000_000_000,
             // "Y" | "YiB" => 1_208_925_819_614_629_174_706_176,
             _ => {
-                return None;
+                return Err(ParseError::InvalidValueNumberUnit(parsed_option.clone()));
             }
         };
 
-        Some(multiplier)
+        Ok(multiplier)
     }
 
     /// Returns a multiplier depending on the given unit, e.g. 'KiB' -> 1024,
     /// which then can be used to calculate the final number of bytes.
     /// Following GNU documentation: https://www.gnu.org/software/diffutils/manual/html_node/cmp-Options.html
-    /// TODO case
     #[cfg(feature = "feat_allow_case_insensitive_number_units")]
-    pub fn parse_number_unit(unit: &str) -> Option<u64> {
+    fn parse_number_unit(unit: &str, parsed_option: &ParsedOption) -> Result<u64, ParseError> {
         // Note that GNU cmp advertises supporting up to Y, but fails if you try
         // to actually use anything beyond E.
         let unit = unit.to_owned().to_ascii_lowercase();
@@ -811,11 +817,11 @@ impl NumberParser {
             // "yb" => 1_000_000_000_000_000_000_000_000,
             // "y" | "yib" => 1_208_925_819_614_629_174_706_176,
             _ => {
-                return None;
+                return Err(ParseError::InvalidValueNumberUnit(parsed_option.clone()));
             }
         };
 
-        Some(multiplier)
+        Ok(multiplier)
     }
 }
 
