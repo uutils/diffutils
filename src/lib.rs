@@ -1,3 +1,4 @@
+pub mod arg_parser;
 pub mod cmp;
 pub mod context_diff;
 pub mod ed_diff;

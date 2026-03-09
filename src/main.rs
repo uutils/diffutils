@@ -11,6 +11,7 @@ use std::{
     process::ExitCode,
 };
 
+mod arg_parser;
 mod cmp;
 mod context_diff;
 mod diff;
