@@ -12,7 +12,6 @@ use std::fs;
 use std::io::{self, stdout, Read, Write};
 use std::iter::Peekable;
 use std::process::{exit, ExitCode};
-use uucore;
 use uucore::error::FromIo;
 
 // Exit codes are documented at
