@@ -12,6 +12,7 @@ use std::fs;
 use std::io::{self, stdout, Read, Write};
 use std::iter::Peekable;
 use std::process::{exit, ExitCode};
+use uucore::error::FromIo;
 
 // Exit codes are documented at
 // https://www.gnu.org/software/diffutils/manual/html_node/Invoking-diff.html.
@@ -91,7 +92,26 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
             params.to.to_string_lossy()
         );
     } else {
-        io::stdout().write_all(&result).unwrap();
+        let result = io::stdout().write_all(&result);
+        match result {
+            // This code is taken from coreutils.
+            // <https://github.com/uutils/coreutils/blob/main/src/uu/seq/src/seq.rs>
+            Ok(()) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::BrokenPipe => {
+                // GNU seq prints the Broken pipe message but still exits with status 0
+                // unless SIGPIPE was explicitly ignored, in which case it should fail.
+                let err = err.map_err_context(|| "write error".into());
+                uucore::show_error!("{err}");
+                #[cfg(unix)]
+                if uucore::signals::sigpipe_was_ignored() {
+                    uucore::error::set_exit_code(1);
+                }
+            }
+            Err(err) => {
+                eprintln!("{err}");
+                return ExitCode::FAILURE;
+            }
+        }
     }
     if result.is_empty() {
         maybe_report_identical_files();
