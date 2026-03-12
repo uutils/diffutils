@@ -4,7 +4,10 @@
 // files that was distributed with this source code.
 
 use regex::Regex;
-use std::{ffi::OsString, io::Write};
+use std::{
+    ffi::{OsStr, OsString},
+    io::Write,
+};
 use unicode_width::UnicodeWidthStr;
 
 /// Replace tabs by spaces in the input line.
@@ -13,11 +16,11 @@ use unicode_width::UnicodeWidthStr;
 #[must_use]
 pub fn do_expand_tabs(line: &[u8], tabsize: usize) -> Vec<u8> {
     let tab = b'\t';
-    let ntabs = line.iter().filter(|c| **c == tab).count();
-    if ntabs == 0 {
+    let n_tabs = line.iter().filter(|c| **c == tab).count();
+    if n_tabs == 0 {
         return line.to_vec();
     }
-    let mut result = Vec::with_capacity(line.len() + ntabs * (tabsize - 1));
+    let mut result = Vec::with_capacity(line.len() + n_tabs * (tabsize - 1));
     let mut offset = 0;
 
     let mut iter = line.split(|c| *c == tab).peekable();
@@ -69,6 +72,11 @@ pub fn get_modification_time(file_path: &str) -> String {
         .to_string();
 
     modification_time
+}
+
+/// Checks if files are the same (same file link), which must return 'equal'.
+pub fn is_same_file(from: &OsStr, to: &OsStr) -> bool {
+    (from == "-" && to == "-") || same_file::is_same_file(from, to).unwrap_or(false)
 }
 
 pub fn format_failure_to_read_input_file(

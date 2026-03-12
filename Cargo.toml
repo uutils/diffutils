@@ -16,6 +16,7 @@ path = "src/main.rs"
 
 [dependencies]
 chrono = "0.4.38"
+const_format = "0.2.35"
 diff = "0.1.13"
 itoa = "1.0.11"
 regex = "1.10.4"
@@ -46,7 +47,14 @@ harness = false
 
 [features]
 # default = ["feat_bench_not_diff"]
-# Turn bench for diffutils cmp off
+# instead of limiting to KiB, MiB, etc, one can write kib, mib, Mb or whatever case.
+feat_allow_case_insensitive_number_units = []
+# Disable bench for diffutils cmp
 feat_bench_not_cmp = []
-# Turn bench for diffutils diff off
+# Disable bench for diffutils diff
 feat_bench_not_diff = []
+# Enables a check on options defined in NOT_YET_IMPLEMENTED.
+# If on the parser will return an error message in these cases.
+# This is preferable when running the util as unsupported options
+# are pointed out to the user, but can make tests fail. 
+feat_check_not_yet_implemented = []
