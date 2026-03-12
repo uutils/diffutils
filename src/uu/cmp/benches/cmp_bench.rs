@@ -14,7 +14,7 @@
 const FILE_SIZES_IN_KILO_BYTES: [u64; 4] = [100, 1 * MB, 10 * MB, 25 * MB];
 const NUM_DIFF: u64 = 4;
 // Empty String to use TempDir (files will be removed after test) or specify dir to keep generated files
-const TEMP_DIR: &str = "/home/gunnar/DevNoSync/data";
+const TEMP_DIR: &str = "";
 // just for FILE_SIZE_KILO_BYTES
 const MB: u64 = 1_000;
 
