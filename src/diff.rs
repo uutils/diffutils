@@ -4,7 +4,7 @@
 // files that was distributed with this source code.
 
 use crate::params::{parse_params, Format};
-use crate::utils::report_failure_to_read_input_file;
+use crate::utils::{format_io_error, report_failure_to_read_input_file};
 use crate::{context_diff, ed_diff, normal_diff, side_diff, unified_diff};
 use std::env::ArgsOs;
 use std::ffi::OsString;
@@ -107,8 +107,8 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
                     uucore::error::set_exit_code(1);
                 }
             }
-            Err(err) => {
-                eprintln!("{err}");
+            Err(error) => {
+                eprintln!("{}", format_io_error(&error));
                 return ExitCode::FAILURE;
             }
         }
