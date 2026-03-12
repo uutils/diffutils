@@ -9,7 +9,7 @@ use std::fs::File;
 #[cfg(not(windows))]
 use std::fs::OpenOptions;
 use std::io::Write;
-use tempfile::{tempdir, NamedTempFile};
+use tempfile::{NamedTempFile, tempdir};
 
 // Integration tests for the diffutils command
 mod common {
@@ -97,7 +97,7 @@ mod common {
 }
 
 mod diff {
-    use diffutilslib::assert_diff_eq;
+    use uudiff::assert_diff_eq;
 
     use super::*;
 

@@ -1,11 +1,13 @@
 #![no_main]
 #[macro_use]
 extern crate libfuzzer_sys;
-use diffutilslib::cmp::{self, Cmp};
+// use diffutilslib::cmp::{self, Cmp};
 
 use std::ffi::OsString;
 use std::fs::File;
 use std::io::Write;
+
+use uu_cmp::Cmp;
 
 fn os(s: &str) -> OsString {
     OsString::from(s)
@@ -14,7 +16,7 @@ fn os(s: &str) -> OsString {
 fuzz_target!(|x: (Vec<u8>, Vec<u8>)| {
     let args = vec!["cmp", "-l", "-b", "target/fuzz.cmp.a", "target/fuzz.cmp.b"]
         .into_iter()
-        .map(|s| os(s))
+        .map(os)
         .peekable();
 
     let (from, to) = x;
@@ -30,8 +32,8 @@ fuzz_target!(|x: (Vec<u8>, Vec<u8>)| {
         .unwrap();
 
     let params =
-        cmp::parse_params(args).unwrap_or_else(|e| panic!("Failed to parse params: {}", e));
-    let ret = cmp::cmp(&params);
+        uu_cmp::parse_params(args).unwrap_or_else(|e| panic!("Failed to parse params: {}", e));
+    let ret = uu_cmp::cmp_compare(&params);
     if from == to && !matches!(ret, Ok(Cmp::Equal)) {
         panic!(
             "target/fuzz.cmp.a and target/fuzz.cmp.b are equal, but cmp returned {:?}.",

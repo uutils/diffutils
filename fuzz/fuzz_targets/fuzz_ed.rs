@@ -1,12 +1,11 @@
 #![no_main]
 #[macro_use]
 extern crate libfuzzer_sys;
-use diffutilslib::ed_diff;
-use diffutilslib::ed_diff::DiffError;
-use diffutilslib::params::Params;
 use std::fs::{self, File};
 use std::io::Write;
 use std::process::Command;
+use uu_diff::ed_diff::{self, DiffError};
+use uu_diff::params::Params;
 
 fn diff_w(expected: &[u8], actual: &[u8], filename: &str) -> Result<Vec<u8>, DiffError> {
     let mut output = ed_diff::diff(expected, actual, &Params::default())?;

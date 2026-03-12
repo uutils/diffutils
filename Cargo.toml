@@ -1,52 +1,166 @@
+# diffutils (uutils)
+# * see the repository LICENSE, README, and CONTRIBUTING files for more information
+
+# spell-checker:ignore (libs) ahash bigdecimal datetime serde gethostid kqueue libselinux mangen memmap uuhelp startswith constness expl unnested logind cfgs interner
+
 [package]
 name = "diffutils"
-version = "0.5.0"
-edition = "2021"
-description = "A CLI app for generating diff files"
-license = "MIT OR Apache-2.0"
+description = "diffutils ~ GNU diffutils (updated); implemented as universal (cross-platform) utils, written in Rust"
+default-run = "diffutils"
 repository = "https://github.com/uutils/diffutils"
-
-[lib]
-name = "diffutilslib"
-path = "src/lib.rs"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [[bin]]
 name = "diffutils"
-path = "src/main.rs"
-
-[dependencies]
-chrono = "0.4.38"
-diff = "0.1.13"
-itoa = "1.0.11"
-regex = "1.10.4"
-same-file = "1.0.6"
-unicode-width = "0.2.0"
-
-[dev-dependencies]
-assert_cmd = "2.0.14"
-divan = { version = "4.3.0", package = "codspeed-divan-compat" }
-pretty_assertions = "1.4.0"
-predicates = "3.1.0"
-rand = "0.10.0"
-tempfile = "3.26.0"
-
-[profile.release]
-lto = "thin"
-codegen-units = 1
-panic = "abort"
-
-# alias profile for 'dist'
-[profile.dist]
-inherits = "release"
-
-[[bench]]
-name = "bench_diffutils"
-path = "benches/bench-diffutils.rs"
-harness = false
+path = "src/bin/diffutils.rs"
 
 [features]
-# default = ["feat_bench_not_diff"]
-# Turn bench for diffutils cmp off
-feat_bench_not_cmp = []
-# Turn bench for diffutils diff off
-feat_bench_not_diff = []
+# default = ["feat_common_core"]
+## OS feature shortcodes
+# macos = ["feat_os_macos"]
+# unix = ["feat_os_unix"]
+# windows = ["feat_os_windows"]
+#
+## (primary platforms) feature sets
+# "feat_os_macos" == set of utilities which can be built/run on the MacOS platform
+feat_os_macos = [
+  "feat_os_unix", ## == a modern/usual *nix platform
+  #
+#   "feat_require_unix_hostid",
+]
+# "feat_os_unix" == set of utilities which can be built/run on modern/usual *nix platforms.
+feat_os_unix = [
+#   "feat_Tier1",
+#   #
+#   "feat_require_unix",
+#   "feat_require_unix_hostid",
+#   "feat_require_unix_utmpx",
+]
+# "feat_os_windows" == set of utilities which can be built/run on modern/usual windows platforms
+feat_os_windows = [
+#   "feat_Tier1", ## == "feat_os_windows_legacy" + "hostname"
+]
+#
+# TODO How are features centralized in this workspace file?
+# # instead of limiting to KiB, MiB, etc, one can write kib, mib, Mb or whatever case.
+# feat_allow_case_insensitive_number_units = []
+# # Enables a check on options defined in NOT_YET_IMPLEMENTED.
+# # If on the parser will return an error message in these cases.
+# # This is preferable when running the util as unsupported options
+# # are pointed out to the user, but can make tests fail. 
+# feat_check_not_yet_implemented = []
+
+[workspace]
+resolver = "3"
+members = [
+  ".",
+  "src/uu/*",
+#   "src/uu/stdbuf/src/libstdbuf",
+  "src/uudiff",
+#   "src/uucore_procs",
+#   "tests/uutests",
+  # "fuzz",  # TODO
+]
+
+[workspace.package]
+authors = ["uutils developers"]
+categories = ["command-line-utilities"]
+edition = "2021"
+rust-version = "1.88.0"
+homepage = "https://github.com/uutils/diffutils"
+description = "A CLI app for generating diff files"
+keywords = ["diffutils", "uutils", "cross-platform", "cli", "utility"]
+license = "MIT"
+# license = "MIT OR Apache-2.0"
+readme = "README.package.md"
+version = "0.5.1"
+
+
+[workspace.dependencies]
+assert_cmd = "2.2.0"
+const_format = "0.2.35"
+chrono = "0.4.38"
+diff_crate = { package = "diff", version = "0.1.13" }
+divan = { version = "4.3.0", package = "codspeed-divan-compat" }
+itoa = "1.0.11"
+predicates = "3.1.0"
+pretty_assertions = "1.4.0"
+rand = "0.10.0"
+regex = "1.10.4"
+same-file = "1.0.6"
+tempfile = "3.27.0"
+unicode-width = "0.2.0"
+uucore = "0.7.0"
+uudiff = { package = "uudiff", path = "src/uudiff" }
+diff = {  package = "uu_diff", path = "src/uu/diff" }
+# sdiff = {package = "uu_sdiff", path = "src/uu/sdiff" }
+
+
+[dependencies]
+diff.workspace = true
+# sdiff.workspace = true
+uucore.workspace = true
+uudiff.workspace = true
+
+# * uutils
+# uu_test = { optional = true, package = "uu_test", path = "src/uu/test" }
+#
+cmp = { package = "uu_cmp", path = "src/uu/cmp" }
+# diff3 = { package = "uu_diff3", path = "src/uu/diff3" }
+# sdiff = {optional = true,   package = "uu_sdiff", path = "src/uu/sdiff" }
+
+[dev-dependencies]
+assert_cmd.workspace = true
+predicates.workspace = true
+regex.workspace = true
+tempfile.workspace = true
+
+[profile.release]
+lto = true
+panic = "abort"
+codegen-units = 1
+
+# A release-like profile that is as small as possible.
+[profile.release-small]
+inherits = "release"
+opt-level = "z"
+strip = true
+
+[profile.release-fast]
+inherits = "release"
+panic = "abort"
+
+# A release-like profile with debug info for profiling.
+# See https://github.com/mstange/samply .
+[profile.profiling]
+inherits = "release"
+panic = "unwind"
+debug = true
+
+# 
+# # The profile that 'dist' will build with
+# [profile.dist]
+# inherits = "release"
+# lto = "thin"
+
+# [lints]
+# workspace = true
+# 
+# # This is the linting configuration for all crates.
+# # In order to use these, all crates have `[lints] workspace = true` section.
+# [workspace.lints.rust]
+# # Allow "fuzzing" as a "cfg" condition name and "cygwin" as a value for "target_os"
+# # https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html
+# unexpected_cfgs = { level = "warn", check-cfg = [
+#   'cfg(fuzzing)',
+#   'cfg(target_os, values("cygwin"))',
+# ] }
+# unused_qualifications = "warn"
+

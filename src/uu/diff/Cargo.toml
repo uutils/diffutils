@@ -1,0 +1,43 @@
+[package]
+name = "uu_diff"
+description = "diff ~ (uutils) decode/encode input (diff file compare)"
+repository = "https://github.com/uutils/diffutils/tree/main/src/uu/diff"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+readme.workspace = true
+
+# [lints]
+# workspace = true
+
+[[bin]]
+name = "diff"
+path = "src/main.rs"
+
+[lib]
+path = "src/diff.rs"
+
+[dependencies]
+# const_format = { workspace = true }
+diff_crate = { workspace = true }
+regex = { workspace = true }
+same-file = { workspace = true }
+# sdiff = { workspace = true }
+uucore = { workspace = true }
+uudiff = { workspace = true }
+unicode-width = { workspace = true }
+
+[dev-dependencies]
+divan = { workspace = true }
+pretty_assertions = { workspace = true }
+rand = { workspace = true }
+tempfile = { workspace = true }
+
+[[bench]]
+name = "diff_bench"
+harness = false

@@ -3,26 +3,37 @@
 // For the full copyright and license information, please view the LICENSE-*
 // files that was distributed with this source code.
 
+pub mod context_diff;
+pub mod ed_diff;
+pub mod normal_diff;
+pub mod params;
+pub mod side_diff;
+pub mod unified_diff;
+
 use crate::params::{parse_params, Format};
-use crate::utils::report_failure_to_read_input_file;
-use crate::{context_diff, ed_diff, normal_diff, side_diff, unified_diff};
-use std::env::ArgsOs;
 use std::ffi::OsString;
 use std::fs;
 use std::io::{self, stdout, Read, Write};
-use std::iter::Peekable;
-use std::process::{exit, ExitCode};
+// use std::process::{ExitCode, exit};
+use uucore::error::{FromIo, UResult};
+use uudiff::utils::{format_io_error, report_failure_to_read_input_file};
 
 // Exit codes are documented at
 // https://www.gnu.org/software/diffutils/manual/html_node/Invoking-diff.html.
 //     An exit status of 0 means no differences were found,
 //     1 means some differences were found,
 //     and 2 means trouble.
-pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
-    let params = parse_params(opts).unwrap_or_else(|error| {
-        eprintln!("{error}");
-        exit(2);
-    });
+#[uucore::main]
+pub fn uumain(args: impl uucore::Args) -> UResult<()> {
+    let args = args.peekable();
+    let params = match parse_params(args) {
+        Ok(p) => p,
+        Err(error) => {
+            eprintln!("{error}");
+            uucore::error::set_exit_code(2);
+            return Ok(());
+        }
+    };
     // if from and to are the same file, no need to perform any comparison
     let maybe_report_identical_files = || {
         if params.report_identical_files {
@@ -37,7 +48,9 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
         || same_file::is_same_file(&params.from, &params.to).unwrap_or(false)
     {
         maybe_report_identical_files();
-        return ExitCode::SUCCESS;
+        // ExitCode::SUCCESS;
+        uucore::error::set_exit_code(0);
+        return Ok(());
     }
 
     // read files
@@ -67,7 +80,8 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
         }
     };
     if io_error {
-        return ExitCode::from(2);
+        uucore::error::set_exit_code(2);
+        return Ok(());
     }
 
     // run diff
@@ -77,7 +91,8 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
         Format::Context => context_diff::diff(&from_content, &to_content, &params),
         Format::Ed => ed_diff::diff(&from_content, &to_content, &params).unwrap_or_else(|error| {
             eprintln!("{error}");
-            exit(2);
+            uucore::error::set_exit_code(2);
+            std::process::exit(2);
         }),
         Format::SideBySide => {
             let mut output = stdout().lock();
@@ -91,12 +106,35 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
             params.to.to_string_lossy()
         );
     } else {
-        io::stdout().write_all(&result).unwrap();
+        let result = io::stdout().write_all(&result);
+        match result {
+            // This code is taken from coreutils.
+            // <https://github.com/uutils/coreutils/blob/main/src/uu/seq/src/seq.rs>
+            Ok(()) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::BrokenPipe => {
+                // GNU seq prints the Broken pipe message but still exits with status 0
+                // unless SIGPIPE was explicitly ignored, in which case it should fail.
+                let err = err.map_err_context(|| "write error".into());
+                uucore::show_error!("{err}");
+                #[cfg(unix)]
+                if uucore::signals::sigpipe_was_ignored() {
+                    uucore::error::set_exit_code(1);
+                }
+            }
+            Err(error) => {
+                eprintln!("{}", format_io_error(&error));
+                uucore::error::set_exit_code(1);
+                return Ok(());
+            }
+        }
     }
     if result.is_empty() {
         maybe_report_identical_files();
-        ExitCode::SUCCESS
+        // ExitCode::SUCCESS;
+        uucore::error::set_exit_code(0);
     } else {
-        ExitCode::from(1)
+        uucore::error::set_exit_code(1);
     }
+
+    Ok(())
 }
