@@ -3,7 +3,7 @@
 // For the full copyright and license information, please view the LICENSE-*
 // files that was distributed with this source code.
 
-use crate::utils::format_failure_to_read_input_file;
+use crate::utils::{format_failure_to_read_input_file, format_io_error};
 use std::env::{self, ArgsOs};
 use std::ffi::OsString;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
@@ -441,7 +441,7 @@ pub fn cmp(params: &Params) -> Result<Cmp, String> {
                     })?;
                     output.clear();
                 } else {
-                    report_difference(from_byte, to_byte, at_byte, at_line, params);
+                    report_difference(from_byte, to_byte, at_byte, at_line, params)?;
                     return Ok(Cmp::Different);
                 }
             }
@@ -707,9 +707,15 @@ fn is_posix_locale() -> bool {
 }
 
 #[inline]
-fn report_difference(from_byte: u8, to_byte: u8, at_byte: usize, at_line: usize, params: &Params) {
+fn report_difference(
+    from_byte: u8,
+    to_byte: u8,
+    at_byte: usize,
+    at_line: usize,
+    params: &Params,
+) -> Result<(), String> {
     if params.quiet {
-        return;
+        return Ok(());
     }
 
     let term = if is_posix_locale() && !params.print_bytes {
@@ -734,7 +740,16 @@ fn report_difference(from_byte: u8, to_byte: u8, at_byte: usize, at_line: usize,
             format_visible_byte(to_byte)
         );
     }
-    println!();
+    // Instead of println!(), which panics in case of error (> /dev/full).
+    let mut stdout = io::stdout();
+    if let Err(e) = writeln!(stdout) {
+        return Err(format_io_error(&e));
+    };
+    if let Err(e) = stdout.flush() {
+        return Err(format_io_error(&e));
+    };
+
+    Ok(())
 }
 
 #[cfg(test)]
