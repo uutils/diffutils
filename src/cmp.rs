@@ -20,15 +20,20 @@ use std::os::unix::fs::MetadataExt;
 #[cfg(target_os = "windows")]
 use std::os::windows::fs::MetadataExt;
 
+/// for --bytes, so really large number limits can be expressed, like 1Y.
+pub type BytesLimitU64 = u64;
+// ignore initial is currently limited to u64, as take(skip) is used.
+pub type SkipU64 = u64;
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Params {
     executable: OsString,
     from: OsString,
     to: OsString,
     print_bytes: bool,
-    skip_a: Option<usize>,
-    skip_b: Option<usize>,
-    max_bytes: Option<usize>,
+    skip_a: Option<SkipU64>,
+    skip_b: Option<SkipU64>,
+    max_bytes: Option<BytesLimitU64>,
     verbose: bool,
     quiet: bool,
 }
@@ -66,13 +71,13 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
     };
     let executable_str = executable.to_string_lossy().to_string();
 
-    let parse_skip = |param: &str, skip_desc: &str| -> Result<usize, String> {
+    let parse_skip = |param: &str, skip_desc: &str| -> Result<SkipU64, String> {
         let suffix_start = param
             .find(|b: char| !b.is_ascii_digit())
             .unwrap_or(param.len());
-        let mut num = match param[..suffix_start].parse::<usize>() {
+        let mut num = match param[..suffix_start].parse::<SkipU64>() {
             Ok(num) => num,
-            Err(e) if *e.kind() == std::num::IntErrorKind::PosOverflow => usize::MAX,
+            Err(e) if *e.kind() == std::num::IntErrorKind::PosOverflow => SkipU64::MAX,
             Err(_) => {
                 return Err(format!(
                     "{executable_str}: invalid --ignore-initial value '{skip_desc}'"
@@ -83,33 +88,24 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
         if suffix_start != param.len() {
             // Note that GNU cmp advertises supporting up to Y, but fails if you try
             // to actually use anything beyond E.
-            let multiplier: usize = match &param[suffix_start..] {
+            let multiplier: SkipU64 = match &param[suffix_start..] {
                 "kB" => 1_000,
                 "K" => 1_024,
                 "MB" => 1_000_000,
                 "M" => 1_048_576,
                 "GB" => 1_000_000_000,
                 "G" => 1_073_741_824,
-                // This only generates a warning when compiling for target_pointer_width < 64
-                #[allow(unused_variables)]
-                suffix @ ("TB" | "T" | "PB" | "P" | "EB" | "E") => {
-                    #[cfg(target_pointer_width = "64")]
-                    match suffix {
-                        "TB" => 1_000_000_000_000,
-                        "T" => 1_099_511_627_776,
-                        "PB" => 1_000_000_000_000_000,
-                        "P" => 1_125_899_906_842_624,
-                        "EB" => 1_000_000_000_000_000_000,
-                        "E" => 1_152_921_504_606_846_976,
-                        _ => unreachable!(),
-                    }
-                    #[cfg(not(target_pointer_width = "64"))]
-                    usize::MAX
-                }
-                "ZB" => usize::MAX, // 1_000_000_000_000_000_000_000,
-                "Z" => usize::MAX,  // 1_180_591_620_717_411_303_424,
-                "YB" => usize::MAX, // 1_000_000_000_000_000_000_000_000,
-                "Y" => usize::MAX,  // 1_208_925_819_614_629_174_706_176,
+                "TB" => 1_000_000_000_000,
+                "T" => 1_099_511_627_776,
+                "PB" => 1_000_000_000_000_000,
+                "P" => 1_125_899_906_842_624,
+                "EB" => 1_000_000_000_000_000_000,
+                "E" => 1_152_921_504_606_846_976,
+                // TODO setting usize:MAX does not mimic GNU cmp behavior, it should be an error.
+                "ZB" => SkipU64::MAX, // 1_000_000_000_000_000_000_000,
+                "Z" => SkipU64::MAX,  // 1_180_591_620_717_411_303_424,
+                "YB" => SkipU64::MAX, // 1_000_000_000_000_000_000_000_000,
+                "Y" => SkipU64::MAX,  // 1_208_925_819_614_629_174_706_176,
                 _ => {
                     return Err(format!(
                         "{executable_str}: invalid --ignore-initial value '{skip_desc}'"
@@ -119,7 +115,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
 
             num = match num.overflowing_mul(multiplier) {
                 (n, false) => n,
-                _ => usize::MAX,
+                _ => SkipU64::MAX,
             }
         }
 
@@ -173,9 +169,10 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
                 let (_, arg) = param_str.split_once('=').unwrap();
                 arg.to_string()
             };
-            let max_bytes = match max_bytes.parse::<usize>() {
+            let max_bytes = match max_bytes.parse::<BytesLimitU64>() {
                 Ok(num) => num,
-                Err(e) if *e.kind() == std::num::IntErrorKind::PosOverflow => usize::MAX,
+                // TODO limit to MAX is dangerous, this should become an error like in GNU cmp.
+                Err(e) if *e.kind() == std::num::IntErrorKind::PosOverflow => BytesLimitU64::MAX,
                 Err(_) => {
                     return Err(format!(
                         "{executable_str}: invalid --bytes value '{max_bytes}'"
@@ -233,7 +230,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
     }
 
     // Do as GNU cmp, and completely disable printing if we are
-    // outputing to /dev/null.
+    // outputting to /dev/null.
     #[cfg(not(target_os = "windows"))]
     if is_stdout_dev_null() {
         params.quiet = true;
@@ -285,7 +282,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
 
 fn prepare_reader(
     path: &OsString,
-    skip: &Option<usize>,
+    skip: &Option<SkipU64>,
     params: &Params,
 ) -> Result<Box<dyn BufRead>, String> {
     let mut reader: Box<dyn BufRead> = if path == "-" {
@@ -304,7 +301,8 @@ fn prepare_reader(
     };
 
     if let Some(skip) = skip {
-        if let Err(e) = io::copy(&mut reader.by_ref().take(*skip as u64), &mut io::sink()) {
+        // cast as u64 must remain, because value of IgnInit data type could be changed.
+        if let Err(e) = io::copy(&mut reader.by_ref().take(*skip), &mut io::sink()) {
             return Err(format_failure_to_read_input_file(
                 &params.executable,
                 path,
@@ -326,7 +324,7 @@ pub fn cmp(params: &Params) -> Result<Cmp, String> {
     let mut from = prepare_reader(&params.from, &params.skip_a, params)?;
     let mut to = prepare_reader(&params.to, &params.skip_b, params)?;
 
-    let mut offset_width = params.max_bytes.unwrap_or(usize::MAX);
+    let mut offset_width = params.max_bytes.unwrap_or(BytesLimitU64::MAX);
 
     if let (Ok(a_meta), Ok(b_meta)) = (fs::metadata(&params.from), fs::metadata(&params.to)) {
         #[cfg(not(target_os = "windows"))]
@@ -341,7 +339,7 @@ pub fn cmp(params: &Params) -> Result<Cmp, String> {
             return Ok(Cmp::Different);
         }
 
-        let smaller = cmp::min(a_size, b_size) as usize;
+        let smaller = cmp::min(a_size, b_size) as BytesLimitU64;
         offset_width = cmp::min(smaller, offset_width);
     }
 
@@ -350,8 +348,8 @@ pub fn cmp(params: &Params) -> Result<Cmp, String> {
     // Capacity calc: at_byte width + 2 x 3-byte octal numbers + 2 x 4-byte value + 4 spaces
     let mut output = Vec::<u8>::with_capacity(offset_width + 3 * 2 + 4 * 2 + 4);
 
-    let mut at_byte = 1;
-    let mut at_line = 1;
+    let mut at_byte: BytesLimitU64 = 1;
+    let mut at_line: u64 = 1;
     let mut start_of_line = true;
     let mut stdout = BufWriter::new(io::stdout().lock());
     let mut compare = Cmp::Equal;
@@ -401,8 +399,8 @@ pub fn cmp(params: &Params) -> Result<Cmp, String> {
         if from_buf[..consumed] == to_buf[..consumed] {
             let last = from_buf[..consumed].last().unwrap();
 
-            at_byte += consumed;
-            at_line += from_buf[..consumed].iter().filter(|&c| *c == b'\n').count();
+            at_byte += consumed as BytesLimitU64;
+            at_line += (from_buf[..consumed].iter().filter(|&c| *c == b'\n').count()) as u64;
 
             start_of_line = *last == b'\n';
 
@@ -590,7 +588,7 @@ fn format_visible_byte(byte: u8) -> String {
 fn format_verbose_difference(
     from_byte: u8,
     to_byte: u8,
-    at_byte: usize,
+    at_byte: BytesLimitU64,
     offset_width: usize,
     output: &mut Vec<u8>,
     params: &Params,
@@ -655,7 +653,13 @@ fn format_verbose_difference(
 }
 
 #[inline]
-fn report_eof(at_byte: usize, at_line: usize, start_of_line: bool, eof_on: &str, params: &Params) {
+fn report_eof(
+    at_byte: BytesLimitU64,
+    at_line: u64,
+    start_of_line: bool,
+    eof_on: &str,
+    params: &Params,
+) {
     if params.quiet {
         return;
     }
@@ -707,7 +711,13 @@ fn is_posix_locale() -> bool {
 }
 
 #[inline]
-fn report_difference(from_byte: u8, to_byte: u8, at_byte: usize, at_line: usize, params: &Params) {
+fn report_difference(
+    from_byte: u8,
+    to_byte: u8,
+    at_byte: BytesLimitU64,
+    at_line: u64,
+    params: &Params,
+) {
     if params.quiet {
         return;
     }
@@ -804,7 +814,7 @@ mod tests {
                 from: os("foo"),
                 to: os("bar"),
                 skip_a: Some(1),
-                skip_b: Some(usize::MAX),
+                skip_b: Some(SkipU64::MAX),
                 ..Default::default()
             }),
             parse_params(
@@ -982,7 +992,7 @@ mod tests {
                 executable: os("cmp"),
                 from: os("foo"),
                 to: os("bar"),
-                max_bytes: Some(usize::MAX),
+                max_bytes: Some(BytesLimitU64::MAX),
                 ..Default::default()
             }),
             parse_params(
@@ -999,6 +1009,7 @@ mod tests {
         );
 
         // Failure case
+        // TODO This is actually fine in GNU cmp. --bytes does not have a unit parser yet.
         assert_eq!(
             Err("cmp: invalid --bytes value '1K'".to_string()),
             parse_params(
@@ -1044,8 +1055,8 @@ mod tests {
                 executable: os("cmp"),
                 from: os("foo"),
                 to: os("bar"),
-                skip_a: Some(usize::MAX),
-                skip_b: Some(usize::MAX),
+                skip_a: Some(SkipU64::MAX),
+                skip_b: Some(SkipU64::MAX),
                 ..Default::default()
             }),
             parse_params(
@@ -1119,8 +1130,12 @@ mod tests {
         .enumerate()
         {
             let values = [
-                1_000usize.checked_pow((i + 1) as u32).unwrap_or(usize::MAX),
-                1024usize.checked_pow((i + 1) as u32).unwrap_or(usize::MAX),
+                (1_000 as SkipU64)
+                    .checked_pow((i + 1) as u32)
+                    .unwrap_or(SkipU64::MAX),
+                (1024 as SkipU64)
+                    .checked_pow((i + 1) as u32)
+                    .unwrap_or(SkipU64::MAX),
             ];
             for (j, v) in values.iter().enumerate() {
                 assert_eq!(
