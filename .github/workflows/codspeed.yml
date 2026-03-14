@@ -17,8 +17,19 @@ jobs:
   codspeed:
     name: Run benchmarks
     runs-on: ubuntu-latest
+    env:
+      CARGO_INCREMENTAL: 0
+    strategy:
+      matrix:
+        type: [simulation, memory]
+        package: [
+          uu_cmp,
+          uu_diff,
+        ]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Setup rust toolchain, cache and cargo-codspeed binary
         uses: moonrepo/setup-rust@v1
@@ -27,11 +38,20 @@ jobs:
           cache-target: release
           bins: cargo-codspeed
 
-      - name: Build the benchmark target(s)
-        run: cargo codspeed build -m simulation
+      - name: Build benchmarks for ${{ matrix.package }} (${{ matrix.type }})
+        shell: bash
+        run: |
+          echo "Building ${{ matrix.type }} benchmarks for ${{ matrix.package }}"
+          cargo codspeed build -m ${{ matrix.type }} -p ${{ matrix.package }}
 
-      - name: Run the benchmarks
+      - name: Run ${{ matrix.type }} benchmarks for ${{ matrix.package }}
         uses: CodSpeedHQ/action@v4
+        env:
+          CODSPEED_LOG: debug
         with:
-          mode: simulation
-          run: cargo codspeed run
+          mode: ${{ matrix.type }}
+          run: |
+            echo "Running ${{ matrix.type }} benchmarks for ${{ matrix.package }}"
+            cargo codspeed run -p ${{ matrix.package }} > /dev/null
+          token: ${{ secrets.CODSPEED_TOKEN }}
+
