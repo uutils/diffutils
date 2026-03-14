@@ -144,11 +144,10 @@ inherits = "release"
 panic = "unwind"
 debug = true
 
-# 
-# # The profile that 'dist' will build with
-# [profile.dist]
-# inherits = "release"
-# lto = "thin"
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
 
 # [lints]
 # workspace = true
