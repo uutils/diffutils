@@ -15,7 +15,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macOS-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - run: cargo check
 
   test:
@@ -26,7 +26,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macOS-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: install GNU patch on MacOS
         if: runner.os == 'macOS'
         run: |
@@ -42,7 +42,7 @@ jobs:
     name: cargo fmt --all -- --check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - run: cargo fmt --all -- --check
 
   clippy:
@@ -53,7 +53,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macOS-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - run: cargo clippy -- -D warnings
 
   gnu-testsuite:
@@ -62,7 +62,7 @@ jobs:
     name: GNU test suite
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - run: |
           cargo build --config=profile.release.strip=true --profile=release #-fast
           zstd -19 target/release/diffutils -o diffutils-x86_64-unknown-linux-gnu.zst
@@ -70,7 +70,7 @@ jobs:
       - run: ./tests/run-upstream-testsuite.sh release || true
         env:
           TERM: xterm
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: test-results.json
           path: tests/test-results.json
@@ -98,7 +98,7 @@ jobs:
           - { os: macos-latest   , features: macos }
           - { os: windows-latest , features: windows }
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - name: Initialize workflow variables
       env:
         # Use -Z
