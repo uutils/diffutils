@@ -4,27 +4,15 @@
 // files that was distributed with this source code.
 
 use std::{
-    env::ArgsOs,
     ffi::{OsStr, OsString},
     iter::Peekable,
     path::{Path, PathBuf},
     process::ExitCode,
 };
 
-mod cmp;
-mod context_diff;
-mod diff;
-mod ed_diff;
-mod macros;
-mod normal_diff;
-mod params;
-mod side_diff;
-mod unified_diff;
-mod utils;
-
 /// # Panics
 /// Panics if the binary path cannot be determined
-fn binary_path(args: &mut Peekable<ArgsOs>) -> PathBuf {
+fn binary_path<I: Iterator<Item = OsString>>(args: &mut Peekable<I>) -> PathBuf {
     match args.peek() {
         Some(ref s) if !s.is_empty() => PathBuf::from(s),
         _ => std::env::current_exe().unwrap(),
@@ -53,7 +41,7 @@ fn second_arg_error(name: &OsStr) -> ! {
 }
 
 fn main() -> ExitCode {
-    let mut args = std::env::args_os().peekable();
+    let mut args = uucore::args_os().peekable();
 
     let exe_path = binary_path(&mut args);
     let exe_name = name(&exe_path);
@@ -69,13 +57,16 @@ fn main() -> ExitCode {
         OsString::from(exe_name)
     };
 
-    match util_name.to_str() {
-        Some("diff") => diff::main(args),
-        Some("cmp") => cmp::main(args),
+    let code = match util_name.to_str() {
+        Some("cmp") => cmp::uumain(args),
+        Some("diff") => diff::uumain(args),
         Some(name) => {
             eprintln!("{name}: utility not supported");
-            ExitCode::from(2)
+            // ExitCode::from(2)
+            2
         }
         None => second_arg_error(exe_name),
-    }
+    };
+
+    ExitCode::from(code as u8)
 }

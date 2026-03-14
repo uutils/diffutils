@@ -97,7 +97,7 @@ mod common {
 }
 
 mod diff {
-    use diffutilslib::assert_diff_eq;
+    use uudiff::assert_diff_eq;
 
     use super::*;
 

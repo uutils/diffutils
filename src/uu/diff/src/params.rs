@@ -1,8 +1,16 @@
+#![allow(clippy::collapsible_if)]
+// This file is part of the uutils diffutils package.
+//
+// For the full copyright and license information, please view the LICENSE-*
+// files that was distributed with this source code.
+
 use std::ffi::OsString;
 use std::iter::Peekable;
 use std::path::PathBuf;
 
 use regex::Regex;
+
+// use crate::side_diff;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum Format {
@@ -45,10 +53,20 @@ impl Default for Params {
     }
 }
 
-pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Result<Params, String> {
+// impl From<&Params> for side_diff::Params {
+//     fn from(param: &Params) -> Self {
+//         Self {
+//             expand_tabs: param.expand_tabs,
+//             tabsize: param.tabsize,
+//             width: param.width,
+//         }
+//     }
+// }
+
+pub fn parse_params<I: Iterator<Item = OsString>>(mut args: Peekable<I>) -> Result<Params, String> {
     // parse CLI
 
-    let Some(executable) = opts.next() else {
+    let Some(executable) = args.next() else {
         return Err("Usage: <exe> <from> <to>".to_string());
     };
     let mut params = Params {
@@ -61,8 +79,8 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
     let mut context = None;
     let tabsize_re = Regex::new(r"^--tabsize=(?<num>\d+)$").unwrap();
     let width_re = Regex::new(r"--width=(?P<long>\d+)$").unwrap();
-    while let Some(param) = opts.next() {
-        let next_param = opts.peek();
+    while let Some(param) = args.next() {
+        let next_param = args.peek();
         if param == "--" {
             break;
         }
@@ -168,7 +186,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
                         context = context_count;
                     }
                     if next_param_consumed {
-                        opts.next();
+                        args.next();
                     }
                     continue;
                 }
@@ -187,7 +205,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
                         context = context_count;
                     }
                     if next_param_consumed {
-                        opts.next();
+                        args.next();
                     }
                     continue;
                 }
@@ -210,7 +228,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
     }
     params.from = if let Some(from) = from {
         from
-    } else if let Some(param) = opts.next() {
+    } else if let Some(param) = args.next() {
         param
     } else {
         return Err(format!(
@@ -220,7 +238,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
     };
     params.to = if let Some(to) = to {
         to
-    } else if let Some(param) = opts.next() {
+    } else if let Some(param) = args.next() {
         param
     } else {
         return Err(format!(

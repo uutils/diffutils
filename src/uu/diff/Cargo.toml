@@ -1,0 +1,51 @@
+[package]
+name = "uu_diff"
+description = "diff ~ (uutils) decode/encode input (diff file compare)"
+# The tool dist does not allow different repository names within the workspace.
+# repository = "https://github.com/uutils/diffutils/tree/main/src/uu/diff"
+repository = "https://github.com/uutils/diffutils"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+readme.workspace = true
+
+# [lints]
+# workspace = true
+
+[[bin]]
+name = "diff"
+path = "src/main.rs"
+
+[lib]
+path = "src/diff.rs"
+
+[features]
+# default = ["feat_run_binary_bench" ]
+# The cmd benchmarks start the binaries and take a lot of runtime on the github checks.
+# Only run them locally.
+feat_run_binary_bench = []
+
+[dependencies]
+# const_format = { workspace = true }
+diff_crate = { workspace = true }
+regex = { workspace = true }
+same-file = { workspace = true }
+# sdiff = { workspace = true }
+uucore = { workspace = true }
+uudiff = { workspace = true }
+unicode-width = { workspace = true }
+
+[dev-dependencies]
+divan = { workspace = true }
+pretty_assertions = { workspace = true }
+rand = { workspace = true }
+tempfile = { workspace = true }
+
+[[bench]]
+name = "diff_bench"
+harness = false

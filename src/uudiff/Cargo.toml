@@ -1,0 +1,42 @@
+# spell-checker:ignore (features) bigdecimal zerocopy extendedbigdecimal tzdb zoneinfo logind
+
+[package]
+name = "uudiff"
+description = "uutils ~ 'diff' uutils code library (cross-platform)"
+repository = "https://github.com/uutils/diffutils/tree/main/src/uudiff"
+authors.workspace = true
+categories.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+license.workspace = true
+version.workspace = true
+
+# [package.metadata.docs.rs]
+# all-features = true
+# 
+# [lints]
+# workspace = true
+
+[lib]
+path = "src/lib/lib.rs"
+
+[features]
+# TODO How are features centralized in this workspace file?
+# instead of limiting to KiB, MiB, etc, one can write kib, mib, Mb or whatever case.
+feat_allow_case_insensitive_number_units = []
+
+[dependencies]
+chrono.workspace = true
+# coreutils.workspace = true
+# regex.workspace = true
+rand = { workspace = true }
+same-file.workspace = true
+tempfile = { workspace = true }
+unicode-width.workspace = true
+uucore.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+tempfile.workspace = true

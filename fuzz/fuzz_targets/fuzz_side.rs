@@ -2,11 +2,11 @@
 #[macro_use]
 extern crate libfuzzer_sys;
 
-use diffutilslib::side_diff;
+use uu_diff::side_diff;
 
 use std::fs::File;
 use std::io::Write;
-use diffutilslib::params::Params;
+use uu_diff::params::Params;
 
 fuzz_target!(|x: (Vec<u8>, Vec<u8>, /* usize, usize */ bool)| {
     let (original, new, /* width, tabsize, */ expand) = x;

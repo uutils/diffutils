@@ -3,13 +3,13 @@
 // For the full copyright and license information, please view the LICENSE-*
 // files that was distributed with this source code.
 
-use crate::utils::format_failure_to_read_input_file;
-use std::env::{self, ArgsOs};
+use std::env::{self};
 use std::ffi::OsString;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::iter::Peekable;
-use std::process::ExitCode;
 use std::{cmp, fs, io};
+use uucore::error::UResult;
+use uudiff::utils::{format_failure_to_read_input_file, format_io_error};
 
 #[cfg(not(target_os = "windows"))]
 use std::os::fd::{AsRawFd, FromRawFd};
@@ -76,7 +76,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
             Err(_) => {
                 return Err(format!(
                     "{executable_str}: invalid --ignore-initial value '{skip_desc}'"
-                ))
+                ));
             }
         };
 
@@ -179,7 +179,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
                 Err(_) => {
                     return Err(format!(
                         "{executable_str}: invalid --bytes value '{max_bytes}'"
-                    ))
+                    ));
                 }
             };
             params.max_bytes = Some(max_bytes);
@@ -233,7 +233,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
     }
 
     // Do as GNU cmp, and completely disable printing if we are
-    // outputing to /dev/null.
+    // outputting to /dev/null.
     #[cfg(not(target_os = "windows"))]
     if is_stdout_dev_null() {
         params.quiet = true;
@@ -303,6 +303,7 @@ fn prepare_reader(
         }
     };
 
+    #[allow(clippy::collapsible_if)]
     if let Some(skip) = skip {
         if let Err(e) = io::copy(&mut reader.by_ref().take(*skip as u64), &mut io::sink()) {
             return Err(format_failure_to_read_input_file(
@@ -322,7 +323,7 @@ pub enum Cmp {
     Different,
 }
 
-pub fn cmp(params: &Params) -> Result<Cmp, String> {
+pub fn cmp_compare(params: &Params) -> Result<Cmp, String> {
     let mut from = prepare_reader(&params.from, &params.skip_a, params)?;
     let mut to = prepare_reader(&params.to, &params.skip_b, params)?;
 
@@ -441,7 +442,7 @@ pub fn cmp(params: &Params) -> Result<Cmp, String> {
                     })?;
                     output.clear();
                 } else {
-                    report_difference(from_byte, to_byte, at_byte, at_line, params);
+                    report_difference(from_byte, to_byte, at_byte, at_line, params)?;
                     return Ok(Cmp::Different);
                 }
             }
@@ -473,31 +474,37 @@ pub fn cmp(params: &Params) -> Result<Cmp, String> {
 //     An exit status of 0 means no differences were found,
 //     1 means some differences were found,
 //     and 2 means trouble.
-pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
-    let params = match parse_params(opts) {
+#[uucore::main]
+pub fn uumain(args: impl uucore::Args) -> UResult<()> {
+    let args = args.peekable();
+    let params = match parse_params(args) {
         Ok(param) => param,
         Err(e) => {
             eprintln!("{e}");
-            return ExitCode::from(2);
+            uucore::error::set_exit_code(2);
+            return Ok(());
         }
     };
 
     if params.from == "-" && params.to == "-"
         || same_file::is_same_file(&params.from, &params.to).unwrap_or(false)
     {
-        return ExitCode::SUCCESS;
+        uucore::error::set_exit_code(0);
+        return Ok(());
     }
 
-    match cmp(&params) {
-        Ok(Cmp::Equal) => ExitCode::SUCCESS,
-        Ok(Cmp::Different) => ExitCode::from(1),
+    match cmp_compare(&params) {
+        Ok(Cmp::Equal) => uucore::error::set_exit_code(0),
+        Ok(Cmp::Different) => uucore::error::set_exit_code(1),
         Err(e) => {
             if !params.quiet {
                 eprintln!("{e}");
             }
-            ExitCode::from(2)
+            uucore::error::set_exit_code(2);
         }
-    }
+    };
+
+    Ok(())
 }
 
 #[inline]
@@ -707,9 +714,15 @@ fn is_posix_locale() -> bool {
 }
 
 #[inline]
-fn report_difference(from_byte: u8, to_byte: u8, at_byte: usize, at_line: usize, params: &Params) {
+fn report_difference(
+    from_byte: u8,
+    to_byte: u8,
+    at_byte: usize,
+    at_line: usize,
+    params: &Params,
+) -> Result<(), String> {
     if params.quiet {
-        return;
+        return Ok(());
     }
 
     let term = if is_posix_locale() && !params.print_bytes {
@@ -734,7 +747,16 @@ fn report_difference(from_byte: u8, to_byte: u8, at_byte: usize, at_line: usize,
             format_visible_byte(to_byte)
         );
     }
-    println!();
+    // Instead of println!(), which panics in case of error (> /dev/full).
+    let mut stdout = io::stdout();
+    if let Err(e) = writeln!(stdout) {
+        return Err(format_io_error(&e));
+    };
+    if let Err(e) = stdout.flush() {
+        return Err(format_io_error(&e));
+    };
+
+    Ok(())
 }
 
 #[cfg(test)]
