@@ -9,7 +9,7 @@ use std::fs::File;
 #[cfg(not(windows))]
 use std::fs::OpenOptions;
 use std::io::Write;
-use tempfile::{NamedTempFile, tempdir};
+use tempfile::{tempdir, NamedTempFile};
 
 // Integration tests for the diffutils command
 mod common {

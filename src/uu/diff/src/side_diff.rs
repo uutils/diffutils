@@ -574,8 +574,8 @@ mod tests {
             let config = create_test_config(false, DEF_TAB_SIZE);
             let mut buf = vec![];
 
+            //                                     ↓ é char, start multi byte
             let gb18030 = b"\x63\x61\x66\xA8\x80"; // some random chinese encoding
-            //                                   ^ é char, start multi byte
             process_half_line(gb18030, 4, false, false, &config, &mut buf).unwrap();
             assert_eq!(buf, b"\x63\x61\x66\xA8 "); // break the encoding of 'é' letter
         }
