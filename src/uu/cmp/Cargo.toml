@@ -26,6 +26,11 @@ path = "src/cmp.rs"
 # TODO How to sync over all modules?
 # instead of limiting to KiB, MiB, etc, one can write kib, mib, Mb or whatever case.
 feat_allow_case_insensitive_number_units = []
+# default = ["feat_run_binary_bench" ]
+# The cmd benchmarks start the binaries and take a lot of runtime on the github checks.
+# Only run them locally.
+feat_run_binary_bench = []
+
 
 [dependencies]
 # const_format = { workspace = true }

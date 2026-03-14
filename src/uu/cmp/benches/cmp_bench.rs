@@ -24,7 +24,7 @@ use divan::Bencher;
 use tempfile::TempDir;
 use uu_cmp::parse_params;
 use uudiff::benchmark::{
-    binary,
+    bench_binary,
     prepare_bench::{generate_test_files_bytes, BenchContext},
     str_to_args,
 };
@@ -74,6 +74,7 @@ fn cmp_compare_files_different(bencher: Bencher, kb: u64) {
 }
 
 // bench original GNU cmp
+#[cfg(feature = "feat_run_binary_bench")]
 #[divan::bench(args = FILE_SIZES_IN_KILO_BYTES)]
 fn cmd_cmp_gnu_equal(bencher: Bencher, kb: u64) {
     let fp = get_context().get_files_equal_kb(kb).unwrap();
@@ -81,25 +82,26 @@ fn cmd_cmp_gnu_equal(bencher: Bencher, kb: u64) {
     bencher
         // .with_inputs(|| prepare::cmp_params_identical_testfiles(lines))
         .with_inputs(|| args_str.clone())
-        .bench_refs(|cmd_args| binary::bench_binary("cmp", cmd_args));
+        .bench_refs(|cmd_args| bench_binary::bench_binary("cmp", cmd_args));
 }
 
 // bench the compiled release version
+#[cfg(feature = "feat_run_binary_bench")]
 #[divan::bench(args = FILE_SIZES_IN_KILO_BYTES)]
 fn cmd_cmp_release_equal(bencher: Bencher, kb: u64) {
     // search for src, then shorten path
     let dir = std::env::current_dir().unwrap();
     let path = dir.to_string_lossy();
     let path = path.trim_end_matches("src/uu/cmp");
-    let prg = path.to_string() + "target/release/diffutils";
+    let prg = path.to_string() + "target/release/cmp";
 
     let fp = get_context().get_files_equal_kb(kb).unwrap();
-    let args_str = format!("cmp {} {}", fp.from, fp.to);
+    let args_str = format!("{} {}", fp.from, fp.to);
 
     bencher
         // .with_inputs(|| prepare::cmp_params_identical_testfiles(lines))
         .with_inputs(|| args_str.clone())
-        .bench_refs(|cmd_args| binary::bench_binary(&prg, cmd_args));
+        .bench_refs(|cmd_args| bench_binary::bench_binary(&prg, cmd_args));
 }
 
 // Since each bench function is separate in Divan it is more difficult to dynamically create test data.

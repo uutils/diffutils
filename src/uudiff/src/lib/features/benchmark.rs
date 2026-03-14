@@ -215,7 +215,7 @@ pub mod prepare_bench {
 }
 
 /// Benchmark tools which are designed to call the compiled executable.
-pub mod binary {
+pub mod bench_binary {
     use std::process::Command;
 
     use crate::benchmark::str_to_args;

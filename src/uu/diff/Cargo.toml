@@ -22,6 +22,12 @@ path = "src/main.rs"
 [lib]
 path = "src/diff.rs"
 
+[features]
+# default = ["feat_run_binary_bench" ]
+# The cmd benchmarks start the binaries and take a lot of runtime on the github checks.
+# Only run them locally.
+feat_run_binary_bench = []
+
 [dependencies]
 # const_format = { workspace = true }
 diff_crate = { workspace = true }
