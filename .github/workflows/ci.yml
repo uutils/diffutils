@@ -89,6 +89,8 @@ jobs:
 
   coverage:
     name: Code Coverage
+    env:
+      RUSTC_BOOTSTRAP: 1
     runs-on: ${{ matrix.job.os }}
     strategy:
       fail-fast: false
@@ -100,9 +102,6 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Initialize workflow variables
-      env:
-        # Use -Z
-        RUSTC_BOOTSTRAP: 1
       id: vars
       shell: bash
       run: |
@@ -125,17 +124,11 @@ jobs:
     - name: Test
       run: cargo test --all-features --no-fail-fast
       env:
-        CARGO_INCREMENTAL: "0"
         RUSTC_WRAPPER: ""
         RUSTFLAGS: "-Cinstrument-coverage -Zcoverage-options=branch -Ccodegen-units=1 -Copt-level=0 -Coverflow-checks=off -Zpanic_abort_tests -Cpanic=abort"
         RUSTDOCFLAGS: "-Cpanic=abort"
         LLVM_PROFILE_FILE: "diffutils-%p-%m.profraw"
-        # Use -Z
-        RUSTC_BOOTSTRAP: 1
     - name: "`grcov` ~ install"
-      env:
-        # Use -Z
-        RUSTC_BOOTSTRAP: 1
       id: build_grcov
       shell: bash
       run: |
