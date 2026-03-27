@@ -8,7 +8,7 @@
 use std::io::Write;
 
 use crate::params::Params;
-use crate::utils::do_write_line;
+use uudiff::utils::do_write_line;
 
 #[derive(Debug, PartialEq)]
 struct Mismatch {
@@ -21,8 +21,8 @@ struct Mismatch {
 }
 
 impl Mismatch {
-    fn new(line_number_expected: usize, line_number_actual: usize) -> Mismatch {
-        Mismatch {
+    fn new(line_number_expected: usize, line_number_actual: usize) -> Self {
+        Self {
             line_number_expected,
             line_number_actual,
             expected: Vec::new(),
@@ -56,9 +56,9 @@ fn make_diff(expected: &[u8], actual: &[u8], stop_early: bool) -> Vec<Mismatch> 
         actual_lines.pop();
     }
 
-    for result in diff::slice(&expected_lines, &actual_lines) {
+    for result in diff_crate::slice(&expected_lines, &actual_lines) {
         match result {
-            diff::Result::Left(str) => {
+            diff_crate::Result::Left(str) => {
                 if !mismatch.actual.is_empty() && !mismatch.actual_missing_nl {
                     results.push(mismatch);
                     mismatch = Mismatch::new(line_number_expected, line_number_actual);
@@ -67,12 +67,12 @@ fn make_diff(expected: &[u8], actual: &[u8], stop_early: bool) -> Vec<Mismatch> 
                 mismatch.expected_missing_nl = line_number_expected > expected_lines_count;
                 line_number_expected += 1;
             }
-            diff::Result::Right(str) => {
+            diff_crate::Result::Right(str) => {
                 mismatch.actual.push(str.to_vec());
                 mismatch.actual_missing_nl = line_number_actual > actual_lines_count;
                 line_number_actual += 1;
             }
-            diff::Result::Both(str, _) => {
+            diff_crate::Result::Both(str, _) => {
                 match (
                     line_number_expected > expected_lines_count,
                     line_number_actual > actual_lines_count,
@@ -230,7 +230,7 @@ mod tests {
 
     #[test]
     fn test_permutations() {
-        let target = "target/normal-diff/";
+        let target = "../../../target/normal-diff/";
         // test all possible six-line files.
         let _ = std::fs::create_dir(target);
         for &a in &[0, 1, 2] {
@@ -308,7 +308,7 @@ mod tests {
 
     #[test]
     fn test_permutations_missing_line_ending() {
-        let target = "target/normal-diff/";
+        let target = "../../../target/normal-diff/";
         // test all possible six-line files with missing newlines.
         let _ = std::fs::create_dir(target);
         for &a in &[0, 1, 2] {
@@ -402,7 +402,7 @@ mod tests {
 
     #[test]
     fn test_permutations_empty_lines() {
-        let target = "target/normal-diff/";
+        let target = "../../../target/normal-diff/";
         // test all possible six-line files with missing newlines.
         let _ = std::fs::create_dir(target);
         for &a in &[0, 1, 2] {
@@ -474,7 +474,7 @@ mod tests {
 
     #[test]
     fn test_permutations_reverse() {
-        let target = "target/normal-diff/";
+        let target = "../../../target/normal-diff/";
         // test all possible six-line files.
         let _ = std::fs::create_dir(target);
         for &a in &[0, 1, 2] {

@@ -1,0 +1,35 @@
+[package]
+name = "uu_test"
+description = "test ~ (uutils) evaluate comparison and file type expressions"
+# The tool dist does not allow different repository names within the workspace.
+repository = "https://github.com/uutils/diffutils"
+# repository = "https://github.com/uutils/diffutils/tree/main/src/uu/test"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+readme.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+path = "src/test.rs"
+
+[dependencies]
+clap = { workspace = true }
+fluent = { workspace = true }
+libc = { workspace = true }
+thiserror = { workspace = true }
+uucore = { workspace = true, features = ["process"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[[bin]]
+name = "test"
+path = "src/main.rs"

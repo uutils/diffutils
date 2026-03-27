@@ -5,13 +5,15 @@
 
 // spell-checker:ignore ilog
 
-use crate::utils::format_failure_to_read_input_file;
-use std::env::{self, ArgsOs};
+use clap::Command;
+use std::env::{self};
 use std::ffi::OsString;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::iter::Peekable;
-use std::process::ExitCode;
 use std::{cmp, fs, io};
+use uucore::error::set_exit_code;
+use uudiff::error::UResult;
+use uudiff::utils::format_failure_to_read_input_file;
 
 #[cfg(not(target_os = "windows"))]
 use std::os::fd::{AsRawFd, FromRawFd};
@@ -78,7 +80,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
             Err(_) => {
                 return Err(format!(
                     "{executable_str}: invalid --ignore-initial value '{skip_desc}'"
-                ))
+                ));
             }
         };
 
@@ -181,7 +183,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
                 Err(_) => {
                     return Err(format!(
                         "{executable_str}: invalid --bytes value '{max_bytes}'"
-                    ))
+                    ));
                 }
             };
             params.max_bytes = Some(max_bytes);
@@ -272,7 +274,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
             let param_str = param.to_string_lossy().to_string();
             params.skip_a = Some(parse_skip(&param_str, &param_str)?);
         }
-    };
+    }
     if params.skip_b.is_none() {
         if skip_pos2.is_some() {
             params.skip_b = skip_pos2;
@@ -287,7 +289,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
 
 fn prepare_reader(
     path: &OsString,
-    skip: &Option<usize>,
+    skip: Option<usize>,
     params: &Params,
 ) -> Result<Box<dyn BufRead>, String> {
     let mut reader: Box<dyn BufRead> = if path == "-" {
@@ -306,7 +308,7 @@ fn prepare_reader(
     };
 
     if let Some(skip) = skip {
-        if let Err(e) = io::copy(&mut reader.by_ref().take(*skip as u64), &mut io::sink()) {
+        if let Err(e) = io::copy(&mut reader.by_ref().take(skip as u64), &mut io::sink()) {
             return Err(format_failure_to_read_input_file(
                 &params.executable,
                 path,
@@ -324,9 +326,10 @@ pub enum Cmp {
     Different,
 }
 
+#[allow(clippy::naive_bytecount)]
 pub fn cmp(params: &Params) -> Result<Cmp, String> {
-    let mut from = prepare_reader(&params.from, &params.skip_a, params)?;
-    let mut to = prepare_reader(&params.to, &params.skip_b, params)?;
+    let mut from = prepare_reader(&params.from, params.skip_a, params)?;
+    let mut to = prepare_reader(&params.to, params.skip_b, params)?;
 
     let mut offset_width = params.max_bytes.unwrap_or(usize::MAX);
 
@@ -434,7 +437,7 @@ pub fn cmp(params: &Params) -> Result<Cmp, String> {
                         offset_width,
                         &mut output,
                         params,
-                    )?;
+                    );
                     stdout.write_all(output.as_slice()).map_err(|e| {
                         format!(
                             "{}: error printing output: {e}",
@@ -470,36 +473,37 @@ pub fn cmp(params: &Params) -> Result<Cmp, String> {
     Ok(compare)
 }
 
-// Exit codes are documented at
-// https://www.gnu.org/software/diffutils/manual/html_node/Invoking-cmp.html
-//     An exit status of 0 means no differences were found,
-//     1 means some differences were found,
-//     and 2 means trouble.
-pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
+/// Entry into cmp.
+#[uucore::main]
+pub fn uumain(args: impl uucore::Args) -> UResult<()> {
+    let opts = args.peekable();
     let params = match parse_params(opts) {
         Ok(param) => param,
         Err(e) => {
             eprintln!("{e}");
-            return ExitCode::from(2);
+            set_exit_code(2);
+            return Ok(());
         }
     };
 
     if params.from == "-" && params.to == "-"
         || same_file::is_same_file(&params.from, &params.to).unwrap_or(false)
     {
-        return ExitCode::SUCCESS;
+        set_exit_code(0);
+        return Ok(());
     }
 
     match cmp(&params) {
-        Ok(Cmp::Equal) => ExitCode::SUCCESS,
-        Ok(Cmp::Different) => ExitCode::from(1),
+        Ok(Cmp::Equal) => set_exit_code(0),
+        Ok(Cmp::Different) => set_exit_code(1),
         Err(e) => {
             if !params.quiet {
                 eprintln!("{e}");
             }
-            ExitCode::from(2)
+            set_exit_code(2);
         }
     }
+    Ok(())
 }
 
 #[inline]
@@ -596,7 +600,7 @@ fn format_verbose_difference(
     offset_width: usize,
     output: &mut Vec<u8>,
     params: &Params,
-) -> Result<(), String> {
+) {
     assert!(!params.quiet);
 
     let mut at_byte_buf = itoa::Buffer::new();
@@ -609,7 +613,7 @@ fn format_verbose_difference(
         let at_byte_padding = offset_width.saturating_sub(at_byte_str.len());
 
         for _ in 0..at_byte_padding {
-            output.push(b' ')
+            output.push(b' ');
         }
 
         output.extend_from_slice(at_byte_str.as_bytes());
@@ -637,7 +641,7 @@ fn format_verbose_difference(
         let at_byte_padding = offset_width - at_byte_str.len();
 
         for _ in 0..at_byte_padding {
-            output.push(b' ')
+            output.push(b' ');
         }
 
         output.extend_from_slice(at_byte_str.as_bytes());
@@ -652,8 +656,6 @@ fn format_verbose_difference(
 
         output.push(b'\n');
     }
-
-    Ok(())
 }
 
 #[inline]
@@ -1210,4 +1212,10 @@ mod tests {
             )
         );
     }
+}
+
+// Required for build.rs
+pub fn uu_app() -> Command {
+    // dummy
+    Command::new(uucore::util_name())
 }

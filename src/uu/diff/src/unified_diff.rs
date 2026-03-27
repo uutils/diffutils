@@ -9,8 +9,8 @@ use std::collections::VecDeque;
 use std::io::Write;
 
 use crate::params::Params;
-use crate::utils::do_write_line;
-use crate::utils::get_modification_time;
+use uudiff::utils::do_write_line;
+use uudiff::utils::get_modification_time;
 
 #[derive(Debug, PartialEq)]
 pub enum DiffLine {
@@ -28,8 +28,8 @@ struct Mismatch {
 }
 
 impl Mismatch {
-    fn new(line_number_expected: u32, line_number_actual: u32) -> Mismatch {
-        Mismatch {
+    fn new(line_number_expected: u32, line_number_actual: u32) -> Self {
+        Self {
             line_number_expected,
             line_number_actual,
             lines: Vec::new(),
@@ -67,9 +67,9 @@ fn make_diff(
         actual_lines.pop();
     }
 
-    for result in diff::slice(&expected_lines, &actual_lines) {
+    for result in diff_crate::slice(&expected_lines, &actual_lines) {
         match result {
-            diff::Result::Left(str) => {
+            diff_crate::Result::Left(str) => {
                 if lines_since_mismatch >= context_size && lines_since_mismatch > 0 {
                     results.push(mismatch);
                     mismatch = Mismatch::new(
@@ -95,7 +95,9 @@ fn make_diff(
                             mismatch.lines.push(DiffLine::Actual(res));
                             mismatch.lines.push(DiffLine::MissingNL);
                         }
-                        _ => unreachable!("unterminated Left and Common lines shouldn't be followed by more Left lines"),
+                        _ => unreachable!(
+                            "unterminated Left and Common lines shouldn't be followed by more Left lines"
+                        ),
                     }
                 } else {
                     mismatch.lines.push(DiffLine::Expected(str.to_vec()));
@@ -106,7 +108,7 @@ fn make_diff(
                 line_number_expected += 1;
                 lines_since_mismatch = 0;
             }
-            diff::Result::Right(str) => {
+            diff_crate::Result::Right(str) => {
                 if lines_since_mismatch >= context_size && lines_since_mismatch > 0 {
                     results.push(mismatch);
                     mismatch = Mismatch::new(
@@ -127,7 +129,7 @@ fn make_diff(
                 line_number_actual += 1;
                 lines_since_mismatch = 0;
             }
-            diff::Result::Both(str, _) => {
+            diff_crate::Result::Both(str, _) => {
                 // if one of them is missing a newline and the other isn't, then they don't actually match
                 if (line_number_actual > actual_lines_count)
                     && (line_number_expected > expected_lines_count)
@@ -412,7 +414,7 @@ mod tests {
 
     #[test]
     fn test_permutations() {
-        let target = "target/unified-diff/";
+        let target = "../../../target/unified-diff/";
         // test all possible six-line files.
         let _ = std::fs::create_dir(target);
         for &a in &[0, 1, 2] {
@@ -495,7 +497,9 @@ mod tests {
                                 );
 
                                 let output = Command::new("patch")
-                                    .arg("-p0")
+                                    // .arg("-p0")
+                                    .arg("-d")
+                                    .arg(&format!("{target}"))
                                     .stdin(File::open(format!("{target}/ab.diff")).unwrap())
                                     .output()
                                     .unwrap();
@@ -514,7 +518,7 @@ mod tests {
 
     #[test]
     fn test_permutations_missing_line_ending() {
-        let target = "target/unified-diff/";
+        let target = "../../../target/unified-diff/";
         // test all possible six-line files with missing newlines.
         let _ = std::fs::create_dir(target);
         for &a in &[0, 1, 2] {
@@ -595,7 +599,9 @@ mod tests {
                                     let _ = fa;
                                     let _ = fb;
                                     let output = Command::new("patch")
-                                        .arg("-p0")
+                                        // .arg("-p0")
+                                        .arg("-d")
+                                        .arg(&format!("{target}"))
                                         .stdin(File::open(format!("{target}/abn.diff")).unwrap())
                                         .output()
                                         .unwrap();
@@ -615,7 +621,7 @@ mod tests {
 
     #[test]
     fn test_permutations_empty_lines() {
-        let target = "target/unified-diff/";
+        let target = "../../../target/unified-diff/";
         // test all possible six-line files with missing newlines.
         let _ = std::fs::create_dir(target);
         for &a in &[0, 1, 2] {
@@ -691,7 +697,9 @@ mod tests {
                                     let _ = fa;
                                     let _ = fb;
                                     let output = Command::new("patch")
-                                        .arg("-p0")
+                                        // .arg("-p0")
+                                        .arg("-d")
+                                        .arg(&format!("{target}"))
                                         .stdin(File::open(format!("{target}/ab_.diff")).unwrap())
                                         .output()
                                         .unwrap();
@@ -711,7 +719,7 @@ mod tests {
 
     #[test]
     fn test_permutations_missing_lines() {
-        let target = "target/unified-diff/";
+        let target = "../../../target/unified-diff/";
         // test all possible six-line files.
         let _ = std::fs::create_dir(target);
         for &a in &[0, 1, 2] {
@@ -772,7 +780,9 @@ mod tests {
                                 let _ = fa;
                                 let _ = fb;
                                 let output = Command::new("patch")
-                                    .arg("-p0")
+                                    // .arg("-p0")
+                                    .arg("-d")
+                                    .arg(&format!("{target}"))
                                     .stdin(File::open(format!("{target}/abx.diff")).unwrap())
                                     .output()
                                     .unwrap();
@@ -791,7 +801,7 @@ mod tests {
 
     #[test]
     fn test_permutations_reverse() {
-        let target = "target/unified-diff/";
+        let target = "../../../target/unified-diff/";
         // test all possible six-line files.
         let _ = std::fs::create_dir(target);
         for &a in &[0, 1, 2] {
@@ -858,7 +868,9 @@ mod tests {
                                 let _ = fa;
                                 let _ = fb;
                                 let output = Command::new("patch")
-                                    .arg("-p0")
+                                    // .arg("-p0")
+                                    .arg("-d")
+                                    .arg(&format!("{target}"))
                                     .stdin(File::open(format!("{target}/abr.diff")).unwrap())
                                     .output()
                                     .unwrap();

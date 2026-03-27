@@ -6,7 +6,7 @@
 // spell-checker:ignore áéíóú endiand mcel rxyz
 
 use core::cmp::{max, min};
-use diff::Result;
+use diff_crate::Result;
 use std::{io::Write, vec};
 use unicode_width::UnicodeWidthStr;
 
@@ -54,22 +54,19 @@ impl<'a> Iterator for CharIter<'a> {
                 break;
             }
             view = &self.current[..index];
-            char = str::from_utf8(view)
+            char = str::from_utf8(view);
         }
 
-        match char {
-            Ok(c) => {
-                self.current = self
-                    .current
-                    .get(view.len()..)
-                    .unwrap_or(&self.current[0..0]);
-                Some((view, UnicodeWidthStr::width(c)))
-            }
-            Err(_) => {
-                // We did not find an utf-8 char within the next 4 bytes, return the single byte.
-                self.current = &self.current[1..];
-                Some((&view[..1], 1))
-            }
+        if let Ok(c) = char {
+            self.current = self
+                .current
+                .get(view.len()..)
+                .unwrap_or(&self.current[0..0]);
+            Some((view, UnicodeWidthStr::width(c)))
+        } else {
+            // We did not find an utf-8 char within the next 4 bytes, return the single byte.
+            self.current = &self.current[1..];
+            Some((&view[..1], 1))
         }
     }
 }
@@ -350,12 +347,12 @@ pub fn diff<T: Write>(
     More studies are needed to cover GNU diff side by side with 100% accuracy, which is one of
     the goals of this project : )
     */
-    for result in diff::slice(&left_lines, &right_lines) {
+    for result in diff_crate::slice(&left_lines, &right_lines) {
         match result {
             Result::Left(left_ln) => push_output(left_ln, b"", b'<', output, &config).unwrap(),
             Result::Right(right_ln) => push_output(b"", right_ln, b'>', output, &config).unwrap(),
             Result::Both(left_ln, right_ln) => {
-                push_output(left_ln, right_ln, b' ', output, &config).unwrap()
+                push_output(left_ln, right_ln, b' ', output, &config).unwrap();
             }
         }
     }
@@ -577,7 +574,7 @@ mod tests {
             let mut buf = vec![];
 
             let gb18030 = b"\x63\x61\x66\xA8\x80"; // some random chinese encoding
-                                                   //                                   ^ é char, start multi byte
+            //                                   ^ é char, start multi byte
             process_half_line(gb18030, 4, false, false, &config, &mut buf).unwrap();
             assert_eq!(buf, b"\x63\x61\x66\xA8 "); // break the encoding of 'é' letter
         }

@@ -2,23 +2,36 @@
 //
 // For the full copyright and license information, please view the LICENSE
 // file that was distributed with this source code.
+pub mod context_diff;
+pub mod ed_diff;
+pub mod macros;
+pub mod normal_diff;
+pub mod params;
+pub mod side_diff;
+pub mod unified_diff;
 
-use crate::params::{parse_params, Format};
-use crate::utils::report_failure_to_read_input_file;
-use crate::{context_diff, ed_diff, normal_diff, side_diff, unified_diff};
-use std::env::ArgsOs;
+// Re-export the public functions/types you need
+// TODO remove pub?
+pub use context_diff::diff as context_diff;
+pub use ed_diff::diff as ed_diff;
+pub use normal_diff::diff as normal_diff;
+pub use side_diff::diff as side_by_side_diff;
+pub use unified_diff::diff as unified_diff;
+
+use crate::params::{Format, parse_params};
+use clap::Command;
 use std::ffi::OsString;
 use std::fs;
-use std::io::{self, stdout, Read, Write};
-use std::iter::Peekable;
-use std::process::{exit, ExitCode};
+use std::io::{self, Read, Write, stdout};
+use std::process::exit;
+use uucore::error::set_exit_code;
+use uudiff::error::UResult;
+use uudiff::utils::report_failure_to_read_input_file;
 
-// Exit codes are documented at
-// https://www.gnu.org/software/diffutils/manual/html_node/Invoking-diff.html.
-//     An exit status of 0 means no differences were found,
-//     1 means some differences were found,
-//     and 2 means trouble.
-pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
+/// Entry into diff.
+#[uucore::main]
+pub fn uumain(args: impl uucore::Args) -> UResult<()> {
+    let opts = args.peekable();
     let params = parse_params(opts).unwrap_or_else(|error| {
         eprintln!("{error}");
         exit(2);
@@ -37,7 +50,8 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
         || same_file::is_same_file(&params.from, &params.to).unwrap_or(false)
     {
         maybe_report_identical_files();
-        return ExitCode::SUCCESS;
+        set_exit_code(0);
+        return Ok(());
     }
 
     // read files
@@ -67,7 +81,8 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
         }
     };
     if io_error {
-        return ExitCode::from(2);
+        set_exit_code(2);
+        return Ok(());
     }
 
     // run diff
@@ -95,8 +110,15 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
     }
     if result.is_empty() {
         maybe_report_identical_files();
-        ExitCode::SUCCESS
+        set_exit_code(0);
     } else {
-        ExitCode::from(1)
+        set_exit_code(1);
     }
+    Ok(())
+}
+
+// Required for build.rs
+pub fn uu_app() -> Command {
+    // dummy
+    Command::new(uucore::util_name())
 }

@@ -1,12 +1,13 @@
 #![no_main]
 #[macro_use]
 extern crate libfuzzer_sys;
-use diffutilslib::normal_diff;
-use diffutilslib::params::Params;
 
 use std::fs::{self, File};
 use std::io::Write;
 use std::process::Command;
+
+use uu_diff::normal_diff;
+use uu_diff::params::Params;
 
 fuzz_target!(|x: (Vec<u8>, Vec<u8>)| {
     let (from, to) = x;

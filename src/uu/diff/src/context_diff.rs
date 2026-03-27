@@ -9,8 +9,8 @@ use std::collections::VecDeque;
 use std::io::Write;
 
 use crate::params::Params;
-use crate::utils::do_write_line;
-use crate::utils::get_modification_time;
+use uudiff::utils::do_write_line;
+use uudiff::utils::get_modification_time;
 
 #[derive(Debug, PartialEq)]
 pub enum DiffLine {
@@ -32,8 +32,8 @@ struct Mismatch {
 }
 
 impl Mismatch {
-    fn new(line_number_expected: usize, line_number_actual: usize) -> Mismatch {
-        Mismatch {
+    fn new(line_number_expected: usize, line_number_actual: usize) -> Self {
+        Self {
             line_number_expected,
             line_number_actual,
             expected: Vec::new(),
@@ -79,9 +79,9 @@ fn make_diff(
     // Rust only allows allocations to grow to isize::MAX, and this is bigger than that.
     let mut expected_lines_change_idx: usize = !0;
 
-    for result in diff::slice(&expected_lines, &actual_lines) {
+    for result in diff_crate::slice(&expected_lines, &actual_lines) {
         match result {
-            diff::Result::Left(str) => {
+            diff_crate::Result::Left(str) => {
                 if lines_since_mismatch > context_size && lines_since_mismatch > 0 {
                     results.push(mismatch);
                     mismatch = Mismatch::new(
@@ -103,7 +103,7 @@ fn make_diff(
                 line_number_expected += 1;
                 lines_since_mismatch = 0;
             }
-            diff::Result::Right(str) => {
+            diff_crate::Result::Right(str) => {
                 if lines_since_mismatch > context_size && lines_since_mismatch > 0 {
                     results.push(mismatch);
                     mismatch = Mismatch::new(
@@ -134,7 +134,7 @@ fn make_diff(
                 line_number_actual += 1;
                 lines_since_mismatch = 0;
             }
-            diff::Result::Both(str, _) => {
+            diff_crate::Result::Both(str, _) => {
                 expected_lines_change_idx = !0;
                 // if one of them is missing a newline and the other isn't, then they don't actually match
                 if (line_number_actual > actual_lines_count)
@@ -386,7 +386,7 @@ mod tests {
     #[test]
     fn test_permutations() {
         // test all possible six-line files.
-        let target = "target/context-diff/";
+        let target = "../../../target/context-diff/";
         let _ = std::fs::create_dir(target);
         for &a in &[0, 1, 2] {
             for &b in &[0, 1, 2] {
@@ -452,7 +452,9 @@ mod tests {
                                 let _ = fa;
                                 let _ = fb;
                                 let output = Command::new("patch")
-                                    .arg("-p0")
+                                    // .arg("-p0")
+                                    .arg("-d")
+                                    .arg(&format!("{target}"))
                                     .arg("--context")
                                     .stdin(File::open(format!("{target}/ab.diff")).unwrap())
                                     .output()
@@ -472,7 +474,7 @@ mod tests {
 
     #[test]
     fn test_permutations_empty_lines() {
-        let target = "target/context-diff/";
+        let target = "../../../target/context-diff/";
         // test all possible six-line files with missing newlines.
         let _ = std::fs::create_dir(target);
         for &a in &[0, 1, 2] {
@@ -533,7 +535,9 @@ mod tests {
                                 let _ = fa;
                                 let _ = fb;
                                 let output = Command::new("patch")
-                                    .arg("-p0")
+                                    // .arg("-p0")
+                                    .arg("-d")
+                                    .arg(&format!("{target}"))
                                     .arg("--context")
                                     .stdin(File::open(format!("{target}/ab_.diff")).unwrap())
                                     .output()
@@ -553,7 +557,7 @@ mod tests {
 
     #[test]
     fn test_permutations_missing_lines() {
-        let target = "target/context-diff/";
+        let target = "../../../target/context-diff/";
         // test all possible six-line files.
         let _ = std::fs::create_dir(target);
         for &a in &[0, 1, 2] {
@@ -617,7 +621,9 @@ mod tests {
                                 let _ = fa;
                                 let _ = fb;
                                 let output = Command::new("patch")
-                                    .arg("-p0")
+                                    // .arg("-p0")
+                                    .arg("-d")
+                                    .arg(&format!("{target}"))
                                     .arg("--context")
                                     .stdin(File::open(format!("{target}/abx.diff")).unwrap())
                                     .output()
@@ -637,7 +643,7 @@ mod tests {
 
     #[test]
     fn test_permutations_reverse() {
-        let target = "target/context-diff/";
+        let target = "../../../target/context-diff/";
         // test all possible six-line files.
         let _ = std::fs::create_dir(target);
         for &a in &[0, 1, 2] {
@@ -704,7 +710,9 @@ mod tests {
                                 let _ = fa;
                                 let _ = fb;
                                 let output = Command::new("patch")
-                                    .arg("-p0")
+                                    // .arg("-p0")
+                                    .arg("-d")
+                                    .arg(&format!("{target}"))
                                     .arg("--context")
                                     .stdin(File::open(format!("{target}/abr.diff")).unwrap())
                                     .output()

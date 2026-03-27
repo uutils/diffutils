@@ -3,13 +3,15 @@
 // For the full copyright and license information, please view the LICENSE
 // file that was distributed with this source code.
 
+// spell-checker:ignore ijkl ndefg nofile nopath stdins subcmd
+
 use assert_cmd::cargo::cargo_bin_cmd;
 use predicates::prelude::*;
 use std::fs::File;
 #[cfg(not(windows))]
 use std::fs::OpenOptions;
 use std::io::Write;
-use tempfile::{tempdir, NamedTempFile};
+use tempfile::{NamedTempFile, tempdir};
 
 // Integration tests for the diffutils command
 mod common {
@@ -17,20 +19,20 @@ mod common {
 
     #[test]
     fn unknown_param() -> Result<(), Box<dyn std::error::Error>> {
-        let mut cmd = cargo_bin_cmd!("diffutils");
-        cmd.arg("patch");
-        cmd.assert()
-            .code(predicate::eq(2))
-            .failure()
-            .stderr(predicate::eq("patch: utility not supported\n"));
-
+        // no util as argument
         let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.assert()
             .code(predicate::eq(0))
             .success()
-            .stderr(predicate::str::starts_with(
-                "Expected utility name as second argument, got nothing.\n",
-            ));
+            .stdout(predicate::str::contains("Usage: diffutils"));
+
+        // util not recognized
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("exterminator");
+        cmd.assert()
+            .code(predicate::eq(2))
+            .failure()
+            .stderr(predicate::eq("diffutils: unknown program 'exterminator'\n"));
 
         for subcmd in ["diff", "cmp"] {
             let mut cmd = cargo_bin_cmd!("diffutils");
@@ -97,7 +99,8 @@ mod common {
 }
 
 mod diff {
-    use diffutilslib::assert_diff_eq;
+
+    use uudiff::assert_diff_eq;
 
     use super::*;
 

@@ -11,6 +11,8 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4.7"
 diffutils = { path = "../" }
+uu_cmp = { path = "../src/uu/cmp" }
+uu_diff = { path = "../src/uu/diff" }
 
 # Prevent this from interfering with workspaces
 [workspace]

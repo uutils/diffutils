@@ -8,7 +8,7 @@
 use std::io::Write;
 
 use crate::params::Params;
-use crate::utils::do_write_line;
+use uudiff::utils::do_write_line;
 
 #[derive(Debug, PartialEq)]
 struct Mismatch {
@@ -30,14 +30,14 @@ impl std::fmt::Display for DiffError {
 }
 
 impl From<DiffError> for String {
-    fn from(_: DiffError) -> String {
+    fn from(_: DiffError) -> Self {
         "No newline at end of file".into()
     }
 }
 
 impl Mismatch {
-    fn new(line_number_expected: usize, line_number_actual: usize) -> Mismatch {
-        Mismatch {
+    fn new(line_number_expected: usize, line_number_actual: usize) -> Self {
+        Self {
             line_number_expected,
             line_number_actual,
             expected: Vec::new(),
@@ -73,9 +73,9 @@ fn make_diff(expected: &[u8], actual: &[u8], stop_early: bool) -> Result<Vec<Mis
         return Err(DiffError::MissingNL);
     }
 
-    for result in diff::slice(&expected_lines, &actual_lines) {
+    for result in diff_crate::slice(&expected_lines, &actual_lines) {
         match result {
-            diff::Result::Left(str) => {
+            diff_crate::Result::Left(str) => {
                 if !mismatch.actual.is_empty() {
                     results.push(mismatch);
                     mismatch = Mismatch::new(line_number_expected, line_number_actual);
@@ -83,11 +83,11 @@ fn make_diff(expected: &[u8], actual: &[u8], stop_early: bool) -> Result<Vec<Mis
                 mismatch.expected.push(str.to_vec());
                 line_number_expected += 1;
             }
-            diff::Result::Right(str) => {
+            diff_crate::Result::Right(str) => {
                 mismatch.actual.push(str.to_vec());
                 line_number_actual += 1;
             }
-            diff::Result::Both(_str, _) => {
+            diff_crate::Result::Both(_str, _) => {
                 line_number_expected += 1;
                 line_number_actual += 1;
                 if !mismatch.actual.is_empty() || !mismatch.expected.is_empty() {
@@ -122,7 +122,7 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Result<Vec<u8>, 
     let mut lines_offset = 0;
     for result in diff_results {
         let line_number_expected: isize = result.line_number_expected as isize + lines_offset;
-        let _line_number_actual: isize = result.line_number_actual as isize + lines_offset;
+        // let _line_number_actual: isize = result.line_number_actual as isize + lines_offset;
         let expected_count: isize = result.expected.len() as isize;
         let actual_count: isize = result.actual.len() as isize;
         match (expected_count, actual_count) {
@@ -181,7 +181,7 @@ mod tests {
 
     #[test]
     fn test_permutations() {
-        let target = "target/ed-diff/";
+        let target = "../../../target/ed-diff/";
         // test all possible six-line files.
         let _ = std::fs::create_dir(target);
         for &a in &[0, 1, 2] {
@@ -261,7 +261,7 @@ mod tests {
 
     #[test]
     fn test_permutations_empty_lines() {
-        let target = "target/ed-diff/";
+        let target = "../../../target/ed-diff/";
         // test all possible six-line files with missing newlines.
         let _ = std::fs::create_dir(target);
         for &a in &[0, 1, 2] {
@@ -335,7 +335,7 @@ mod tests {
 
     #[test]
     fn test_permutations_reverse() {
-        let target = "target/ed-diff/";
+        let target = "../../../target/ed-diff/";
         // test all possible six-line files.
         let _ = std::fs::create_dir(target);
         for &a in &[0, 1, 2] {

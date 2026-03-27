@@ -23,10 +23,9 @@ const CHANGE_CHAR: u8 = b'#';
 mod diffutils_cmp {
     use std::hint::black_box;
 
-    use diffutilslib::cmp;
     use divan::Bencher;
 
-    use crate::{binary, prepare::*, FILE_SIZE_KILO_BYTES};
+    use crate::{FILE_SIZE_KILO_BYTES, binary, prepare::*};
 
     #[divan::bench(args = FILE_SIZE_KILO_BYTES)]
     fn cmp_compare_files_equal(bencher: Bencher, kb: u64) {
@@ -83,8 +82,7 @@ mod diffutils_cmp {
 mod diffutils_diff {
     // use std::hint::black_box;
 
-    use crate::{binary, prepare::*, FILE_SIZE_KILO_BYTES};
-    // use diffutilslib::params;
+    use crate::{FILE_SIZE_KILO_BYTES, binary, prepare::*};
     use divan::Bencher;
 
     // bench the actual compare
@@ -129,7 +127,6 @@ mod diffutils_diff {
 mod parser {
     use std::hint::black_box;
 
-    use diffutilslib::{cmp, params};
     use divan::Bencher;
 
     use crate::prepare::str_to_options;
@@ -159,7 +156,7 @@ mod parser {
         let args = str_to_options(&cmd).into_iter().peekable();
         bencher
             .with_inputs(|| args.clone())
-            .bench_values(|data| black_box(params::parse_params(data)));
+            .bench_values(|data| black_box(diff::params::parse_params(data)));
     }
 }
 
@@ -298,11 +295,7 @@ mod prepare {
             0
         } else {
             let c = n_lines / num_differences;
-            if c == 0 {
-                1
-            } else {
-                c
-            }
+            if c == 0 { 1 } else { c }
         };
         // Use a larger 128KB buffer for massive files
         let mut writer_from = BufWriter::with_capacity(128 * 1024, file_from);

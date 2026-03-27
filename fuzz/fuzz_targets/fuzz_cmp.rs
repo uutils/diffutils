@@ -1,7 +1,6 @@
 #![no_main]
 #[macro_use]
 extern crate libfuzzer_sys;
-use diffutilslib::cmp::{self, Cmp};
 
 use std::ffi::OsString;
 use std::fs::File;
@@ -30,14 +29,14 @@ fuzz_target!(|x: (Vec<u8>, Vec<u8>)| {
         .unwrap();
 
     let params =
-        cmp::parse_params(args).unwrap_or_else(|e| panic!("Failed to parse params: {}", e));
-    let ret = cmp::cmp(&params);
-    if from == to && !matches!(ret, Ok(Cmp::Equal)) {
+        uu_cmp::parse_params(args).unwrap_or_else(|e| panic!("Failed to parse params: {}", e));
+    let ret = uu_cmp::cmp(&params);
+    if from == to && !matches!(ret, Ok(uu_cmp::Cmp::Equal)) {
         panic!(
             "target/fuzz.cmp.a and target/fuzz.cmp.b are equal, but cmp returned {:?}.",
             ret
         );
-    } else if from != to && !matches!(ret, Ok(Cmp::Different)) {
+    } else if from != to && !matches!(ret, Ok(uu_cmp::Cmp::Different)) {
         panic!(
             "target/fuzz.cmp.a and target/fuzz.cmp.b are different, but cmp returned {:?}.",
             ret

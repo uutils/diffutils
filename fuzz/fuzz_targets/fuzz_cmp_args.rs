@@ -1,7 +1,6 @@
 #![no_main]
 #[macro_use]
 extern crate libfuzzer_sys;
-use diffutilslib::cmp;
 
 use libfuzzer_sys::Corpus;
 use std::ffi::OsString;
@@ -18,6 +17,6 @@ fuzz_target!(|x: Vec<OsString>| -> Corpus {
             return Corpus::Reject;
         }
     }
-    let _ = cmp::parse_params(x.into_iter().peekable());
+    let _ = uu_cmp::parse_params(x.into_iter().peekable());
     Corpus::Keep
 });
