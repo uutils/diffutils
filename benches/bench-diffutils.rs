@@ -37,7 +37,7 @@ mod diffutils_cmp {
         bencher
             // .with_inputs(|| prepare::cmp_params_identical_testfiles(lines))
             .with_inputs(|| params.clone())
-            .bench_refs(|params| black_box(cmp::cmp(&params).unwrap()));
+            .bench_refs(|params| black_box(cmp::cmp_compare(&params).unwrap()));
     }
 
     // bench the actual compare; cmp exits on first difference
@@ -51,7 +51,7 @@ mod diffutils_cmp {
         bencher
             // .with_inputs(|| prepare::cmp_params_identical_testfiles(lines))
             .with_inputs(|| params.clone())
-            .bench_refs(|params| black_box(cmp::cmp(&params).unwrap()));
+            .bench_refs(|params| black_box(cmp::cmp_compare(&params).unwrap()));
     }
 
     // bench original GNU cmp

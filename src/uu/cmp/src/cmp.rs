@@ -24,6 +24,12 @@ use std::os::unix::fs::MetadataExt;
 #[cfg(target_os = "windows")]
 use std::os::windows::fs::MetadataExt;
 
+#[derive(Debug)]
+pub enum Cmp {
+    Equal,
+    Different,
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Params {
     executable: OsString,
@@ -37,9 +43,295 @@ pub struct Params {
     quiet: bool,
 }
 
+/// Entry into cmp.
+#[uucore::main]
+pub fn uumain(args: impl uucore::Args) -> UResult<()> {
+    let opts = args.peekable();
+    let params = match parse_params(opts) {
+        Ok(param) => param,
+        Err(e) => {
+            eprintln!("{e}");
+            set_exit_code(2);
+            return Ok(());
+        }
+    };
+
+    if params.from == "-" && params.to == "-"
+        || same_file::is_same_file(&params.from, &params.to).unwrap_or(false)
+    {
+        set_exit_code(0);
+        return Ok(());
+    }
+
+    match cmp_compare(&params) {
+        Ok(Cmp::Equal) => set_exit_code(0),
+        Ok(Cmp::Different) => set_exit_code(1),
+        Err(e) => {
+            if !params.quiet {
+                eprintln!("{e}");
+            }
+            set_exit_code(2);
+        }
+    }
+    Ok(())
+}
+
+#[allow(clippy::naive_bytecount)]
+pub fn cmp_compare(params: &Params) -> Result<Cmp, String> {
+    let mut from = prepare_reader(&params.from, params.skip_a, params)?;
+    let mut to = prepare_reader(&params.to, params.skip_b, params)?;
+
+    let mut offset_width = params.max_bytes.unwrap_or(usize::MAX);
+
+    if let (Ok(a_meta), Ok(b_meta)) = (fs::metadata(&params.from), fs::metadata(&params.to)) {
+        #[cfg(not(target_os = "windows"))]
+        let (a_size, b_size) = (a_meta.size(), b_meta.size());
+
+        #[cfg(target_os = "windows")]
+        let (a_size, b_size) = (a_meta.file_size(), b_meta.file_size());
+
+        // If the files have different sizes, we already know they are not identical. If we have not
+        // been asked to show even the first difference, we can quit early.
+        if params.quiet && a_size != b_size {
+            return Ok(Cmp::Different);
+        }
+
+        let smaller = cmp::min(a_size, b_size) as usize;
+        offset_width = cmp::min(smaller, offset_width);
+    }
+
+    let offset_width = 1 + offset_width.checked_ilog10().unwrap_or(1) as usize;
+
+    // Capacity calc: at_byte width + 2 x 3-byte octal numbers + 2 x 4-byte value + 4 spaces
+    let mut output = Vec::<u8>::with_capacity(offset_width + 3 * 2 + 4 * 2 + 4);
+
+    let mut at_byte = 1;
+    let mut at_line = 1;
+    let mut start_of_line = true;
+    let mut stdout = BufWriter::new(io::stdout().lock());
+    let mut compare = Cmp::Equal;
+    loop {
+        // Fill up our buffers.
+        let from_buf = match from.fill_buf() {
+            Ok(buf) => buf,
+            Err(e) => {
+                return Err(format_failure_to_read_input_file(
+                    &params.executable,
+                    &params.from,
+                    &e,
+                ));
+            }
+        };
+
+        let to_buf = match to.fill_buf() {
+            Ok(buf) => buf,
+            Err(e) => {
+                return Err(format_failure_to_read_input_file(
+                    &params.executable,
+                    &params.to,
+                    &e,
+                ));
+            }
+        };
+
+        // Check for EOF conditions.
+        if from_buf.is_empty() && to_buf.is_empty() {
+            break;
+        }
+
+        if from_buf.is_empty() || to_buf.is_empty() {
+            let eof_on = if from_buf.is_empty() {
+                &params.from.to_string_lossy()
+            } else {
+                &params.to.to_string_lossy()
+            };
+
+            report_eof(at_byte, at_line, start_of_line, eof_on, params);
+            return Ok(Cmp::Different);
+        }
+
+        // Fast path - for long files in which almost all bytes are the same we
+        // can do a direct comparison to let the compiler optimize.
+        let consumed = std::cmp::min(from_buf.len(), to_buf.len());
+        if from_buf[..consumed] == to_buf[..consumed] {
+            let last = from_buf[..consumed].last().unwrap();
+
+            at_byte += consumed;
+            at_line += from_buf[..consumed].iter().filter(|&c| *c == b'\n').count();
+
+            start_of_line = *last == b'\n';
+
+            if let Some(max_bytes) = params.max_bytes {
+                if at_byte > max_bytes {
+                    break;
+                }
+            }
+
+            from.consume(consumed);
+            to.consume(consumed);
+
+            continue;
+        }
+
+        // Iterate over the buffers, the zip iterator will stop us as soon as the
+        // first one runs out.
+        for (&from_byte, &to_byte) in from_buf.iter().zip(to_buf.iter()) {
+            if from_byte != to_byte {
+                compare = Cmp::Different;
+
+                if params.verbose {
+                    format_verbose_difference(
+                        from_byte,
+                        to_byte,
+                        at_byte,
+                        offset_width,
+                        &mut output,
+                        params,
+                    );
+                    stdout.write_all(output.as_slice()).map_err(|e| {
+                        format!(
+                            "{}: error printing output: {e}",
+                            params.executable.to_string_lossy()
+                        )
+                    })?;
+                    output.clear();
+                } else {
+                    report_difference(from_byte, to_byte, at_byte, at_line, params);
+                    return Ok(Cmp::Different);
+                }
+            }
+
+            start_of_line = from_byte == b'\n';
+            if start_of_line {
+                at_line += 1;
+            }
+
+            at_byte += 1;
+
+            if let Some(max_bytes) = params.max_bytes {
+                if at_byte > max_bytes {
+                    break;
+                }
+            }
+        }
+
+        // Notify our readers about the bytes we went over.
+        from.consume(consumed);
+        to.consume(consumed);
+    }
+
+    Ok(compare)
+}
+
 #[inline]
-fn usage_string(executable: &str) -> String {
-    format!("Usage: {executable} <from> <to>")
+fn format_octal(byte: u8, buf: &mut [u8; 3]) -> &str {
+    *buf = [b' ', b' ', b'0'];
+
+    let mut num = byte;
+    let mut idx = 2; // Start at the last position in the buffer
+
+    // Generate octal digits
+    while num > 0 {
+        buf[idx] = b'0' + num % 8;
+        num /= 8;
+        idx = idx.saturating_sub(1);
+    }
+
+    // SAFETY: the operations we do above always land within ascii range.
+    unsafe { std::str::from_utf8_unchecked(&buf[..]) }
+}
+
+// This function has been optimized to not use the Rust fmt system, which
+// leads to a massive speed up when processing large files: cuts the time
+// for comparing 2 ~36MB completely different files in half on an M1 Max.
+#[inline]
+fn format_verbose_difference(
+    from_byte: u8,
+    to_byte: u8,
+    at_byte: usize,
+    offset_width: usize,
+    output: &mut Vec<u8>,
+    params: &Params,
+) {
+    assert!(!params.quiet);
+
+    let mut at_byte_buf = itoa::Buffer::new();
+    let mut from_oct = [0u8; 3]; // for octal conversions
+    let mut to_oct = [0u8; 3];
+
+    if params.print_bytes {
+        // "{:>width$} {:>3o} {:4} {:>3o} {}",
+        let at_byte_str = at_byte_buf.format(at_byte);
+        let at_byte_padding = offset_width.saturating_sub(at_byte_str.len());
+
+        for _ in 0..at_byte_padding {
+            output.push(b' ');
+        }
+
+        output.extend_from_slice(at_byte_str.as_bytes());
+
+        output.push(b' ');
+
+        output.extend_from_slice(format_octal(from_byte, &mut from_oct).as_bytes());
+
+        output.push(b' ');
+
+        write_visible_byte_padded(output, from_byte);
+
+        output.push(b' ');
+
+        output.extend_from_slice(format_octal(to_byte, &mut to_oct).as_bytes());
+
+        output.push(b' ');
+
+        write_visible_byte(output, to_byte);
+
+        output.push(b'\n');
+    } else {
+        // "{:>width$} {:>3o} {:>3o}"
+        let at_byte_str = at_byte_buf.format(at_byte);
+        let at_byte_padding = offset_width - at_byte_str.len();
+
+        for _ in 0..at_byte_padding {
+            output.push(b' ');
+        }
+
+        output.extend_from_slice(at_byte_str.as_bytes());
+
+        output.push(b' ');
+
+        output.extend_from_slice(format_octal(from_byte, &mut from_oct).as_bytes());
+
+        output.push(b' ');
+
+        output.extend_from_slice(format_octal(to_byte, &mut to_oct).as_bytes());
+
+        output.push(b'\n');
+    }
+}
+
+/// Formats a byte as a visible string (for non-performance-critical path)
+#[inline]
+fn format_visible_byte(byte: u8) -> String {
+    let mut result = Vec::with_capacity(4);
+    write_visible_byte(&mut result, byte);
+    // SAFETY: the checks and shifts in write_visible_byte match what cat and GNU
+    // cmp do to ensure characters fall inside the ascii range.
+    unsafe { String::from_utf8_unchecked(result) }
+}
+
+fn is_posix_locale() -> bool {
+    let locale = if let Ok(locale) = env::var("LC_ALL") {
+        locale
+    } else if let Ok(locale) = env::var("LC_MESSAGES") {
+        locale
+    } else if let Ok(locale) = env::var("LANG") {
+        locale
+    } else {
+        "C".to_string()
+    };
+
+    locale == "C" || locale == "POSIX"
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -320,208 +612,73 @@ fn prepare_reader(
     Ok(reader)
 }
 
-#[derive(Debug)]
-pub enum Cmp {
-    Equal,
-    Different,
-}
-
-#[allow(clippy::naive_bytecount)]
-pub fn cmp(params: &Params) -> Result<Cmp, String> {
-    let mut from = prepare_reader(&params.from, params.skip_a, params)?;
-    let mut to = prepare_reader(&params.to, params.skip_b, params)?;
-
-    let mut offset_width = params.max_bytes.unwrap_or(usize::MAX);
-
-    if let (Ok(a_meta), Ok(b_meta)) = (fs::metadata(&params.from), fs::metadata(&params.to)) {
-        #[cfg(not(target_os = "windows"))]
-        let (a_size, b_size) = (a_meta.size(), b_meta.size());
-
-        #[cfg(target_os = "windows")]
-        let (a_size, b_size) = (a_meta.file_size(), b_meta.file_size());
-
-        // If the files have different sizes, we already know they are not identical. If we have not
-        // been asked to show even the first difference, we can quit early.
-        if params.quiet && a_size != b_size {
-            return Ok(Cmp::Different);
-        }
-
-        let smaller = cmp::min(a_size, b_size) as usize;
-        offset_width = cmp::min(smaller, offset_width);
+#[inline]
+fn report_difference(from_byte: u8, to_byte: u8, at_byte: usize, at_line: usize, params: &Params) {
+    if params.quiet {
+        return;
     }
 
-    let offset_width = 1 + offset_width.checked_ilog10().unwrap_or(1) as usize;
-
-    // Capacity calc: at_byte width + 2 x 3-byte octal numbers + 2 x 4-byte value + 4 spaces
-    let mut output = Vec::<u8>::with_capacity(offset_width + 3 * 2 + 4 * 2 + 4);
-
-    let mut at_byte = 1;
-    let mut at_line = 1;
-    let mut start_of_line = true;
-    let mut stdout = BufWriter::new(io::stdout().lock());
-    let mut compare = Cmp::Equal;
-    loop {
-        // Fill up our buffers.
-        let from_buf = match from.fill_buf() {
-            Ok(buf) => buf,
-            Err(e) => {
-                return Err(format_failure_to_read_input_file(
-                    &params.executable,
-                    &params.from,
-                    &e,
-                ));
-            }
-        };
-
-        let to_buf = match to.fill_buf() {
-            Ok(buf) => buf,
-            Err(e) => {
-                return Err(format_failure_to_read_input_file(
-                    &params.executable,
-                    &params.to,
-                    &e,
-                ));
-            }
-        };
-
-        // Check for EOF conditions.
-        if from_buf.is_empty() && to_buf.is_empty() {
-            break;
-        }
-
-        if from_buf.is_empty() || to_buf.is_empty() {
-            let eof_on = if from_buf.is_empty() {
-                &params.from.to_string_lossy()
-            } else {
-                &params.to.to_string_lossy()
-            };
-
-            report_eof(at_byte, at_line, start_of_line, eof_on, params);
-            return Ok(Cmp::Different);
-        }
-
-        // Fast path - for long files in which almost all bytes are the same we
-        // can do a direct comparison to let the compiler optimize.
-        let consumed = std::cmp::min(from_buf.len(), to_buf.len());
-        if from_buf[..consumed] == to_buf[..consumed] {
-            let last = from_buf[..consumed].last().unwrap();
-
-            at_byte += consumed;
-            at_line += from_buf[..consumed].iter().filter(|&c| *c == b'\n').count();
-
-            start_of_line = *last == b'\n';
-
-            if let Some(max_bytes) = params.max_bytes {
-                if at_byte > max_bytes {
-                    break;
-                }
-            }
-
-            from.consume(consumed);
-            to.consume(consumed);
-
-            continue;
-        }
-
-        // Iterate over the buffers, the zip iterator will stop us as soon as the
-        // first one runs out.
-        for (&from_byte, &to_byte) in from_buf.iter().zip(to_buf.iter()) {
-            if from_byte != to_byte {
-                compare = Cmp::Different;
-
-                if params.verbose {
-                    format_verbose_difference(
-                        from_byte,
-                        to_byte,
-                        at_byte,
-                        offset_width,
-                        &mut output,
-                        params,
-                    );
-                    stdout.write_all(output.as_slice()).map_err(|e| {
-                        format!(
-                            "{}: error printing output: {e}",
-                            params.executable.to_string_lossy()
-                        )
-                    })?;
-                    output.clear();
-                } else {
-                    report_difference(from_byte, to_byte, at_byte, at_line, params);
-                    return Ok(Cmp::Different);
-                }
-            }
-
-            start_of_line = from_byte == b'\n';
-            if start_of_line {
-                at_line += 1;
-            }
-
-            at_byte += 1;
-
-            if let Some(max_bytes) = params.max_bytes {
-                if at_byte > max_bytes {
-                    break;
-                }
-            }
-        }
-
-        // Notify our readers about the bytes we went over.
-        from.consume(consumed);
-        to.consume(consumed);
-    }
-
-    Ok(compare)
-}
-
-/// Entry into cmp.
-#[uucore::main]
-pub fn uumain(args: impl uucore::Args) -> UResult<()> {
-    let opts = args.peekable();
-    let params = match parse_params(opts) {
-        Ok(param) => param,
-        Err(e) => {
-            eprintln!("{e}");
-            set_exit_code(2);
-            return Ok(());
-        }
+    let term = if is_posix_locale() && !params.print_bytes {
+        "char"
+    } else {
+        "byte"
     };
-
-    if params.from == "-" && params.to == "-"
-        || same_file::is_same_file(&params.from, &params.to).unwrap_or(false)
-    {
-        set_exit_code(0);
-        return Ok(());
+    print!(
+        "{} {} differ: {term} {}, line {}",
+        &params.from.to_string_lossy(),
+        &params.to.to_string_lossy(),
+        at_byte,
+        at_line
+    );
+    if params.print_bytes {
+        let char_width = if to_byte >= 0x7F { 2 } else { 1 };
+        print!(
+            " is {:>3o} {:char_width$} {:>3o} {:char_width$}",
+            from_byte,
+            format_visible_byte(from_byte),
+            to_byte,
+            format_visible_byte(to_byte)
+        );
     }
-
-    match cmp(&params) {
-        Ok(Cmp::Equal) => set_exit_code(0),
-        Ok(Cmp::Different) => set_exit_code(1),
-        Err(e) => {
-            if !params.quiet {
-                eprintln!("{e}");
-            }
-            set_exit_code(2);
-        }
-    }
-    Ok(())
+    println!();
 }
 
 #[inline]
-fn format_octal(byte: u8, buf: &mut [u8; 3]) -> &str {
-    *buf = [b' ', b' ', b'0'];
-
-    let mut num = byte;
-    let mut idx = 2; // Start at the last position in the buffer
-
-    // Generate octal digits
-    while num > 0 {
-        buf[idx] = b'0' + num % 8;
-        num /= 8;
-        idx = idx.saturating_sub(1);
+fn report_eof(at_byte: usize, at_line: usize, start_of_line: bool, eof_on: &str, params: &Params) {
+    if params.quiet {
+        return;
     }
 
-    // SAFETY: the operations we do above always land within ascii range.
-    unsafe { std::str::from_utf8_unchecked(&buf[..]) }
+    if at_byte == 1 {
+        eprintln!(
+            "{}: EOF on '{}' which is empty",
+            params.executable.to_string_lossy(),
+            eof_on
+        );
+    } else if params.verbose {
+        eprintln!(
+            "{}: EOF on '{}' after byte {}",
+            params.executable.to_string_lossy(),
+            eof_on,
+            at_byte - 1,
+        );
+    } else if start_of_line {
+        eprintln!(
+            "{}: EOF on '{}' after byte {}, line {}",
+            params.executable.to_string_lossy(),
+            eof_on,
+            at_byte - 1,
+            at_line - 1
+        );
+    } else {
+        eprintln!(
+            "{}: EOF on '{}' after byte {}, in line {}",
+            params.executable.to_string_lossy(),
+            eof_on,
+            at_byte - 1,
+            at_line
+        );
+    }
 }
 
 #[inline]
@@ -579,166 +736,15 @@ fn write_visible_byte_padded(output: &mut Vec<u8>, byte: u8) {
     output.extend_from_slice(&SPACES[..padding]);
 }
 
-/// Formats a byte as a visible string (for non-performance-critical path)
 #[inline]
-fn format_visible_byte(byte: u8) -> String {
-    let mut result = Vec::with_capacity(4);
-    write_visible_byte(&mut result, byte);
-    // SAFETY: the checks and shifts in write_visible_byte match what cat and GNU
-    // cmp do to ensure characters fall inside the ascii range.
-    unsafe { String::from_utf8_unchecked(result) }
+fn usage_string(executable: &str) -> String {
+    format!("Usage: {executable} <from> <to>")
 }
 
-// This function has been optimized to not use the Rust fmt system, which
-// leads to a massive speed up when processing large files: cuts the time
-// for comparing 2 ~36MB completely different files in half on an M1 Max.
-#[inline]
-fn format_verbose_difference(
-    from_byte: u8,
-    to_byte: u8,
-    at_byte: usize,
-    offset_width: usize,
-    output: &mut Vec<u8>,
-    params: &Params,
-) {
-    assert!(!params.quiet);
-
-    let mut at_byte_buf = itoa::Buffer::new();
-    let mut from_oct = [0u8; 3]; // for octal conversions
-    let mut to_oct = [0u8; 3];
-
-    if params.print_bytes {
-        // "{:>width$} {:>3o} {:4} {:>3o} {}",
-        let at_byte_str = at_byte_buf.format(at_byte);
-        let at_byte_padding = offset_width.saturating_sub(at_byte_str.len());
-
-        for _ in 0..at_byte_padding {
-            output.push(b' ');
-        }
-
-        output.extend_from_slice(at_byte_str.as_bytes());
-
-        output.push(b' ');
-
-        output.extend_from_slice(format_octal(from_byte, &mut from_oct).as_bytes());
-
-        output.push(b' ');
-
-        write_visible_byte_padded(output, from_byte);
-
-        output.push(b' ');
-
-        output.extend_from_slice(format_octal(to_byte, &mut to_oct).as_bytes());
-
-        output.push(b' ');
-
-        write_visible_byte(output, to_byte);
-
-        output.push(b'\n');
-    } else {
-        // "{:>width$} {:>3o} {:>3o}"
-        let at_byte_str = at_byte_buf.format(at_byte);
-        let at_byte_padding = offset_width - at_byte_str.len();
-
-        for _ in 0..at_byte_padding {
-            output.push(b' ');
-        }
-
-        output.extend_from_slice(at_byte_str.as_bytes());
-
-        output.push(b' ');
-
-        output.extend_from_slice(format_octal(from_byte, &mut from_oct).as_bytes());
-
-        output.push(b' ');
-
-        output.extend_from_slice(format_octal(to_byte, &mut to_oct).as_bytes());
-
-        output.push(b'\n');
-    }
-}
-
-#[inline]
-fn report_eof(at_byte: usize, at_line: usize, start_of_line: bool, eof_on: &str, params: &Params) {
-    if params.quiet {
-        return;
-    }
-
-    if at_byte == 1 {
-        eprintln!(
-            "{}: EOF on '{}' which is empty",
-            params.executable.to_string_lossy(),
-            eof_on
-        );
-    } else if params.verbose {
-        eprintln!(
-            "{}: EOF on '{}' after byte {}",
-            params.executable.to_string_lossy(),
-            eof_on,
-            at_byte - 1,
-        );
-    } else if start_of_line {
-        eprintln!(
-            "{}: EOF on '{}' after byte {}, line {}",
-            params.executable.to_string_lossy(),
-            eof_on,
-            at_byte - 1,
-            at_line - 1
-        );
-    } else {
-        eprintln!(
-            "{}: EOF on '{}' after byte {}, in line {}",
-            params.executable.to_string_lossy(),
-            eof_on,
-            at_byte - 1,
-            at_line
-        );
-    }
-}
-
-fn is_posix_locale() -> bool {
-    let locale = if let Ok(locale) = env::var("LC_ALL") {
-        locale
-    } else if let Ok(locale) = env::var("LC_MESSAGES") {
-        locale
-    } else if let Ok(locale) = env::var("LANG") {
-        locale
-    } else {
-        "C".to_string()
-    };
-
-    locale == "C" || locale == "POSIX"
-}
-
-#[inline]
-fn report_difference(from_byte: u8, to_byte: u8, at_byte: usize, at_line: usize, params: &Params) {
-    if params.quiet {
-        return;
-    }
-
-    let term = if is_posix_locale() && !params.print_bytes {
-        "char"
-    } else {
-        "byte"
-    };
-    print!(
-        "{} {} differ: {term} {}, line {}",
-        &params.from.to_string_lossy(),
-        &params.to.to_string_lossy(),
-        at_byte,
-        at_line
-    );
-    if params.print_bytes {
-        let char_width = if to_byte >= 0x7F { 2 } else { 1 };
-        print!(
-            " is {:>3o} {:char_width$} {:>3o} {:char_width$}",
-            from_byte,
-            format_visible_byte(from_byte),
-            to_byte,
-            format_visible_byte(to_byte)
-        );
-    }
-    println!();
+// Required for build.rs
+pub fn uu_app() -> Command {
+    // dummy
+    Command::new(uucore::util_name())
 }
 
 #[cfg(test)]
@@ -1212,10 +1218,4 @@ mod tests {
             )
         );
     }
-}
-
-// Required for build.rs
-pub fn uu_app() -> Command {
-    // dummy
-    Command::new(uucore::util_name())
 }
