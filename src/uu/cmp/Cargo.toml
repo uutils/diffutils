@@ -25,14 +25,14 @@ path = "src/main.rs"
 path = "src/cmp.rs"
 
 [features]
-# default = ["feat_run_binary_bench" ]
+default = ["feat_run_binary_bench" ]
 # The cmd benchmarks start the binaries and take a lot of runtime on the github checks.
 # Only run them locally.
 feat_run_binary_bench = []
 
 
 [dependencies]
-# bytecount.workspace = true
+bytecount.workspace = true
 clap.workspace = true
 diff_crate.workspace = true
 fluent.workspace = true
@@ -55,3 +55,6 @@ tempfile.workspace = true
 # for flamegraph
 # debug = true
 
+[[bench]]
+name = "cmp_bench"
+harness = false

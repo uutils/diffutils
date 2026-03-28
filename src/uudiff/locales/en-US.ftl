@@ -1,3 +1,15 @@
+# Error messages specific to DiffUtils
+parse-error-conflicting-output-options = Conflicting output style options '--{ $opt1 }' and '--{ $opt2 }'.
+parse-error-extra-operand = extra operand '{ $operand }'
+parse-error-incompatible-options = options '--{ $opt1 }' and '--{ $opt2 }' are incompatible
+parse-error-invalid-value = invalid value '{ $value }' for option '--{ $option }'
+parse-error-invalid-context-length = invalid context length '{ $value }'
+parse-error-invalid-unified-length = invalid unified length '{ $value }'
+parse-error-invalid-value-overflow = invalid value '{ $value }' (too large) for option '--{ $option }'
+parse-error-invalid-value-unit = invalid unit in '{ $value }' for option '--{ $option }'
+parse-error-missing-operand = missing operand after '{ $after }'
+parse-error-not-yet-implemented = the option '--{ $option}' is not yet implemented
+
 # *** This is a copy from coreutils ***
 # Common strings shared across all uutils commands
 # Mostly clap

@@ -2,9 +2,13 @@
 #[macro_use]
 extern crate libfuzzer_sys;
 
+use std::convert::TryFrom;
 use std::ffi::OsString;
 use std::fs::File;
 use std::io::Write;
+
+use uu_cmp::params_cmp::Params;
+use uudiff::utils::CompareOk;
 
 fn os(s: &str) -> OsString {
     OsString::from(s)
@@ -28,15 +32,23 @@ fuzz_target!(|x: (Vec<u8>, Vec<u8>)| {
         .write_all(&to)
         .unwrap();
 
+    // let params =
+    //     uu_cmp::parse_params(args).unwrap_or_else(|e| panic!("Failed to parse params: {}", e));
+    let matches = uudiff::clap_localization::handle_clap_result_with_exit_code(
+        uu_cmp::params_cmp::uu_app(),
+        args,
+        2,
+    )
+    .unwrap_or_else(|e| panic!("Failed to parse params: {}", e));
     let params =
-        uu_cmp::parse_params(args).unwrap_or_else(|e| panic!("Failed to parse params: {}", e));
-    let ret = uu_cmp::cmp(&params);
-    if from == to && !matches!(ret, Ok(uu_cmp::Cmp::Equal)) {
+        Params::try_from(matches).unwrap_or_else(|e| panic!("Failed to parse params: {}", e));
+    let ret = uu_cmp::cmp_compare(&params);
+    if from == to && !matches!(ret, Ok(CompareOk::Equal)) {
         panic!(
             "target/fuzz.cmp.a and target/fuzz.cmp.b are equal, but cmp returned {:?}.",
             ret
         );
-    } else if from != to && !matches!(ret, Ok(uu_cmp::Cmp::Different)) {
+    } else if from != to && !matches!(ret, Ok(CompareOk::Different)) {
         panic!(
             "target/fuzz.cmp.a and target/fuzz.cmp.b are different, but cmp returned {:?}.",
             ret

@@ -4,8 +4,18 @@
 // file that was distributed with this source code.
 
 use regex::Regex;
-use std::{ffi::OsString, io::Write};
+use std::{
+    ffi::{OsStr, OsString},
+    io::Write,
+};
 use unicode_width::UnicodeWidthStr;
+
+/// Return of compare function if no error occurred.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompareOk {
+    Equal,
+    Different,
+}
 
 /// Replace tabs by spaces in the input line.
 /// Correctly handle multi-bytes characters.
@@ -70,6 +80,11 @@ pub fn get_modification_time(file_path: &str) -> String {
         .to_string();
 
     modification_time
+}
+
+/// Checks if files are the same (same file link), which must return 'equal'.
+pub fn is_same_file(from: &OsStr, to: &OsStr) -> bool {
+    (from == "-" && to == "-") || same_file::is_same_file(from, to).unwrap_or(false)
 }
 
 pub fn format_failure_to_read_input_file(

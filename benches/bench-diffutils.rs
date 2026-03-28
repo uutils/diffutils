@@ -19,65 +19,6 @@ const NUM_DIFF: u64 = 4;
 const MB: u64 = 1_000;
 const CHANGE_CHAR: u8 = b'#';
 
-#[cfg(not(feature = "feat_bench_not_cmp"))]
-mod diffutils_cmp {
-    use std::hint::black_box;
-
-    use divan::Bencher;
-
-    use crate::{FILE_SIZE_KILO_BYTES, binary, prepare::*};
-
-    #[divan::bench(args = FILE_SIZE_KILO_BYTES)]
-    fn cmp_compare_files_equal(bencher: Bencher, kb: u64) {
-        let (from, to) = get_context().get_test_files_equal(kb);
-        let cmd = format!("cmp {from} {to}");
-        let opts = str_to_options(&cmd).into_iter().peekable();
-        let params = cmp::parse_params(opts).unwrap();
-
-        bencher
-            // .with_inputs(|| prepare::cmp_params_identical_testfiles(lines))
-            .with_inputs(|| params.clone())
-            .bench_refs(|params| black_box(cmp::cmp_compare(&params).unwrap()));
-    }
-
-    // bench the actual compare; cmp exits on first difference
-    #[divan::bench(args = FILE_SIZE_KILO_BYTES)]
-    fn cmp_compare_files_different(bencher: Bencher, bytes: u64) {
-        let (from, to) = get_context().get_test_files_different(bytes);
-        let cmd = format!("cmp {from} {to} -s");
-        let opts = str_to_options(&cmd).into_iter().peekable();
-        let params = cmp::parse_params(opts).unwrap();
-
-        bencher
-            // .with_inputs(|| prepare::cmp_params_identical_testfiles(lines))
-            .with_inputs(|| params.clone())
-            .bench_refs(|params| black_box(cmp::cmp_compare(&params).unwrap()));
-    }
-
-    // bench original GNU cmp
-    #[divan::bench(args = FILE_SIZE_KILO_BYTES)]
-    fn cmd_cmp_gnu_equal(bencher: Bencher, bytes: u64) {
-        let (from, to) = get_context().get_test_files_equal(bytes);
-        let args_str = format!("{from} {to}");
-        bencher
-            // .with_inputs(|| prepare::cmp_params_identical_testfiles(lines))
-            .with_inputs(|| args_str.clone())
-            .bench_refs(|cmd_args| binary::bench_binary("cmp", cmd_args));
-    }
-
-    // bench the compiled release version
-    #[divan::bench(args = FILE_SIZE_KILO_BYTES)]
-    fn cmd_cmp_release_equal(bencher: Bencher, bytes: u64) {
-        let (from, to) = get_context().get_test_files_equal(bytes);
-        let args_str = format!("cmp {from} {to}");
-
-        bencher
-            // .with_inputs(|| prepare::cmp_params_identical_testfiles(lines))
-            .with_inputs(|| args_str.clone())
-            .bench_refs(|cmd_args| binary::bench_binary("target/release/diffutils", cmd_args));
-    }
-}
-
 #[cfg(not(feature = "feat_bench_not_diff"))]
 mod diffutils_diff {
     // use std::hint::black_box;
@@ -130,24 +71,6 @@ mod parser {
     use divan::Bencher;
 
     use crate::prepare::str_to_options;
-
-    // bench the time it takes to parse the command line arguments
-    #[divan::bench]
-    fn cmp_parser(bencher: Bencher) {
-        let cmd = "cmd file_1.txt file_2.txt -bl n10M --ignore-initial=100KiB:1MiB";
-        let args = str_to_options(&cmd).into_iter().peekable();
-        bencher
-            .with_inputs(|| args.clone())
-            .bench_values(|data| black_box(cmp::parse_params(data)));
-    }
-
-    // // test the impact on the benchmark if not converting the cmd to Vec<OsString> (doubles for parse)
-    // #[divan::bench]
-    // fn cmp_parser_no_prepare() {
-    //     let cmd = "cmd file_1.txt file_2.txt -bl n10M --ignore-initial=100KiB:1MiB";
-    //     let args = str_to_options(&cmd).into_iter().peekable();
-    //     let _ = cmp::parse_params(args);
-    // }
 
     // bench the time it takes to parse the command line arguments
     #[divan::bench]

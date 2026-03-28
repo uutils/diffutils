@@ -1,102 +1,106 @@
 // This file is part of the uutils diffutils package.
 //
-// For the full copyright and license information, please view the LICENSE
-// file that was distributed with this source code.
+// For the full copyright and license information, please view the LICENSE-*
+// files that was distributed with this source code.
 
 // spell-checker:ignore ilog
 
-use clap::Command;
+pub mod params_cmp;
+
 use std::env::{self};
 use std::ffi::OsString;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
-use std::iter::Peekable;
 use std::{cmp, fs, io};
-use uucore::error::set_exit_code;
-use uudiff::error::UResult;
-use uudiff::utils::format_failure_to_read_input_file;
 
-#[cfg(not(target_os = "windows"))]
-use std::os::fd::{AsRawFd, FromRawFd};
+use clap::Command;
+use uudiff::common_errors::UtilsError;
+use uudiff::error::{FromIo, UResult};
+use uudiff::utils::{self, CompareOk};
+
+use crate::params_cmp::{BytesLimitU64, Params, SkipU64};
 
 #[cfg(not(target_os = "windows"))]
 use std::os::unix::fs::MetadataExt;
 
-#[cfg(target_os = "windows")]
-use std::os::windows::fs::MetadataExt;
-
-#[derive(Debug)]
-pub enum Cmp {
-    Equal,
-    Different,
-}
-
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct Params {
-    executable: OsString,
-    from: OsString,
-    to: OsString,
-    print_bytes: bool,
-    skip_a: Option<usize>,
-    skip_b: Option<usize>,
-    max_bytes: Option<usize>,
-    verbose: bool,
-    quiet: bool,
-}
-
 /// Entry into cmp.
 #[uucore::main]
 pub fn uumain(args: impl uucore::Args) -> UResult<()> {
-    let opts = args.peekable();
-    let params = match parse_params(opts) {
-        Ok(param) => param,
-        Err(e) => {
-            eprintln!("{e}");
-            set_exit_code(2);
-            return Ok(());
-        }
-    };
+    let matches = uudiff::clap_localization::handle_clap_result_with_exit_code(uu_app(), args, 2)?;
 
-    if params.from == "-" && params.to == "-"
-        || same_file::is_same_file(&params.from, &params.to).unwrap_or(false)
-    {
-        set_exit_code(0);
-        return Ok(());
-    }
+    let params: Params = matches.try_into()?;
 
     match cmp_compare(&params) {
-        Ok(Cmp::Equal) => set_exit_code(0),
-        Ok(Cmp::Different) => set_exit_code(1),
+        Ok(res) => match res {
+            CompareOk::Equal => uucore::error::set_exit_code(0),
+            CompareOk::Different => uucore::error::set_exit_code(1),
+        },
         Err(e) => {
-            if !params.quiet {
-                eprintln!("{e}");
+            // dbg!(&params, &e);
+            if params.silent {
+                uucore::error::set_exit_code(2);
+                return Ok(());
             }
-            set_exit_code(2);
+            return Err(e);
         }
     }
+
     Ok(())
 }
 
-#[allow(clippy::naive_bytecount)]
-pub fn cmp_compare(params: &Params) -> Result<Cmp, String> {
-    let mut from = prepare_reader(&params.from, params.skip_a, params)?;
-    let mut to = prepare_reader(&params.to, params.skip_b, params)?;
+pub fn cmp_compare(params: &Params) -> UResult<CompareOk> {
+    // check if file is actually a directory, which is not allowed
+    if params.from != "-" {
+        match fs::metadata(&params.from) {
+            Ok(m) => {
+                if m.is_dir() {
+                    return Err(UtilsError::DirectoryNotAllowed(params.from.clone()).into());
+                }
+            }
+            Err(e) => {
+                let io = e.map_err_context(|| params.from_as_string_lossy());
+                return Err(UtilsError::Io(io).into());
+            }
+        }
+    }
+    if params.to != "-" {
+        match fs::metadata(&params.to) {
+            Ok(m) => {
+                if m.is_dir() {
+                    return Err(UtilsError::DirectoryNotAllowed(params.to.clone()).into());
+                }
+            }
+            Err(e) => {
+                let io = e.map_err_context(|| params.to_as_string_lossy());
+                return Err(UtilsError::Io(io).into());
+            }
+        }
+    }
+    // check is same file and has no shift by skipping bytes
+    if utils::is_same_file(&params.from, &params.to)
+        && params.skip_bytes_from == params.skip_bytes_to
+    {
+        return Ok(CompareOk::Equal);
+    }
 
-    let mut offset_width = params.max_bytes.unwrap_or(usize::MAX);
+    let mut from = prepare_reader(&params.from, params.skip_bytes_from)?;
+    let mut to = prepare_reader(&params.to, params.skip_bytes_to)?;
+
+    let mut offset_width = params.bytes_limit.unwrap_or(BytesLimitU64::MAX);
 
     if let (Ok(a_meta), Ok(b_meta)) = (fs::metadata(&params.from), fs::metadata(&params.to)) {
         #[cfg(not(target_os = "windows"))]
-        let (a_size, b_size) = (a_meta.size(), b_meta.size());
+        let (from_size, to_size) = (a_meta.size(), b_meta.size());
 
         #[cfg(target_os = "windows")]
         let (a_size, b_size) = (a_meta.file_size(), b_meta.file_size());
 
         // If the files have different sizes, we already know they are not identical. If we have not
         // been asked to show even the first difference, we can quit early.
-        if params.quiet && a_size != b_size {
-            return Ok(Cmp::Different);
+        if params.silent && from_size != to_size {
+            return Ok(CompareOk::Different);
         }
 
-        let smaller = cmp::min(a_size, b_size) as usize;
+        let smaller = cmp::min(from_size, to_size);
         offset_width = cmp::min(smaller, offset_width);
     }
 
@@ -109,28 +113,22 @@ pub fn cmp_compare(params: &Params) -> Result<Cmp, String> {
     let mut at_line = 1;
     let mut start_of_line = true;
     let mut stdout = BufWriter::new(io::stdout().lock());
-    let mut compare = Cmp::Equal;
+    let mut compare = CompareOk::Equal;
     loop {
         // Fill up our buffers.
         let from_buf = match from.fill_buf() {
             Ok(buf) => buf,
             Err(e) => {
-                return Err(format_failure_to_read_input_file(
-                    &params.executable,
-                    &params.from,
-                    &e,
-                ));
+                let io = e.map_err_context(|| params.from_as_string_lossy());
+                return Err(UtilsError::Io(io).into());
             }
         };
 
         let to_buf = match to.fill_buf() {
             Ok(buf) => buf,
             Err(e) => {
-                return Err(format_failure_to_read_input_file(
-                    &params.executable,
-                    &params.to,
-                    &e,
-                ));
+                let io = e.map_err_context(|| params.to_as_string_lossy());
+                return Err(UtilsError::Io(io).into());
             }
         };
 
@@ -147,7 +145,7 @@ pub fn cmp_compare(params: &Params) -> Result<Cmp, String> {
             };
 
             report_eof(at_byte, at_line, start_of_line, eof_on, params);
-            return Ok(Cmp::Different);
+            return Ok(CompareOk::Different);
         }
 
         // Fast path - for long files in which almost all bytes are the same we
@@ -156,13 +154,14 @@ pub fn cmp_compare(params: &Params) -> Result<Cmp, String> {
         if from_buf[..consumed] == to_buf[..consumed] {
             let last = from_buf[..consumed].last().unwrap();
 
-            at_byte += consumed;
-            at_line += from_buf[..consumed].iter().filter(|&c| *c == b'\n').count();
+            at_byte += consumed as BytesLimitU64;
+            // at_line += from_buf[..consumed].iter().filter(|&c| *c == b'\n').count() as u64;
+            at_line += bytecount::count(&from_buf[..consumed], b'\n') as u64;
 
             start_of_line = *last == b'\n';
 
-            if let Some(max_bytes) = params.max_bytes {
-                if at_byte > max_bytes {
+            if let Some(bytes_limit) = params.bytes_limit {
+                if at_byte > bytes_limit {
                     break;
                 }
             }
@@ -177,7 +176,7 @@ pub fn cmp_compare(params: &Params) -> Result<Cmp, String> {
         // first one runs out.
         for (&from_byte, &to_byte) in from_buf.iter().zip(to_buf.iter()) {
             if from_byte != to_byte {
-                compare = Cmp::Different;
+                compare = CompareOk::Different;
 
                 if params.verbose {
                     format_verbose_difference(
@@ -188,16 +187,17 @@ pub fn cmp_compare(params: &Params) -> Result<Cmp, String> {
                         &mut output,
                         params,
                     );
-                    stdout.write_all(output.as_slice()).map_err(|e| {
-                        format!(
-                            "{}: error printing output: {e}",
-                            params.executable.to_string_lossy()
-                        )
-                    })?;
+                    // TODO test error returns exit code 2
+                    stdout.write_all(output.as_slice())?;
+                    // if let Err(e) = stdout.write_all(output.as_slice())
+                    // // .map_err(|e| format!("{}: error printing output: {e}", uucore::util_name()))
+                    // {
+                    //     return Err(CmpError::FileIo("stdout".into(), e));
+                    // }
                     output.clear();
                 } else {
-                    report_difference(from_byte, to_byte, at_byte, at_line, params);
-                    return Ok(Cmp::Different);
+                    report_difference(from_byte, to_byte, at_byte, at_line, params)?;
+                    return Ok(CompareOk::Different);
                 }
             }
 
@@ -208,7 +208,7 @@ pub fn cmp_compare(params: &Params) -> Result<Cmp, String> {
 
             at_byte += 1;
 
-            if let Some(max_bytes) = params.max_bytes {
+            if let Some(max_bytes) = params.bytes_limit {
                 if at_byte > max_bytes {
                     break;
                 }
@@ -221,6 +221,33 @@ pub fn cmp_compare(params: &Params) -> Result<Cmp, String> {
     }
 
     Ok(compare)
+}
+
+fn prepare_reader(
+    path: &OsString,
+    ignore_initial: Option<SkipU64>,
+) -> Result<Box<dyn BufRead>, UtilsError> {
+    let mut reader: Box<dyn BufRead> = if path == "-" {
+        Box::new(BufReader::new(io::stdin()))
+    } else {
+        match fs::File::open(path) {
+            Ok(file) => Box::new(BufReader::new(file)),
+            Err(e) => {
+                let io = e.map_err_context(|| path.to_string_lossy().to_string());
+                return Err(UtilsError::Io(io));
+            }
+        }
+    };
+
+    #[allow(clippy::collapsible_if)]
+    if let Some(skip) = ignore_initial {
+        if let Err(e) = io::copy(&mut reader.by_ref().take(skip), &mut io::sink()) {
+            let io = e.map_err_context(|| path.to_string_lossy().to_string());
+            return Err(UtilsError::Io(io));
+        }
+    }
+
+    Ok(reader)
 }
 
 #[inline]
@@ -248,12 +275,12 @@ fn format_octal(byte: u8, buf: &mut [u8; 3]) -> &str {
 fn format_verbose_difference(
     from_byte: u8,
     to_byte: u8,
-    at_byte: usize,
+    at_byte: BytesLimitU64,
     offset_width: usize,
     output: &mut Vec<u8>,
     params: &Params,
 ) {
-    assert!(!params.quiet);
+    assert!(!params.silent);
 
     let mut at_byte_buf = itoa::Buffer::new();
     let mut from_oct = [0u8; 3]; // for octal conversions
@@ -334,288 +361,16 @@ fn is_posix_locale() -> bool {
     locale == "C" || locale == "POSIX"
 }
 
-#[cfg(not(target_os = "windows"))]
-fn is_stdout_dev_null() -> bool {
-    let Ok(dev_null) = fs::metadata("/dev/null") else {
-        return false;
-    };
-
-    let stdout_fd = io::stdout().lock().as_raw_fd();
-
-    // SAFETY: we have exclusive access to stdout right now.
-    let stdout_file = unsafe { fs::File::from_raw_fd(stdout_fd) };
-    let Ok(stdout) = stdout_file.metadata() else {
-        return false;
-    };
-
-    let is_dev_null = stdout.dev() == dev_null.dev() && stdout.ino() == dev_null.ino();
-
-    // Don't let File close the fd. It's unfortunate that File doesn't have a leak_fd().
-    std::mem::forget(stdout_file);
-
-    is_dev_null
-}
-
-pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Result<Params, String> {
-    let Some(executable) = opts.next() else {
-        return Err("Usage: <exe> <from> <to>".to_string());
-    };
-    let executable_str = executable.to_string_lossy().to_string();
-
-    let parse_skip = |param: &str, skip_desc: &str| -> Result<usize, String> {
-        let suffix_start = param
-            .find(|b: char| !b.is_ascii_digit())
-            .unwrap_or(param.len());
-        let mut num = match param[..suffix_start].parse::<usize>() {
-            Ok(num) => num,
-            Err(e) if *e.kind() == std::num::IntErrorKind::PosOverflow => usize::MAX,
-            Err(_) => {
-                return Err(format!(
-                    "{executable_str}: invalid --ignore-initial value '{skip_desc}'"
-                ));
-            }
-        };
-
-        if suffix_start != param.len() {
-            // Note that GNU cmp advertises supporting up to Y, but fails if you try
-            // to actually use anything beyond E.
-            let multiplier: usize = match &param[suffix_start..] {
-                "kB" => 1_000,
-                "K" => 1_024,
-                "MB" => 1_000_000,
-                "M" => 1_048_576,
-                "GB" => 1_000_000_000,
-                "G" => 1_073_741_824,
-                // This only generates a warning when compiling for target_pointer_width < 64
-                #[allow(unused_variables)]
-                suffix @ ("TB" | "T" | "PB" | "P" | "EB" | "E") => {
-                    #[cfg(target_pointer_width = "64")]
-                    match suffix {
-                        "TB" => 1_000_000_000_000,
-                        "T" => 1_099_511_627_776,
-                        "PB" => 1_000_000_000_000_000,
-                        "P" => 1_125_899_906_842_624,
-                        "EB" => 1_000_000_000_000_000_000,
-                        "E" => 1_152_921_504_606_846_976,
-                        _ => unreachable!(),
-                    }
-                    #[cfg(not(target_pointer_width = "64"))]
-                    usize::MAX
-                }
-                "ZB" => usize::MAX, // 1_000_000_000_000_000_000_000,
-                "Z" => usize::MAX,  // 1_180_591_620_717_411_303_424,
-                "YB" => usize::MAX, // 1_000_000_000_000_000_000_000_000,
-                "Y" => usize::MAX,  // 1_208_925_819_614_629_174_706_176,
-                _ => {
-                    return Err(format!(
-                        "{executable_str}: invalid --ignore-initial value '{skip_desc}'"
-                    ));
-                }
-            };
-
-            num = match num.overflowing_mul(multiplier) {
-                (n, false) => n,
-                _ => usize::MAX,
-            }
-        }
-
-        Ok(num)
-    };
-
-    let mut params = Params {
-        executable,
-        ..Default::default()
-    };
-    let mut from = None;
-    let mut to = None;
-    let mut skip_pos1 = None;
-    let mut skip_pos2 = None;
-    while let Some(param) = opts.next() {
-        if param == "--" {
-            break;
-        }
-        if param == "-" {
-            if from.is_none() {
-                from = Some(param);
-            } else if to.is_none() {
-                to = Some(param);
-            } else {
-                return Err(usage_string(&executable_str));
-            }
-            continue;
-        }
-        if param == "-b" || param == "--print-bytes" {
-            params.print_bytes = true;
-            continue;
-        }
-        if param == "-l" || param == "--verbose" {
-            params.verbose = true;
-            continue;
-        }
-        if param == "-lb" || param == "-bl" {
-            params.print_bytes = true;
-            params.verbose = true;
-            continue;
-        }
-
-        let param_str = param.to_string_lossy().to_string();
-        if param == "-n" || param_str.starts_with("--bytes=") {
-            let max_bytes = if param == "-n" {
-                opts.next()
-                    .ok_or_else(|| usage_string(&executable_str))?
-                    .to_string_lossy()
-                    .to_string()
-            } else {
-                let (_, arg) = param_str.split_once('=').unwrap();
-                arg.to_string()
-            };
-            let max_bytes = match max_bytes.parse::<usize>() {
-                Ok(num) => num,
-                Err(e) if *e.kind() == std::num::IntErrorKind::PosOverflow => usize::MAX,
-                Err(_) => {
-                    return Err(format!(
-                        "{executable_str}: invalid --bytes value '{max_bytes}'"
-                    ));
-                }
-            };
-            params.max_bytes = Some(max_bytes);
-            continue;
-        }
-        if param == "-i" || param_str.starts_with("--ignore-initial=") {
-            let skip_desc = if param == "-i" {
-                opts.next()
-                    .ok_or_else(|| usage_string(&executable_str))?
-                    .to_string_lossy()
-                    .to_string()
-            } else {
-                let (_, arg) = param_str.split_once('=').unwrap();
-                arg.to_string()
-            };
-            let (skip_a, skip_b) = if let Some((skip_a, skip_b)) = skip_desc.split_once(':') {
-                (
-                    parse_skip(skip_a, &skip_desc)?,
-                    parse_skip(skip_b, &skip_desc)?,
-                )
-            } else {
-                let skip = parse_skip(&skip_desc, &skip_desc)?;
-                (skip, skip)
-            };
-            params.skip_a = Some(skip_a);
-            params.skip_b = Some(skip_b);
-            continue;
-        }
-        if param == "-s" || param == "--quiet" || param == "--silent" {
-            params.quiet = true;
-            continue;
-        }
-        if param == "--help" {
-            println!("{}", usage_string(&executable_str));
-            std::process::exit(0);
-        }
-        if param_str.starts_with('-') {
-            return Err(format!("unrecognized option '{}'", param.to_string_lossy()));
-        }
-        if from.is_none() {
-            from = Some(param);
-        } else if to.is_none() {
-            to = Some(param);
-        } else if skip_pos1.is_none() {
-            skip_pos1 = Some(parse_skip(&param_str, &param_str)?);
-        } else if skip_pos2.is_none() {
-            skip_pos2 = Some(parse_skip(&param_str, &param_str)?);
-        } else {
-            return Err(usage_string(&executable_str));
-        }
-    }
-
-    // Do as GNU cmp, and completely disable printing if we are
-    // outputting to /dev/null.
-    #[cfg(not(target_os = "windows"))]
-    if is_stdout_dev_null() {
-        params.quiet = true;
-        params.verbose = false;
-        params.print_bytes = false;
-    }
-
-    if params.quiet && params.verbose {
-        return Err(format!(
-            "{executable_str}: options -l and -s are incompatible"
-        ));
-    }
-
-    params.from = if let Some(from) = from {
-        from
-    } else if let Some(param) = opts.next() {
-        param
-    } else {
-        return Err(usage_string(&executable_str));
-    };
-    params.to = if let Some(to) = to {
-        to
-    } else if let Some(param) = opts.next() {
-        param
-    } else {
-        OsString::from("-")
-    };
-
-    // GNU cmp ignores positional skip arguments if -i is provided.
-    if params.skip_a.is_none() {
-        if skip_pos1.is_some() {
-            params.skip_a = skip_pos1;
-        } else if let Some(param) = opts.next() {
-            let param_str = param.to_string_lossy().to_string();
-            params.skip_a = Some(parse_skip(&param_str, &param_str)?);
-        }
-    }
-    if params.skip_b.is_none() {
-        if skip_pos2.is_some() {
-            params.skip_b = skip_pos2;
-        } else if let Some(param) = opts.next() {
-            let param_str = param.to_string_lossy().to_string();
-            params.skip_b = Some(parse_skip(&param_str, &param_str)?);
-        }
-    }
-
-    Ok(params)
-}
-
-fn prepare_reader(
-    path: &OsString,
-    skip: Option<usize>,
-    params: &Params,
-) -> Result<Box<dyn BufRead>, String> {
-    let mut reader: Box<dyn BufRead> = if path == "-" {
-        Box::new(BufReader::new(io::stdin()))
-    } else {
-        match fs::File::open(path) {
-            Ok(file) => Box::new(BufReader::new(file)),
-            Err(e) => {
-                return Err(format_failure_to_read_input_file(
-                    &params.executable,
-                    path,
-                    &e,
-                ));
-            }
-        }
-    };
-
-    if let Some(skip) = skip {
-        if let Err(e) = io::copy(&mut reader.by_ref().take(skip as u64), &mut io::sink()) {
-            return Err(format_failure_to_read_input_file(
-                &params.executable,
-                path,
-                &e,
-            ));
-        }
-    }
-
-    Ok(reader)
-}
-
 #[inline]
-fn report_difference(from_byte: u8, to_byte: u8, at_byte: usize, at_line: usize, params: &Params) {
-    if params.quiet {
-        return;
+fn report_difference(
+    from_byte: u8,
+    to_byte: u8,
+    at_byte: BytesLimitU64,
+    at_line: u64,
+    params: &Params,
+) -> io::Result<()> {
+    if params.silent {
+        return Ok(());
     }
 
     let term = if is_posix_locale() && !params.print_bytes {
@@ -640,32 +395,43 @@ fn report_difference(from_byte: u8, to_byte: u8, at_byte: usize, at_line: usize,
             format_visible_byte(to_byte)
         );
     }
-    println!();
+    // Instead of println!(), which panics in case of error (> /dev/full).
+    let mut stdout = io::stdout();
+    writeln!(stdout)?;
+    stdout.flush()?;
+
+    Ok(())
 }
 
 #[inline]
-fn report_eof(at_byte: usize, at_line: usize, start_of_line: bool, eof_on: &str, params: &Params) {
-    if params.quiet {
+fn report_eof(
+    at_byte: BytesLimitU64,
+    at_line: u64,
+    start_of_line: bool,
+    eof_on: &str,
+    params: &Params,
+) {
+    if params.silent {
         return;
     }
 
     if at_byte == 1 {
         eprintln!(
             "{}: EOF on '{}' which is empty",
-            params.executable.to_string_lossy(),
+            uucore::util_name(),
             eof_on
         );
     } else if params.verbose {
         eprintln!(
             "{}: EOF on '{}' after byte {}",
-            params.executable.to_string_lossy(),
+            uucore::util_name(),
             eof_on,
             at_byte - 1,
         );
     } else if start_of_line {
         eprintln!(
             "{}: EOF on '{}' after byte {}, line {}",
-            params.executable.to_string_lossy(),
+            uucore::util_name(),
             eof_on,
             at_byte - 1,
             at_line - 1
@@ -673,7 +439,7 @@ fn report_eof(at_byte: usize, at_line: usize, start_of_line: bool, eof_on: &str,
     } else {
         eprintln!(
             "{}: EOF on '{}' after byte {}, in line {}",
-            params.executable.to_string_lossy(),
+            uucore::util_name(),
             eof_on,
             at_byte - 1,
             at_line
@@ -736,486 +502,7 @@ fn write_visible_byte_padded(output: &mut Vec<u8>, byte: u8) {
     output.extend_from_slice(&SPACES[..padding]);
 }
 
-#[inline]
-fn usage_string(executable: &str) -> String {
-    format!("Usage: {executable} <from> <to>")
-}
-
 // Required for build.rs
 pub fn uu_app() -> Command {
-    // dummy
-    Command::new(uucore::util_name())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    fn os(s: &str) -> OsString {
-        OsString::from(s)
-    }
-
-    #[test]
-    fn positional() {
-        assert_eq!(
-            Ok(Params {
-                executable: os("cmp"),
-                from: os("foo"),
-                to: os("bar"),
-                ..Default::default()
-            }),
-            parse_params([os("cmp"), os("foo"), os("bar")].iter().cloned().peekable())
-        );
-
-        assert_eq!(
-            Ok(Params {
-                executable: os("cmp"),
-                from: os("foo"),
-                to: os("-"),
-                ..Default::default()
-            }),
-            parse_params([os("cmp"), os("foo")].iter().cloned().peekable())
-        );
-
-        assert_eq!(
-            Ok(Params {
-                executable: os("cmp"),
-                from: os("foo"),
-                to: os("--help"),
-                ..Default::default()
-            }),
-            parse_params(
-                [os("cmp"), os("foo"), os("--"), os("--help")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-
-        assert_eq!(
-            Ok(Params {
-                executable: os("cmp"),
-                from: os("foo"),
-                to: os("bar"),
-                skip_a: Some(1),
-                skip_b: None,
-                ..Default::default()
-            }),
-            parse_params(
-                [os("cmp"), os("foo"), os("bar"), os("1")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-
-        assert_eq!(
-            Ok(Params {
-                executable: os("cmp"),
-                from: os("foo"),
-                to: os("bar"),
-                skip_a: Some(1),
-                skip_b: Some(usize::MAX),
-                ..Default::default()
-            }),
-            parse_params(
-                [os("cmp"), os("foo"), os("bar"), os("1"), os("2Y")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-
-        // Bad positional arguments.
-        assert_eq!(
-            Err("Usage: cmp <from> <to>".to_string()),
-            parse_params(
-                [os("cmp"), os("foo"), os("bar"), os("1"), os("2"), os("3")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-        assert_eq!(
-            Err("Usage: cmp <from> <to>".to_string()),
-            parse_params([os("cmp")].iter().cloned().peekable())
-        );
-    }
-
-    #[test]
-    fn execution_modes() {
-        let print_bytes = Params {
-            executable: os("cmp"),
-            from: os("foo"),
-            to: os("bar"),
-            print_bytes: true,
-            ..Default::default()
-        };
-        assert_eq!(
-            Ok(print_bytes.clone()),
-            parse_params(
-                [os("cmp"), os("-b"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-        assert_eq!(
-            Ok(print_bytes),
-            parse_params(
-                [os("cmp"), os("--print-bytes"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-
-        let verbose = Params {
-            executable: os("cmp"),
-            from: os("foo"),
-            to: os("bar"),
-            verbose: true,
-            ..Default::default()
-        };
-        assert_eq!(
-            Ok(verbose.clone()),
-            parse_params(
-                [os("cmp"), os("-l"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-        assert_eq!(
-            Ok(verbose),
-            parse_params(
-                [os("cmp"), os("--verbose"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-
-        let verbose_and_print_bytes = Params {
-            executable: os("cmp"),
-            from: os("foo"),
-            to: os("bar"),
-            print_bytes: true,
-            verbose: true,
-            ..Default::default()
-        };
-        assert_eq!(
-            Ok(verbose_and_print_bytes.clone()),
-            parse_params(
-                [os("cmp"), os("-l"), os("-b"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-        assert_eq!(
-            Ok(verbose_and_print_bytes.clone()),
-            parse_params(
-                [os("cmp"), os("-lb"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-        assert_eq!(
-            Ok(verbose_and_print_bytes),
-            parse_params(
-                [os("cmp"), os("-bl"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-
-        assert_eq!(
-            Ok(Params {
-                executable: os("cmp"),
-                from: os("foo"),
-                to: os("bar"),
-                quiet: true,
-                ..Default::default()
-            }),
-            parse_params(
-                [os("cmp"), os("-s"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-
-        // Some options do not mix.
-        assert_eq!(
-            Err("cmp: options -l and -s are incompatible".to_string()),
-            parse_params(
-                [os("cmp"), os("-l"), os("-s"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-    }
-
-    #[test]
-    fn max_bytes() {
-        let max_bytes = Params {
-            executable: os("cmp"),
-            from: os("foo"),
-            to: os("bar"),
-            max_bytes: Some(1),
-            ..Default::default()
-        };
-        assert_eq!(
-            Ok(max_bytes.clone()),
-            parse_params(
-                [os("cmp"), os("-n"), os("1"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-        assert_eq!(
-            Ok(max_bytes),
-            parse_params(
-                [os("cmp"), os("--bytes=1"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-
-        assert_eq!(
-            Ok(Params {
-                executable: os("cmp"),
-                from: os("foo"),
-                to: os("bar"),
-                max_bytes: Some(usize::MAX),
-                ..Default::default()
-            }),
-            parse_params(
-                [
-                    os("cmp"),
-                    os("--bytes=99999999999999999999999999999999999999999999999999999999999"),
-                    os("foo"),
-                    os("bar")
-                ]
-                .iter()
-                .cloned()
-                .peekable()
-            )
-        );
-
-        // Failure case
-        assert_eq!(
-            Err("cmp: invalid --bytes value '1K'".to_string()),
-            parse_params(
-                [os("cmp"), os("--bytes=1K"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-    }
-
-    #[test]
-    fn skips() {
-        let skips = Params {
-            executable: os("cmp"),
-            from: os("foo"),
-            to: os("bar"),
-            skip_a: Some(1),
-            skip_b: Some(1),
-            ..Default::default()
-        };
-        assert_eq!(
-            Ok(skips.clone()),
-            parse_params(
-                [os("cmp"), os("-i"), os("1"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-        assert_eq!(
-            Ok(skips),
-            parse_params(
-                [os("cmp"), os("--ignore-initial=1"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-
-        assert_eq!(
-            Ok(Params {
-                executable: os("cmp"),
-                from: os("foo"),
-                to: os("bar"),
-                skip_a: Some(usize::MAX),
-                skip_b: Some(usize::MAX),
-                ..Default::default()
-            }),
-            parse_params(
-                [
-                    os("cmp"),
-                    os("-i"),
-                    os("99999999999999999999999999999999999999999999999999999999999"),
-                    os("foo"),
-                    os("bar")
-                ]
-                .iter()
-                .cloned()
-                .peekable()
-            )
-        );
-
-        assert_eq!(
-            Ok(Params {
-                executable: os("cmp"),
-                from: os("foo"),
-                to: os("bar"),
-                skip_a: Some(1),
-                skip_b: Some(2),
-                ..Default::default()
-            }),
-            parse_params(
-                [os("cmp"), os("--ignore-initial=1:2"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-
-        assert_eq!(
-            Ok(Params {
-                executable: os("cmp"),
-                from: os("foo"),
-                to: os("bar"),
-                skip_a: Some(1_000_000_000),
-                #[cfg(target_pointer_width = "32")]
-                skip_b: Some((2_147_483_647.5 * 2.0) as usize),
-                #[cfg(target_pointer_width = "64")]
-                skip_b: Some(1_152_921_504_606_846_976 * 2),
-                ..Default::default()
-            }),
-            parse_params(
-                [
-                    os("cmp"),
-                    os("--ignore-initial=1GB:2E"),
-                    os("foo"),
-                    os("bar")
-                ]
-                .iter()
-                .cloned()
-                .peekable()
-            )
-        );
-
-        // All special suffixes.
-        for (i, suffixes) in [
-            ["kB", "K"],
-            ["MB", "M"],
-            ["GB", "G"],
-            ["TB", "T"],
-            ["PB", "P"],
-            ["EB", "E"],
-            ["ZB", "Z"],
-            ["YB", "Y"],
-        ]
-        .iter()
-        .enumerate()
-        {
-            let values = [
-                1_000usize.checked_pow((i + 1) as u32).unwrap_or(usize::MAX),
-                1024usize.checked_pow((i + 1) as u32).unwrap_or(usize::MAX),
-            ];
-            for (j, v) in values.iter().enumerate() {
-                assert_eq!(
-                    Ok(Params {
-                        executable: os("cmp"),
-                        from: os("foo"),
-                        to: os("bar"),
-                        skip_a: Some(*v),
-                        skip_b: Some(2),
-                        ..Default::default()
-                    }),
-                    parse_params(
-                        [
-                            os("cmp"),
-                            os("-i"),
-                            os(&format!("1{}:2", suffixes[j])),
-                            os("foo"),
-                            os("bar"),
-                        ]
-                        .iter()
-                        .cloned()
-                        .peekable()
-                    )
-                );
-            }
-        }
-
-        // Ignores positional arguments when -i is provided.
-        assert_eq!(
-            Ok(Params {
-                executable: os("cmp"),
-                from: os("foo"),
-                to: os("bar"),
-                skip_a: Some(1),
-                skip_b: Some(2),
-                ..Default::default()
-            }),
-            parse_params(
-                [
-                    os("cmp"),
-                    os("-i"),
-                    os("1:2"),
-                    os("foo"),
-                    os("bar"),
-                    os("3"),
-                    os("4")
-                ]
-                .iter()
-                .cloned()
-                .peekable()
-            )
-        );
-
-        // Failure cases
-        assert_eq!(
-            Err("cmp: invalid --ignore-initial value '1mb'".to_string()),
-            parse_params(
-                [os("cmp"), os("--ignore-initial=1mb"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-        assert_eq!(
-            Err("cmp: invalid --ignore-initial value '1:2:3'".to_string()),
-            parse_params(
-                [
-                    os("cmp"),
-                    os("--ignore-initial=1:2:3"),
-                    os("foo"),
-                    os("bar")
-                ]
-                .iter()
-                .cloned()
-                .peekable()
-            )
-        );
-        assert_eq!(
-            Err("cmp: invalid --ignore-initial value '-1'".to_string()),
-            parse_params(
-                [os("cmp"), os("--ignore-initial=-1"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-    }
+    params_cmp::uu_app()
 }

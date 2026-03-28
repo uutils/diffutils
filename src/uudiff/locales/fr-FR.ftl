@@ -1,3 +1,15 @@
+# Error messages specific to DiffUtils
+parse-error-conflicting-output-options = Options de formatage de sortie incompatibles '--{ $opt1 }' et '--{ $opt2 }'.
+parse-error-extra-operand = opérande supplémentaire { $operand }
+parse-error-incompatible-options = les options --{ $opt1 } and --{ $opt2 } sont incompatibles
+parse-error-invalid-value = valeur invalide '{ $value }' pour '{ $option }' 
+parse-error-invalid-context-length = longueur de contexte non valide '{ $value }'
+parse-error-invalid-unified-length = longueur unifiée non valide '{ $value }'
+parse-error-invalid-value-overflow = valeur invalide '{ $value }' (trop grand) pour '{ $option }'
+parse-error-invalid-value-unit = unité non valide dans '{ $value }' pour l'option '--{ $option }'
+parse-error-missing-operand = opérande manquant après '{ $after }'
+parse-error-not-yet-implemented = L'option '--{ $option}' n'est pas encore implémentée
+
 # *** This is a copy from coreutils ***
 # Chaînes communes partagées entre toutes les commandes uutils
 # Principalement pour clap
