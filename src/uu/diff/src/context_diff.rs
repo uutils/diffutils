@@ -8,7 +8,7 @@
 use std::collections::VecDeque;
 use std::io::Write;
 
-use crate::params::Params;
+use crate::params_diff::Params;
 use uudiff::utils::do_write_line;
 use uudiff::utils::get_modification_time;
 
@@ -280,7 +280,7 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
         to_modified_time
     )
     .into_bytes();
-    let diff_results = make_diff(expected, actual, params.context_count, params.brief);
+    let diff_results = make_diff(expected, actual, params.n_output_lines, params.brief);
     if diff_results.is_empty() {
         return Vec::new();
     }
@@ -437,7 +437,7 @@ mod tests {
                                     &Params {
                                         from: "a/alef".into(),
                                         to: (&format!("{target}/alef")).into(),
-                                        context_count: 2,
+                                        n_output_lines: 2,
                                         ..Default::default()
                                     },
                                 );
@@ -520,7 +520,7 @@ mod tests {
                                     &Params {
                                         from: "a/alef_".into(),
                                         to: (&format!("{target}/alef_")).into(),
-                                        context_count: 2,
+                                        n_output_lines: 2,
                                         ..Default::default()
                                     },
                                 );
@@ -606,7 +606,7 @@ mod tests {
                                     &Params {
                                         from: "a/alefx".into(),
                                         to: (&format!("{target}/alefx")).into(),
-                                        context_count: 2,
+                                        n_output_lines: 2,
                                         ..Default::default()
                                     },
                                 );
@@ -695,7 +695,7 @@ mod tests {
                                     &Params {
                                         from: "a/alefr".into(),
                                         to: (&format!("{target}/alefr")).into(),
-                                        context_count: 2,
+                                        n_output_lines: 2,
                                         ..Default::default()
                                     },
                                 );
@@ -732,7 +732,7 @@ mod tests {
 
     #[test]
     fn test_stop_early() {
-        use crate::assert_diff_eq;
+        use uudiff::assert_diff_eq;
 
         let from_filename = "foo";
         let from = ["a", "b", "c", ""].join("\n");

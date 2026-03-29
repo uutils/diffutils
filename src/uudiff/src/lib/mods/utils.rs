@@ -3,11 +3,7 @@
 // For the full copyright and license information, please view the LICENSE
 // file that was distributed with this source code.
 
-use regex::Regex;
-use std::{
-    ffi::{OsStr, OsString},
-    io::Write,
-};
+use std::{ffi::OsStr, io::Write};
 use unicode_width::UnicodeWidthStr;
 
 /// Return of compare function if no error occurred.
@@ -20,6 +16,7 @@ pub enum CompareOk {
 /// Replace tabs by spaces in the input line.
 /// Correctly handle multi-bytes characters.
 /// This assumes that line does not contain any line breaks (if it does, the result is undefined).
+// TODO This function does not seem to be used.
 #[must_use]
 #[allow(clippy::naive_bytecount)]
 pub fn do_expand_tabs(line: &[u8], tabsize: usize) -> Vec<u8> {
@@ -85,33 +82,6 @@ pub fn get_modification_time(file_path: &str) -> String {
 /// Checks if files are the same (same file link), which must return 'equal'.
 pub fn is_same_file(from: &OsStr, to: &OsStr) -> bool {
     (from == "-" && to == "-") || same_file::is_same_file(from, to).unwrap_or(false)
-}
-
-pub fn format_failure_to_read_input_file(
-    executable: &OsString,
-    filepath: &OsString,
-    error: &std::io::Error,
-) -> String {
-    // std::io::Error's display trait outputs "{detail} (os error {code})"
-    // but we want only the {detail} (error string) part
-    let error_code_re = Regex::new(r"\ \(os\ error\ \d+\)$").unwrap();
-    format!(
-        "{}: {}: {}",
-        executable.to_string_lossy(),
-        filepath.to_string_lossy(),
-        error_code_re.replace(error.to_string().as_str(), ""),
-    )
-}
-
-pub fn report_failure_to_read_input_file(
-    executable: &OsString,
-    filepath: &OsString,
-    error: &std::io::Error,
-) {
-    eprintln!(
-        "{}",
-        format_failure_to_read_input_file(executable, filepath, error)
-    );
 }
 
 #[cfg(test)]

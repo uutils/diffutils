@@ -20,6 +20,6 @@ fn init() {
 #[path = "by-util/test_cmp.rs"]
 mod test_cmp;
 
-// #[cfg(feature = "diff")]
-// #[path = "by-util/test_diff.rs"]
-// mod test_diff;
+#[cfg(feature = "diff")]
+#[path = "by-util/test_diff.rs"]
+mod test_diff;

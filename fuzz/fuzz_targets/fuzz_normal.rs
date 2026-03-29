@@ -7,7 +7,7 @@ use std::io::Write;
 use std::process::Command;
 
 use uu_diff::normal_diff;
-use uu_diff::params::Params;
+use uu_diff::params_diff::Params;
 
 fuzz_target!(|x: (Vec<u8>, Vec<u8>)| {
     let (from, to) = x;

@@ -25,7 +25,7 @@ path = "src/main.rs"
 path = "src/diff.rs"
 
 [features]
-# default = ["feat_run_binary_bench" ]
+default = ["feat_run_binary_bench" ]
 # The cmd benchmarks start the binaries and take a lot of runtime on the github checks.
 # Only run them locally.
 feat_run_binary_bench = []
@@ -49,4 +49,8 @@ tempfile.workspace = true
 [profile.release]
 # for flamegraph
 # debug = 1
+
+[[bench]]
+name = "diff_bench"
+harness = false
 

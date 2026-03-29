@@ -7,7 +7,7 @@
 
 use std::io::Write;
 
-use crate::params::Params;
+use crate::{DiffError, params_diff::Params};
 use uudiff::utils::do_write_line;
 
 #[derive(Debug, PartialEq)]
@@ -16,23 +16,6 @@ struct Mismatch {
     pub line_number_actual: usize,
     pub expected: Vec<Vec<u8>>,
     pub actual: Vec<Vec<u8>>,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum DiffError {
-    MissingNL,
-}
-
-impl std::fmt::Display for DiffError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        std::fmt::Display::fmt("No newline at end of file", f)
-    }
-}
-
-impl From<DiffError> for String {
-    fn from(_: DiffError) -> Self {
-        "No newline at end of file".into()
-    }
 }
 
 impl Mismatch {

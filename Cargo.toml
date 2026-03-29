@@ -247,7 +247,3 @@ large_types_passed_by_value = "allow"
 [workspace.metadata.cargo-shear]
 ignored = ["clap", "fluent", "libstdbuf"]
 
-[[bench]]
-name = "bench_diffutils"
-path = "benches/bench-diffutils.rs"
-harness = false

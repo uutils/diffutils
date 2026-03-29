@@ -5,7 +5,7 @@ extern crate libfuzzer_sys;
 use std::fs::File;
 use std::io::Write;
 
-use uu_diff::params::Params;
+use uu_diff::params_diff::Params;
 use uu_diff::side_diff;
 
 fuzz_target!(|x: (Vec<u8>, Vec<u8>, /* usize, usize */ bool)| {

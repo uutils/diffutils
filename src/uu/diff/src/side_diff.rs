@@ -5,12 +5,16 @@
 
 // spell-checker:ignore áéíóú endiand mcel rxyz
 
+//! This file contains the test for the diff utility.
+//!
+//! Some tests remain in the modules as it would require to make some fn public.
+//! Run 'cargo test -p uu_diff' or 'cargo test --workspace' to include these.
+
+use crate::params_diff::Params;
 use core::cmp::{max, min};
 use diff_crate::Result;
 use std::{io::Write, vec};
 use unicode_width::UnicodeWidthStr;
-
-use crate::params::Params;
 
 const GUTTER_WIDTH_MIN: usize = 3;
 

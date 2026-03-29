@@ -16,37 +16,8 @@ mod common {
 
     use super::*;
 
-//     #[test]
-//     fn test_unknown_param() -> Result<(), Box<dyn std::error::Error>> {
-//         // no util as argument
-//         let mut cmd = cargo_bin_cmd!("diffutils");
-//         cmd.assert()
-//             .code(predicate::eq(0))
-//             .success()
-//             .stdout(predicate::str::contains("Usage: diffutils"));
-// 
-//         // util not recognized
-//         let mut cmd = cargo_bin_cmd!("diffutils");
-//         cmd.arg("exterminator");
-//         cmd.assert()
-//             .code(predicate::eq(2))
-//             .failure()
-//             .stderr(predicate::eq("diffutils: unknown program 'exterminator'\n"));
-// 
-//         for sub_cmd in ["diff", "cmp"] {
-//             let mut cmd = cargo_bin_cmd!("diffutils");
-//             cmd.arg(sub_cmd);
-//             cmd.arg("--foobar");
-//             cmd.assert()
-//                 .code(predicate::eq(2))
-//                 .failure()
-//                 .stderr(predicate::str::contains("unexpected option '--foobar'"));
-//         }
-//         Ok(())
-//     }
-
     #[test]
-    fn unknown_param() -> Result<(), Box<dyn std::error::Error>> {
+    fn test_unknown_param() -> Result<(), Box<dyn std::error::Error>> {
         // no util as argument
         let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.assert()
@@ -62,18 +33,18 @@ mod common {
             .failure()
             .stderr(predicate::eq("diffutils: unknown program 'exterminator'\n"));
 
-        for subcmd in ["diff"] {
-            // , "cmp" error message changed
+        for sub_cmd in ["diff", "cmp"] {
             let mut cmd = cargo_bin_cmd!("diffutils");
-            cmd.arg(subcmd);
+            cmd.arg(sub_cmd);
             cmd.arg("--foobar");
             cmd.assert()
                 .code(predicate::eq(2))
                 .failure()
-                .stderr(predicate::str::contains("unrecognized option '--foobar'"));
+                .stderr(predicate::str::contains("unexpected option '--foobar'"));
         }
         Ok(())
     }
+
 
     #[test]
     fn cannot_read_files() -> Result<(), Box<dyn std::error::Error>> {

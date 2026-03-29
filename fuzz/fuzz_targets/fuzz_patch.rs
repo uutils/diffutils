@@ -5,7 +5,7 @@ use std::fs::{self, File};
 use std::io::Write;
 use std::process::Command;
 
-use uu_diff::params::Params;
+use uu_diff::params_diff::Params;
 use uu_diff::unified_diff;
 
 fuzz_target!(|x: (Vec<u8>, Vec<u8>, u8)| {
@@ -28,7 +28,7 @@ fuzz_target!(|x: (Vec<u8>, Vec<u8>, u8)| {
         &Params {
             from: "a/fuzz.file".into(),
             to: "target/fuzz.file".into(),
-            context_count: context as usize,
+            n_output_lines: context as usize,
             ..Default::default()
         },
     );
