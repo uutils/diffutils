@@ -7,7 +7,6 @@
 
 use assert_cmd::cargo::cargo_bin_cmd;
 use predicates::prelude::*;
-#[cfg(not(windows))]
 use tempfile::NamedTempFile;
 // use uutests::new_ucmd; does not work for diffutils itself
 
@@ -45,7 +44,6 @@ mod common {
         Ok(())
     }
 
-
     #[test]
     fn cannot_read_files() -> Result<(), Box<dyn std::error::Error>> {
         let file = NamedTempFile::new()?;
@@ -54,10 +52,10 @@ mod common {
         let no_path = no_file.into_temp_path();
         std::fs::remove_file(&no_path)?;
 
-        #[cfg(not(windows))]
+        // #[cfg(not(windows))]
         let error_message = "No such file or directory";
-        #[cfg(windows)]
-        let error_message = "The system cannot find the file specified.";
+        // #[cfg(windows)]
+        // let error_message = "The system cannot find the file specified.";
 
         for sub_cmd in ["diff", "cmp"] {
             // dbg!(&sub_cmd, &no_path.as_os_str().to_string_lossy());

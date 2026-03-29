@@ -19,6 +19,9 @@ use uudiff::utils::{self, CompareOk};
 
 use crate::params_cmp::{BytesLimitU64, Params, SkipU64};
 
+#[cfg(target_os = "windows")]
+use std::os::windows::fs::MetadataExt;
+
 #[cfg(not(target_os = "windows"))]
 use std::os::unix::fs::MetadataExt;
 
@@ -92,7 +95,7 @@ pub fn cmp_compare(params: &Params) -> UResult<CompareOk> {
         let (from_size, to_size) = (a_meta.size(), b_meta.size());
 
         #[cfg(target_os = "windows")]
-        let (a_size, b_size) = (a_meta.file_size(), b_meta.file_size());
+        let (from_size, to_size) = (a_meta.file_size(), b_meta.file_size());
 
         // If the files have different sizes, we already know they are not identical. If we have not
         // been asked to show even the first difference, we can quit early.

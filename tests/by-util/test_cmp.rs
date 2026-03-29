@@ -9,7 +9,7 @@
 use ::cmp::params_cmp::{Params, SkipU64, uu_app};
 use assert_cmd::cargo::cargo_bin_cmd;
 use predicates::prelude::predicate;
-use std::{ffi::OsString, fs::File, fs::OpenOptions, io::Write};
+use std::{ffi::OsString, fs::File, io::Write};
 use tempfile::tempdir;
 use uudiff::error::UResult;
 use uutests::{at_and_ucmd, new_ucmd};
@@ -28,12 +28,23 @@ mod cmp {
     }
 
     #[test]
+    #[cfg(not(windows))]
     fn test_files_different() {
         new_ucmd!()
             .arg("lorem_ipsum.txt")
             .arg("lorem_ipsum_diff.txt")
             .fails_with_code(1)
             .stdout_is("lorem_ipsum.txt lorem_ipsum_diff.txt differ: char 190, line 4\n");
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn test_files_different() {
+        new_ucmd!()
+            .arg("lorem_ipsum.txt")
+            .arg("lorem_ipsum_diff.txt")
+            .fails_with_code(1)
+            .stdout_is("lorem_ipsum.txt lorem_ipsum_diff.txt differ: char 193, line 4\n");
     }
 
     #[test]
@@ -474,7 +485,10 @@ mod cmp {
         let b = File::create(&b_path).unwrap();
         b.set_len(15 * 1024 * 1024 * 1024 * 1024).unwrap();
 
-        let dev_null = OpenOptions::new().write(true).open("/dev/null").unwrap();
+        let dev_null = std::fs::OpenOptions::new()
+            .write(true)
+            .open("/dev/null")
+            .unwrap();
 
         let mut child = std::process::Command::new(assert_cmd::cargo::cargo_bin!("diffutils"))
             .arg("cmp")
