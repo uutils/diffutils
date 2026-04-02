@@ -84,7 +84,7 @@ mod cmp {
         let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.env("LC_ALL", "C");
         cmd.arg("cmp");
-        cmd.arg("-l");
+        cmd.arg("--verbose");
         cmd.arg(&a_path).arg(&b_path);
         cmd.assert()
             .code(predicate::eq(1))
@@ -95,7 +95,7 @@ mod cmp {
         let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.env("LC_ALL", "C");
         cmd.arg("cmp");
-        cmd.arg("-l");
+        cmd.arg("--verbose");
         cmd.arg("-b");
         cmd.arg(&a_path).arg(&b_path);
         cmd.assert()
@@ -253,8 +253,6 @@ mod cmp {
 
         let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.arg("cmp");
-        cmd.arg("-l");
-        cmd.arg("-b");
         cmd.arg("-n");
         cmd.arg("3");
         cmd.arg(&a_path).arg(&b_path);
@@ -969,10 +967,10 @@ mod parser {
             let values = [
                 (1_000 as SkipU64)
                     .checked_pow((i + 1) as u32)
-                    .expect(&format!("number too large for suffix {suffixes:?}")),
+                    .unwrap_or_else(|| panic!("number too large for suffix {suffixes:?}")),
                 (1024 as SkipU64)
                     .checked_pow((i + 1) as u32)
-                    .expect(&format!("number too large for suffix {suffixes:?}")),
+                    .unwrap_or_else(|| panic!("number too large for suffix {suffixes:?}")),
             ];
             for (j, v) in values.iter().enumerate() {
                 assert_eq!(

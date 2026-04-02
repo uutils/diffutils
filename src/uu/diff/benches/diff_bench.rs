@@ -19,7 +19,10 @@ const TEMP_DIR: &str = "";
 const MB: u64 = 1_000;
 
 use divan::Bencher;
-use std::{path::Path, sync::OnceLock};
+use std::{
+    path::{Path, PathBuf},
+    sync::OnceLock,
+};
 use tempfile::TempDir;
 use uudiff::benchmark::{
     // bench_binary,
@@ -79,18 +82,23 @@ fn cmd_diff_gnu_equal(bencher: Bencher, kb: u64) {
     bencher
         // .with_inputs(|| prepare::cmp_params_identical_testfiles(lines))
         .with_inputs(|| args_str.clone())
-        .bench_refs(|cmd_args| uudiff::benchmark::bench_binary::bench_binary("diff", cmd_args));
+        .bench_refs(|cmd_args| {
+            uudiff::benchmark::bench_binary::bench_binary(&PathBuf::from("diff"), cmd_args)
+        });
 }
 
 // bench the compiled release version
 #[cfg(feature = "feat_run_binary_bench")]
 #[divan::bench(args = FILE_SIZES_IN_KILO_BYTES)]
 fn cmd_diff_release_equal(bencher: Bencher, kb: u64) {
-    // search for src, then shorten path
-    let dir = std::env::current_dir().unwrap();
-    let path = dir.to_string_lossy();
-    let path = path.trim_end_matches("src/uu/diff");
-    let prg = path.to_string() + "target/release/diff";
+    let mut dir = std::env::current_dir().unwrap();
+    let suffix = Path::new("src").join("uu").join("diff");
+    if dir.ends_with(suffix) {
+        dir.pop();
+        dir.pop();
+        dir.pop();
+    }
+    let prg = dir.join("target").join("release").join("diff");
 
     let fp = get_context().get_files_equal_kb(kb).unwrap();
     let args_str = format!("{} {}", fp.from, fp.to);

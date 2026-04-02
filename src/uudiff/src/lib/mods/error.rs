@@ -713,7 +713,6 @@ pub trait UClapError<T> {
 
 impl From<clap::Error> for Box<dyn UError> {
     fn from(e: clap::Error) -> Self {
-        dbg!(&e);
         Box::new(ClapErrorWrapper {
             code: 1,
             error: e,

@@ -16,7 +16,7 @@ mod common {
     use super::*;
 
     #[test]
-    fn test_unknown_param() -> Result<(), Box<dyn std::error::Error>> {
+    fn test_unknown_param() {
         // no util as argument
         let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.assert()
@@ -41,7 +41,6 @@ mod common {
                 .failure()
                 .stderr(predicate::str::contains("unexpected option '--foobar'"));
         }
-        Ok(())
     }
 
     #[test]

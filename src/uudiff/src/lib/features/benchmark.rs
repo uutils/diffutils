@@ -212,16 +212,21 @@ pub mod prepare_bench {
 
 /// Benchmark tools which are designed to call the compiled executable.
 pub mod bench_binary {
-    use std::process::Command;
+    use std::{path::PathBuf, process::Command};
 
     use crate::benchmark::str_to_args;
 
-    pub fn bench_binary(program: &str, cmd_args: &str) -> std::process::ExitStatus {
+    pub fn bench_binary(program: &PathBuf, cmd_args: &str) -> std::process::ExitStatus {
         // TODO  let mut cmd = cargo_bin_cmd!("diffutils");
         let args = str_to_args(cmd_args);
         Command::new(program)
             .args(args)
             .status()
-            .expect("Failed to execute binary")
+            .unwrap_or_else(|_| {
+                panic!(
+                    "{}",
+                    ("Failed to execute binary: ".to_owned() + &program.to_string_lossy())
+                )
+            })
     }
 }
