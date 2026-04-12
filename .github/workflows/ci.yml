@@ -76,7 +76,7 @@ jobs:
           path: tests/test-results.json
       - run: ./tests/print-test-results.sh tests/test-results.json
       - name: Publish latest commit
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
           tag_name: latest-commit
