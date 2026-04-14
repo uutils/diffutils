@@ -54,4 +54,8 @@ $ cargo run -- -u fruits_old.txt fruits_new.txt
 
 ## License
 
-diffutils is licensed under the MIT and Apache Licenses - see the `LICENSE-MIT` or `LICENSE-APACHE` files for details
+This project is distributed under the terms of both the MIT license and the
+Apache License (Version 2.0).
+
+See [LICENSE-APACHE](LICENSE-APACHE), [LICENSE-MIT](LICENSE-MIT), and
+[COPYRIGHT](COPYRIGHT) for details.
