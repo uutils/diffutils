@@ -11,10 +11,10 @@ use std::iter::Peekable;
 use std::process::ExitCode;
 use std::{cmp, fs, io};
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(unix)]
 use std::os::fd::{AsRawFd, FromRawFd};
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
 
 #[cfg(target_os = "windows")]
@@ -38,7 +38,7 @@ fn usage_string(executable: &str) -> String {
     format!("Usage: {executable} <from> <to>")
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(unix)]
 fn is_stdout_dev_null() -> bool {
     let Ok(dev_null) = fs::metadata("/dev/null") else {
         return false;
@@ -58,6 +58,11 @@ fn is_stdout_dev_null() -> bool {
     std::mem::forget(stdout_file);
 
     is_dev_null
+}
+
+#[cfg(not(any(unix, target_os = "windows")))]
+fn is_stdout_dev_null() -> bool {
+    false
 }
 
 pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Result<Params, String> {
@@ -330,7 +335,7 @@ pub fn cmp(params: &Params) -> Result<Cmp, String> {
 
     if let (Ok(a_meta), Ok(b_meta)) = (fs::metadata(&params.from), fs::metadata(&params.to)) {
         #[cfg(not(target_os = "windows"))]
-        let (a_size, b_size) = (a_meta.size(), b_meta.size());
+        let (a_size, b_size) = (a_meta.len(), b_meta.len());
 
         #[cfg(target_os = "windows")]
         let (a_size, b_size) = (a_meta.file_size(), b_meta.file_size());
