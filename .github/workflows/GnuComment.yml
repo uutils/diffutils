@@ -1,0 +1,100 @@
+name: GnuComment
+
+on:
+  workflow_run:
+    workflows: ["GnuTests"]
+    types:
+      - completed
+
+permissions: {}
+
+jobs:
+  post-comment:
+    permissions:
+      actions: read  #  to list workflow runs artifacts
+      pull-requests: write  #  to comment on pr
+
+    runs-on: ubuntu-latest
+    if: >
+      github.event.workflow_run.event == 'pull_request'
+    steps:
+      - name: 'Download artifact'
+        uses: actions/github-script@v9
+        with:
+          script: |
+            // List all artifacts from GnuTests
+            var artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: ${{ github.event.workflow_run.id }},
+            });
+
+            // Download the "comment" artifact, which contains a PR number (NR) and result.txt
+            var matchArtifact = artifacts.data.artifacts.filter((artifact) => {
+              return artifact.name == "comment"
+            })[0];
+
+            if (!matchArtifact) {
+              console.log('No comment artifact found');
+              return;
+            }
+
+            var download = await github.rest.actions.downloadArtifact({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              artifact_id: matchArtifact.id,
+              archive_format: 'zip',
+            });
+            var fs = require('fs');
+            fs.writeFileSync('${{ github.workspace }}/comment.zip', Buffer.from(download.data));
+
+      - run: unzip comment.zip || echo "Failed to unzip comment artifact"
+
+      - name: 'Comment on PR'
+        uses: actions/github-script@v9
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            var fs = require('fs');
+
+            // Check if files exist
+            if (!fs.existsSync('./NR')) {
+              console.log('No NR file found, skipping comment');
+              return;
+            }
+            if (!fs.existsSync('./result.txt')) {
+              console.log('No result.txt file found, skipping comment');
+              return;
+            }
+
+            var issue_number = Number(fs.readFileSync('./NR'));
+            var content = fs.readFileSync('./result.txt');
+
+            if (content.toString().trim().length > 7) { // 7 because we have backquote + \n
+              // Update existing comment if present, otherwise create a new one
+              var marker = '<!-- gnu-tests-bot -->';
+              var body = marker + '\nGNU diffutils testsuite comparison:\n```\n' + content + '```';
+              var comments = await github.rest.issues.listComments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue_number,
+              });
+              var existing = comments.data.filter(c => c.body.includes(marker))[0];
+              if (existing) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: existing.id,
+                  body: body,
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issue_number,
+                  body: body,
+                });
+              }
+            } else {
+              console.log('Comment content too short, skipping');
+            }

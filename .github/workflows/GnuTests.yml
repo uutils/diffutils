@@ -1,0 +1,231 @@
+name: GnuTests
+
+# Run GNU diffutils testsuite against the Rust diffutils implementation
+# and compare results against the main branch to catch regressions
+
+on:
+  pull_request:
+  push:
+    branches:
+      - '*'
+
+permissions:
+  contents: write # Publish diffutils instead of discarding
+
+# End the current execution if there is a new changeset in the PR
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+  TEST_FULL_SUMMARY_FILE: 'diffutils-gnu-full-result.json'
+
+jobs:
+  native:
+    name: Run GNU diffutils testsuite
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      ### Build
+      - name: Build Rust diffutils binary
+        shell: bash
+        run: |
+          ## Build Rust diffutils binary
+          cargo build --config=profile.release.strip=true --profile=release
+          zstd -19 target/release/diffutils -o diffutils-x86_64-unknown-linux-gnu.zst
+
+      - name: Publish latest commit
+        uses: softprops/action-gh-release@v3
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          tag_name: latest-commit
+          body: |
+            commit: ${{ github.sha }}
+          draft: false
+          prerelease: true
+          files: |
+            diffutils-x86_64-unknown-linux-gnu.zst
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      ### Run tests
+      - name: Run GNU diffutils testsuite
+        shell: bash
+        run: |
+          ## Run GNU diffutils testsuite
+          ./tests/run-upstream-testsuite.sh release || true
+        env:
+          TERM: xterm
+
+      - name: Upload full json results
+        uses: actions/upload-artifact@v4
+        with:
+          name: diffutils-gnu-full-result
+          path: tests/test-results.json
+          if-no-files-found: warn
+
+  aggregate:
+    needs: [native]
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    name: Aggregate GNU test results
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Initialize workflow variables
+        id: vars
+        shell: bash
+        run: |
+          ## VARs setup
+          outputs() { step_id="${{ github.action }}"; for var in "$@" ; do echo steps.${step_id}.outputs.${var}="${!var}"; echo "${var}=${!var}" >> $GITHUB_OUTPUT; done; }
+
+          TEST_SUMMARY_FILE='diffutils-gnu-result.json'
+          outputs TEST_SUMMARY_FILE
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Retrieve reference artifacts
+        uses: dawidd6/action-download-artifact@v20
+        continue-on-error: true
+        with:
+          workflow: GnuTests.yml
+          branch: "${{ env.DEFAULT_BRANCH }}"
+          workflow_conclusion: completed
+          path: "reference"
+          if_no_artifact_found: warn
+
+      - name: Download full json results
+        uses: actions/download-artifact@v4
+        with:
+          name: diffutils-gnu-full-result
+          path: results
+
+      - name: Extract/summarize testing info
+        id: summary
+        shell: bash
+        run: |
+          ## Extract/summarize testing info
+          outputs() { step_id="${{ github.action }}"; for var in "$@" ; do echo steps.${step_id}.outputs.${var}="${!var}"; echo "${var}=${!var}" >> $GITHUB_OUTPUT; done; }
+
+          RESULT_FILE="results/test-results.json"
+          if [[ ! -f "$RESULT_FILE" ]]; then
+            echo "::error ::Missing test results at $RESULT_FILE"
+            exit 1
+          fi
+
+          TOTAL=$(jq '[.tests[]] | length' "$RESULT_FILE")
+          PASS=$(jq '[.tests[] | select(.result=="PASS")] | length' "$RESULT_FILE")
+          FAIL=$(jq '[.tests[] | select(.result=="FAIL")] | length' "$RESULT_FILE")
+          SKIP=$(jq '[.tests[] | select(.result=="SKIP")] | length' "$RESULT_FILE")
+          ERROR=0
+
+          output="GNU diffutils tests summary = TOTAL: $TOTAL / PASS: $PASS / FAIL: $FAIL / SKIP: $SKIP"
+          echo "${output}"
+
+          if [[ "$FAIL" -gt 0 ]]; then
+            echo "::warning ::${output}"
+          fi
+
+          jq -n \
+            --arg date "$(date --rfc-email)" \
+            --arg sha "$GITHUB_SHA" \
+            --arg total "$TOTAL" \
+            --arg pass "$PASS" \
+            --arg skip "$SKIP" \
+            --arg fail "$FAIL" \
+            --arg error "$ERROR" \
+            '{($date): { sha: $sha, total: $total, pass: $pass, skip: $skip, fail: $fail, error: $error }}' > '${{ steps.vars.outputs.TEST_SUMMARY_FILE }}'
+
+          HASH=$(sha1sum '${{ steps.vars.outputs.TEST_SUMMARY_FILE }}' | cut --delim=" " -f 1)
+          outputs HASH TOTAL PASS FAIL SKIP
+
+      - name: Upload SHA1/ID of 'test-summary'
+        uses: actions/upload-artifact@v4
+        with:
+          name: "${{ steps.summary.outputs.HASH }}"
+          path: "${{ steps.vars.outputs.TEST_SUMMARY_FILE }}"
+
+      - name: Upload test results summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-summary
+          path: "${{ steps.vars.outputs.TEST_SUMMARY_FILE }}"
+
+      - name: Compare test failures VS reference
+        shell: bash
+        run: |
+          ## Compare test failures VS reference
+          REF_SUMMARY_FILE='reference/diffutils-gnu-full-result/test-results.json'
+          CURRENT_SUMMARY_FILE="results/test-results.json"
+
+          IGNORE_INTERMITTENT=".github/workflows/ignore-intermittent.txt"
+
+          COMMENT_DIR="reference/comment"
+          mkdir -p ${COMMENT_DIR}
+          echo ${{ github.event.number }} > ${COMMENT_DIR}/NR
+          COMMENT_LOG="${COMMENT_DIR}/result.txt"
+
+          COMPARISON_RESULT=0
+          if test -f "${CURRENT_SUMMARY_FILE}"; then
+            if test -f "${REF_SUMMARY_FILE}"; then
+              echo "Reference summary SHA1/ID: $(sha1sum -- "${REF_SUMMARY_FILE}")"
+              echo "Current summary SHA1/ID: $(sha1sum -- "${CURRENT_SUMMARY_FILE}")"
+
+              python3 util/compare_test_results.py \
+                --ignore-file "${IGNORE_INTERMITTENT}" \
+                --output "${COMMENT_LOG}" \
+                "${CURRENT_SUMMARY_FILE}" "${REF_SUMMARY_FILE}"
+
+              COMPARISON_RESULT=$?
+            else
+              echo "::warning ::Skipping test comparison; no prior reference summary is available at '${REF_SUMMARY_FILE}'."
+            fi
+          else
+            echo "::error ::Failed to find summary of test results (missing '${CURRENT_SUMMARY_FILE}'); failing early"
+            exit 1
+          fi
+
+          if [ ${COMPARISON_RESULT} -eq 1 ]; then
+            echo "::error ::Found new non-intermittent test failures"
+            exit 1
+          else
+            echo "::notice ::No new test failures detected"
+          fi
+
+      - name: Upload comparison log (for GnuComment workflow)
+        if: success() || failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: comment
+          path: reference/comment/
+
+      - name: Report test results
+        if: success() || failure()
+        shell: bash
+        run: |
+          ## Report final results
+          echo "::notice ::GNU diffutils testsuite results:"
+          echo "::notice ::  Total tests: ${{ steps.summary.outputs.TOTAL }}"
+          echo "::notice ::  Passed: ${{ steps.summary.outputs.PASS }}"
+          echo "::notice ::  Failed: ${{ steps.summary.outputs.FAIL }}"
+          echo "::notice ::  Skipped: ${{ steps.summary.outputs.SKIP }}"
+
+          if [[ "${{ steps.summary.outputs.FAIL }}" -gt 0 ]]; then
+            PASS_RATE=$(( ${{ steps.summary.outputs.PASS }} * 100 / (${{ steps.summary.outputs.PASS }} + ${{ steps.summary.outputs.FAIL }}) ))
+            echo "::notice ::  Pass rate: ${PASS_RATE}%"
+          fi
