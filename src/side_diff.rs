@@ -8,7 +8,7 @@ use diff::Result;
 use std::{io::Write, vec};
 use unicode_width::UnicodeWidthStr;
 
-use crate::params::Params;
+use crate::sdiff::params_sdiff::ParamsSDiff;
 
 const GUTTER_WIDTH_MIN: usize = 3;
 
@@ -94,6 +94,34 @@ impl Config {
             tab_size,
             sdiff_half_width: hw,
             separator_pos: ((hw + c2o - 1) >> 1),
+        }
+    }
+}
+
+/// Params for side_diff, so the functions can be used by multiple modules (diff and sdiff)
+#[derive(Default)]
+pub struct Params {
+    pub expand_tabs: bool,
+    pub tabsize: usize,
+    pub width: usize,
+}
+
+impl From<&crate::params::Params> for Params {
+    fn from(param: &crate::params::Params) -> Self {
+        Self {
+            expand_tabs: param.expand_tabs,
+            tabsize: param.tabsize,
+            width: param.width,
+        }
+    }
+}
+
+impl From<&ParamsSDiff> for Params {
+    fn from(param: &ParamsSDiff) -> Self {
+        Self {
+            expand_tabs: param.expand_tabs,
+            tabsize: param.tabsize,
+            width: param.width,
         }
     }
 }
@@ -1093,7 +1121,7 @@ mod tests {
             let mut output = vec![];
             diff(from_file, to_file, &mut output, &params);
 
-            assert_eq!(output, vec![]);
+            assert_eq!(output, Vec::<u8>::new());
         }
 
         #[test]

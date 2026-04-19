@@ -1,9 +1,11 @@
+pub mod arg_parser;
 pub mod cmp;
 pub mod context_diff;
 pub mod ed_diff;
 pub mod macros;
 pub mod normal_diff;
 pub mod params;
+pub mod sdiff;
 pub mod side_diff;
 pub mod unified_diff;
 pub mod utils;
