@@ -21,6 +21,7 @@ fuzz_target!(|x: (Vec<u8>, Vec<u8>, u8)| {
     } else {
         return
     }*/
+    fs::create_dir_all("target").unwrap();
     let diff = unified_diff::diff(
         &from,
         &to,

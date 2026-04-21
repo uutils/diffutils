@@ -38,6 +38,7 @@ fuzz_target!(|x: (Vec<u8>, Vec<u8>)| {
     } else {
         return;
     }
+    fs::create_dir_all("target").unwrap();
     let diff = diff_w(&from, &to, "target/fuzz.file").unwrap();
     File::create("target/fuzz.file.original")
         .unwrap()

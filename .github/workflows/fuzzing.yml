@@ -68,7 +68,7 @@ jobs:
             fuzz/corpus/${{ matrix.test-target.name }}
       - name: Run ${{ matrix.test-target.name }} for XX seconds
         shell: bash
-        continue-on-error: ${{ !matrix.test-target.name.should_pass }}
+        continue-on-error: ${{ !matrix.test-target.should_pass }}
         run: |
           cargo fuzz run ${{ matrix.test-target.name }} -- -max_total_time=${{ env.RUN_FOR }} -detect_leaks=0
       - name: Save Corpus Cache
