@@ -408,6 +408,8 @@ mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
 
+    use crate::utils::testcmds::PATCH_CMD;
+
     #[test]
     fn test_permutations() {
         let target = "target/unified-diff/";
@@ -421,7 +423,6 @@ mod tests {
                             for &f in &[0, 1, 2] {
                                 use std::fs::{self, File};
                                 use std::io::Write;
-                                use std::process::Command;
                                 let mut alef = Vec::new();
                                 let mut bet = Vec::new();
                                 alef.write_all(if a == 0 { b"a\n" } else { b"b\n" })
@@ -492,7 +493,10 @@ mod tests {
                                         .unwrap_or_else(|_| String::from("[Invalid UTF-8]"))
                                 );
 
-                                let output = Command::new("patch")
+                                use crate::utils::testcmds::PATCH_CMD;
+
+                                let output = PATCH_CMD
+                                    .new()
                                     .arg("-p0")
                                     .stdin(File::open(format!("{target}/ab.diff")).unwrap())
                                     .output()
@@ -524,7 +528,6 @@ mod tests {
                                 for &g in &[0, 1, 2] {
                                     use std::fs::{self, File};
                                     use std::io::Write;
-                                    use std::process::Command;
                                     let mut alef = Vec::new();
                                     let mut bet = Vec::new();
                                     alef.write_all(if a == 0 { b"a\n" } else { b"b\n" })
@@ -592,7 +595,8 @@ mod tests {
                                     fb.write_all(&bet[..]).unwrap();
                                     let _ = fa;
                                     let _ = fb;
-                                    let output = Command::new("patch")
+                                    let output = PATCH_CMD
+                                        .new()
                                         .arg("-p0")
                                         .stdin(File::open(format!("{target}/abn.diff")).unwrap())
                                         .output()
@@ -625,7 +629,6 @@ mod tests {
                                 for &g in &[0, 1, 2, 3] {
                                     use std::fs::{self, File};
                                     use std::io::Write;
-                                    use std::process::Command;
                                     let mut alef = Vec::new();
                                     let mut bet = Vec::new();
                                     alef.write_all(if a == 0 { b"\n" } else { b"b\n" }).unwrap();
@@ -688,7 +691,8 @@ mod tests {
                                     fb.write_all(&bet[..]).unwrap();
                                     let _ = fa;
                                     let _ = fb;
-                                    let output = Command::new("patch")
+                                    let output = PATCH_CMD
+                                        .new()
                                         .arg("-p0")
                                         .stdin(File::open(format!("{target}/ab_.diff")).unwrap())
                                         .output()
@@ -720,7 +724,6 @@ mod tests {
                             for &f in &[0, 1, 2] {
                                 use std::fs::{self, File};
                                 use std::io::Write;
-                                use std::process::Command;
                                 let mut alef = Vec::new();
                                 let mut bet = Vec::new();
                                 alef.write_all(if a == 0 { b"a\n" } else { b"" }).unwrap();
@@ -769,7 +772,8 @@ mod tests {
                                 fb.write_all(&bet[..]).unwrap();
                                 let _ = fa;
                                 let _ = fb;
-                                let output = Command::new("patch")
+                                let output = PATCH_CMD
+                                    .new()
                                     .arg("-p0")
                                     .stdin(File::open(format!("{target}/abx.diff")).unwrap())
                                     .output()
@@ -800,7 +804,6 @@ mod tests {
                             for &f in &[0, 1, 2] {
                                 use std::fs::{self, File};
                                 use std::io::Write;
-                                use std::process::Command;
                                 let mut alef = Vec::new();
                                 let mut bet = Vec::new();
                                 alef.write_all(if a == 0 { b"a\n" } else { b"f\n" })
@@ -855,7 +858,8 @@ mod tests {
                                 fb.write_all(&bet[..]).unwrap();
                                 let _ = fa;
                                 let _ = fb;
-                                let output = Command::new("patch")
+                                let output = PATCH_CMD
+                                    .new()
                                     .arg("-p0")
                                     .stdin(File::open(format!("{target}/abr.diff")).unwrap())
                                     .output()
