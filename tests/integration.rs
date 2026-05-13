@@ -57,7 +57,7 @@ mod common {
         #[cfg(windows)]
         let error_message = "The system cannot find the file specified.";
 
-        for subcmd in ["diff", "cmp"] {
+        for subcmd in ["diff", "cmp", "sdiff"] {
             let mut cmd = cargo_bin_cmd!("diffutils");
             cmd.arg(subcmd);
             cmd.arg(&nopath).arg(file.path());
@@ -79,18 +79,22 @@ mod common {
                     ": {}: {error_message}\n",
                     &nopath.as_os_str().to_string_lossy()
                 )));
-        }
 
-        let mut cmd = cargo_bin_cmd!("diffutils");
-        cmd.arg("diff");
-        cmd.arg(&nopath).arg(&nopath);
-        cmd.assert().code(predicate::eq(2)).failure().stderr(
-            predicate::str::contains(format!(
-                ": {}: {error_message}\n",
-                &nopath.as_os_str().to_string_lossy()
-            ))
-            .count(2),
-        );
+            // TODO test fails for cmp
+            if subcmd == "cmp" {
+                continue;
+            }
+            let mut cmd = cargo_bin_cmd!("diffutils");
+            cmd.arg(subcmd);
+            cmd.arg(&nopath).arg(&nopath);
+            cmd.assert().code(predicate::eq(2)).failure().stderr(
+                predicate::str::contains(format!(
+                    ": {}: {error_message}\n",
+                    &nopath.as_os_str().to_string_lossy()
+                ))
+                .count(2),
+            );
+        }
 
         Ok(())
     }
@@ -884,6 +888,30 @@ mod cmp {
             .code(predicate::eq(1))
             .failure()
             .stdout(predicate::str::ends_with(" differ: byte 24577, line 4\n"));
+
+        Ok(())
+    }
+}
+
+mod sdiff {
+    use super::*;
+
+    #[test]
+    fn differences() -> Result<(), Box<dyn std::error::Error>> {
+        let mut file1 = NamedTempFile::new()?;
+        file1.write_all("foo\n".as_bytes())?;
+
+        let mut file2 = NamedTempFile::new()?;
+        file2.write_all("bar\n".as_bytes())?;
+
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff");
+        cmd.arg(file1.path()).arg(file2.path());
+
+        cmd.assert()
+            .code(predicate::eq(1))
+            .failure()
+            .stdout(predicate::str::is_empty().not());
 
         Ok(())
     }

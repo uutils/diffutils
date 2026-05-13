@@ -4,7 +4,8 @@
 // files that was distributed with this source code.
 
 use regex::Regex;
-use std::{ffi::OsString, io::Write};
+use std::io::{self, Error, Read, Write};
+use std::{ffi::OsString, fs};
 use unicode_width::UnicodeWidthStr;
 
 /// Replace tabs by spaces in the input line.
@@ -87,15 +88,61 @@ pub fn format_failure_to_read_input_file(
     )
 }
 
-pub fn report_failure_to_read_input_file(
+/// Formats the error messages of both files.
+pub fn format_failure_to_read_input_files(
     executable: &OsString,
-    filepath: &OsString,
-    error: &std::io::Error,
-) {
-    eprintln!(
-        "{}",
-        format_failure_to_read_input_file(executable, filepath, error)
+    errors: &[(OsString, Error)],
+) -> String {
+    let mut msg = format_failure_to_read_input_file(
+        executable,
+        &errors[0].0, // filepath,
+        &errors[0].1, // &error,
     );
+    if errors.len() > 1 {
+        msg.push('\n');
+        msg.push_str(&format_failure_to_read_input_file(
+            executable,
+            &errors[1].0, // filepath,
+            &errors[1].1, // &error,
+        ));
+    }
+
+    msg
+}
+
+pub fn read_file_contents(filepath: &OsString) -> io::Result<Vec<u8>> {
+    if filepath == "-" {
+        let mut content = Vec::new();
+        io::stdin().read_to_end(&mut content).and(Ok(content))
+    } else {
+        fs::read(filepath)
+    }
+}
+
+pub type ResultReadBothFiles = Result<(Vec<u8>, Vec<u8>), Vec<(OsString, Error)>>;
+/// Reads both files and returns the files or a list of errors, as both files can produce a separate error.
+pub fn read_both_files(from: &OsString, to: &OsString) -> ResultReadBothFiles {
+    let mut read_errors = Vec::new();
+    let from_content = match read_file_contents(from).map_err(|e| (from.clone(), e)) {
+        Ok(r) => r,
+        Err(e) => {
+            read_errors.push(e);
+            Vec::new()
+        }
+    };
+    let to_content = match read_file_contents(to).map_err(|e| (to.clone(), e)) {
+        Ok(r) => r,
+        Err(e) => {
+            read_errors.push(e);
+            Vec::new()
+        }
+    };
+
+    if read_errors.is_empty() {
+        Ok((from_content, to_content))
+    } else {
+        Err(read_errors)
+    }
 }
 
 #[cfg(test)]
@@ -142,6 +189,52 @@ mod tests {
                 do_expand_tabs(&[240, 240, 152, 137, 9, 102, 111, 111], 8),
                 &[240, 240, 152, 137, 32, 32, 32, 32, 102, 111, 111]
             );
+        }
+    }
+
+    mod read_file {
+        use super::*;
+        use tempfile::NamedTempFile;
+
+        #[test]
+        fn read_two_valid_files() {
+            let content1 = "content-1";
+            let content2 = "content-2";
+
+            let mut from_file = NamedTempFile::new().unwrap();
+            let mut to_file = NamedTempFile::new().unwrap();
+
+            from_file.write_all(content1.as_bytes()).unwrap();
+            to_file.write_all(content2.as_bytes()).unwrap();
+
+            let from_path = OsString::from(from_file.path());
+            let to_path = OsString::from(to_file.path());
+
+            let res = read_both_files(&from_path, &to_path);
+
+            assert!(res.is_ok());
+            let (from_content, to_content) = res.unwrap();
+            assert_eq!(from_content, content1.as_bytes());
+            assert_eq!(to_content, content2.as_bytes());
+        }
+
+        #[test]
+        fn read_not_exist_file() {
+            let mut file = NamedTempFile::new().unwrap();
+            file.write_all(b"valid-file").unwrap();
+            let exist_file_path = OsString::from(file.path());
+
+            let non_exist_file_path = OsString::from("non-exist-file");
+
+            let res = read_both_files(&non_exist_file_path, &exist_file_path);
+            assert!(res.is_err());
+            let err_path = res.unwrap_err();
+            assert_eq!(err_path[0].0, non_exist_file_path);
+
+            let res = read_both_files(&exist_file_path, &non_exist_file_path);
+            assert!(res.is_err());
+            let err_path = res.unwrap_err();
+            assert_eq!(err_path[0].0, non_exist_file_path);
         }
     }
 
