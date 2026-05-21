@@ -4,9 +4,9 @@ extern crate libfuzzer_sys;
 
 use diffutilslib::side_diff;
 
+use diffutilslib::params::Params;
 use std::fs::{self, File};
 use std::io::Write;
-use diffutilslib::params::Params;
 
 fuzz_target!(|x: (Vec<u8>, Vec<u8>, /* usize, usize */ bool)| {
     let (original, new, /* width, tabsize, */ expand) = x;

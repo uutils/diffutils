@@ -22,15 +22,16 @@ fuzz_target!(|x: (Vec<u8>, Vec<u8>, u8)| {
         return
     }*/
     fs::create_dir_all("target").unwrap();
+    let patched = "target/fuzz.file";
     let diff = unified_diff::diff(
         &from,
         &to,
         &Params {
-            from: "a/fuzz.file".into(),
-            to: "target/fuzz.file".into(),
+            from: patched.into(),
+            to: patched.into(),
             context_count: context as usize,
             ..Default::default()
-        }
+        },
     );
     File::create("target/fuzz.file.original")
         .unwrap()
