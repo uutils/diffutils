@@ -10,6 +10,8 @@
 //! File generation up to 1 GB is really fast, Benchmarking above 100 MB takes very long.
 
 // clippy analyzes wrongly
+// This only is an issue when running "cargo clippy --workspace --all-targets --all-features".
+// The code is not used in the workspace, only in the bench itself, so unclear why a dead code warning appears.
 #![allow(dead_code)]
 
 /// Generate test files with these sizes in KB.
@@ -41,7 +43,7 @@ mod diffutils_cmp {
         bencher
             // .with_inputs(|| prepare::cmp_params_identical_testfiles(lines))
             .with_inputs(|| params.clone())
-            .bench_refs(|params| black_box(cmp::cmp(&params).unwrap()));
+            .bench_refs(|params| black_box(cmp::cmp(params).unwrap()));
     }
 
     // bench the actual compare; cmp exits on first difference
@@ -55,7 +57,7 @@ mod diffutils_cmp {
         bencher
             // .with_inputs(|| prepare::cmp_params_identical_testfiles(lines))
             .with_inputs(|| params.clone())
-            .bench_refs(|params| black_box(cmp::cmp(&params).unwrap()));
+            .bench_refs(|params| black_box(cmp::cmp(params).unwrap()));
     }
 
     // bench original GNU cmp
@@ -296,6 +298,7 @@ mod prepare {
         let file_to = File::create(to_name)?;
         // for int division, lines will be smaller than requested bytes
         let n_lines = bytes / LINE_LENGTH as u64;
+        #[allow(clippy::manual_checked_ops)]
         let change_every_n_lines = if num_differences == 0 {
             0
         } else {

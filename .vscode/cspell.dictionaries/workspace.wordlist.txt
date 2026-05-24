@@ -1,5 +1,6 @@
 # * diffutils project
 diffutils
+diffutilslib
 sdiff
 uudiff
 
