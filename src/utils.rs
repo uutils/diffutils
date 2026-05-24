@@ -99,6 +99,99 @@ pub fn report_failure_to_read_input_file(
 }
 
 #[cfg(test)]
+pub mod testcmds {
+    // Command construction wrapper that provides some validation and non-obscure, "fail fast"
+    // feedback and error messages.
+    use std::any::Any;
+    use std::io::Write;
+    use std::panic::catch_unwind;
+    use std::process::{Command, Stdio};
+    use std::sync::LazyLock;
+
+    pub struct CmdFactory {
+        cmd: &'static str,
+        validated_once: LazyLock<Result<(), String>>,
+        validate: fn(&CmdFactory) -> (),
+    }
+
+    impl CmdFactory {
+        pub fn new(&self) -> Command {
+            match &*self.validated_once {
+                Ok(()) => Command::new(self.cmd),
+                Err(errmsg) => panic!(
+                    "'{}' validation failed in earlier thread/test: {}",
+                    self.cmd, errmsg
+                ),
+            }
+        }
+        // "self" is not compatible with static initialization
+        fn try_catch_validate(cmd: &CmdFactory) -> Result<(), String> {
+            // Note catch_unwind() does _not_ hide error messages, stack traces, etc.
+            catch_unwind(|| {
+                let _ = (cmd.validate)(cmd);
+            })
+            .map_err(find_panic_message)
+        }
+    }
+
+    fn find_panic_message(payload: Box<dyn Any + Send>) -> String {
+        // https://github.com/rust-lang/rust/blob/1.95.0/library/std/src/panicking.rs#L771
+        if let Some(&s) = payload.downcast_ref::<&'static str>() {
+            String::from(s)
+        } else if let Some(s) = payload.downcast_ref::<String>() {
+            s.clone()
+        } else {
+            format!(
+                "Unusual panic payload type {:?}, look for the first thread/test that failed",
+                payload.type_id(),
+            )
+        }
+    }
+
+    pub static PATCH_CMD: CmdFactory = CmdFactory {
+        cmd: if cfg!(target_os = "macos") {
+            "gpatch" // brew install patch
+        } else {
+            "patch"
+        },
+        validated_once: LazyLock::new(|| CmdFactory::try_catch_validate(&PATCH_CMD)),
+
+        validate: (|myself| {
+            let output = Command::new(myself.cmd)
+                .arg("--version")
+                .output()
+                .expect("`patch --version` failed");
+            // Non-GNU versions have subtle differences. When some newlines are missing in some test
+            // patches, the macOS version can even stall the whole test run.
+            assert!(output.stdout.starts_with(b"GNU patch"));
+            assert!(output.status.success());
+        }),
+    };
+
+    pub static ED_CMD: CmdFactory = CmdFactory {
+        cmd: "ed",
+        validated_once: LazyLock::new(|| CmdFactory::try_catch_validate(&ED_CMD)),
+
+        validate: (|myself| {
+            let mut child = Command::new(myself.cmd)
+                .arg("!echo hello_ed")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .spawn()
+                .expect("Failed to start 'ed' command");
+
+            let mut stdin = child.stdin.take().unwrap();
+            writeln!(stdin, "1p\nq").expect("Failed to send command to 'ed'");
+
+            let output = child
+                .wait_with_output()
+                .expect("Failed to read 'ed' stdout");
+            assert_eq!(String::from_utf8_lossy(&output.stdout), "9\nhello_ed\n");
+        }),
+    };
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
