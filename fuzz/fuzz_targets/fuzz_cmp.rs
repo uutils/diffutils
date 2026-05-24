@@ -4,7 +4,7 @@ extern crate libfuzzer_sys;
 use diffutilslib::cmp::{self, Cmp};
 
 use std::ffi::OsString;
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::Write;
 
 fn os(s: &str) -> OsString {
@@ -18,7 +18,7 @@ fuzz_target!(|x: (Vec<u8>, Vec<u8>)| {
         .peekable();
 
     let (from, to) = x;
-
+    fs::create_dir_all("target").unwrap();
     File::create("target/fuzz.cmp.a")
         .unwrap()
         .write_all(&from)

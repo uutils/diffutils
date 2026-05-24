@@ -56,39 +56,10 @@ jobs:
       - uses: actions/checkout@v4
       - run: cargo clippy -- -D warnings
 
-  gnu-testsuite:
-    permissions:
-      contents: write # Publish diffutils instead of discarding
-    name: GNU test suite
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: |
-          cargo build --config=profile.release.strip=true --profile=release #-fast
-          zstd -19 target/release/diffutils -o diffutils-x86_64-unknown-linux-gnu.zst
-      # do not fail, the report is merely informative (at least until all tests pass reliably)
-      - run: ./tests/run-upstream-testsuite.sh release || true
-        env:
-          TERM: xterm
-      - uses: actions/upload-artifact@v4
-        with:
-          name: test-results.json
-          path: tests/test-results.json
-      - run: ./tests/print-test-results.sh tests/test-results.json
-      - name: Publish latest commit
-        uses: softprops/action-gh-release@v3
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        with:
-          tag_name: latest-commit
-          draft: false
-          prerelease: true
-          files: |
-            diffutils-x86_64-unknown-linux-gnu.zst
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
   coverage:
     name: Code Coverage
+    env:
+      RUSTC_BOOTSTRAP: 1
     runs-on: ${{ matrix.job.os }}
     strategy:
       fail-fast: false
@@ -100,9 +71,6 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Initialize workflow variables
-      env:
-        # Use -Z
-        RUSTC_BOOTSTRAP: 1
       id: vars
       shell: bash
       run: |
@@ -125,17 +93,11 @@ jobs:
     - name: Test
       run: cargo test --all-features --no-fail-fast
       env:
-        CARGO_INCREMENTAL: "0"
         RUSTC_WRAPPER: ""
         RUSTFLAGS: "-Cinstrument-coverage -Zcoverage-options=branch -Ccodegen-units=1 -Copt-level=0 -Coverflow-checks=off -Zpanic_abort_tests -Cpanic=abort"
         RUSTDOCFLAGS: "-Cpanic=abort"
         LLVM_PROFILE_FILE: "diffutils-%p-%m.profraw"
-        # Use -Z
-        RUSTC_BOOTSTRAP: 1
     - name: "`grcov` ~ install"
-      env:
-        # Use -Z
-        RUSTC_BOOTSTRAP: 1
       id: build_grcov
       shell: bash
       run: |
@@ -175,4 +137,3 @@ jobs:
         flags: ${{ steps.vars.outputs.CODECOV_FLAGS }}
         name: codecov-umbrella
         fail_ci_if_error: false
-

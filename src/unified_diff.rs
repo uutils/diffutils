@@ -458,12 +458,13 @@ mod tests {
                                 }
                                 // This test diff is intentionally reversed.
                                 // We want it to turn the alef into bet.
+                                let patched = &format!("{target}/alef");
                                 let diff = diff(
                                     &alef,
                                     &bet,
                                     &Params {
-                                        from: "a/alef".into(),
-                                        to: (&format!("{target}/alef")).into(),
+                                        from: patched.into(),
+                                        to: patched.into(),
                                         context_count: 2,
                                         ..Default::default()
                                     },
@@ -574,12 +575,13 @@ mod tests {
                                     }
                                     // This test diff is intentionally reversed.
                                     // We want it to turn the alef into bet.
+                                    let patched = &format!("{target}/alefn");
                                     let diff = diff(
                                         &alef,
                                         &bet,
                                         &Params {
-                                            from: "a/alefn".into(),
-                                            to: (&format!("{target}/alefn")).into(),
+                                            from: patched.into(),
+                                            to: patched.into(),
                                             context_count: 2,
                                             ..Default::default()
                                         },
@@ -670,12 +672,13 @@ mod tests {
                                     }
                                     // This test diff is intentionally reversed.
                                     // We want it to turn the alef into bet.
+                                    let patched = &format!("{target}/alef_");
                                     let diff = diff(
                                         &alef,
                                         &bet,
                                         &Params {
-                                            from: "a/alef_".into(),
-                                            to: (&format!("{target}/alef_")).into(),
+                                            from: patched.into(),
+                                            to: patched.into(),
                                             context_count: 2,
                                             ..Default::default()
                                         },
@@ -751,12 +754,13 @@ mod tests {
                                 }
                                 // This test diff is intentionally reversed.
                                 // We want it to turn the alef into bet.
+                                let patched = &format!("{target}/alefx");
                                 let diff = diff(
                                     &alef,
                                     &bet,
                                     &Params {
-                                        from: "a/alefx".into(),
-                                        to: (&format!("{target}/alefx")).into(),
+                                        from: patched.into(),
+                                        to: patched.into(),
                                         context_count: 2,
                                         ..Default::default()
                                     },
@@ -837,12 +841,13 @@ mod tests {
                                 }
                                 // This test diff is intentionally reversed.
                                 // We want it to turn the alef into bet.
+                                let patched = &format!("{target}/alefr");
                                 let diff = diff(
                                     &alef,
                                     &bet,
                                     &Params {
-                                        from: "a/alefr".into(),
-                                        to: (&format!("{target}/alefr")).into(),
+                                        from: patched.into(),
+                                        to: patched.into(),
                                         context_count: 2,
                                         ..Default::default()
                                     },

@@ -4,9 +4,9 @@ extern crate libfuzzer_sys;
 
 use diffutilslib::side_diff;
 
-use std::fs::File;
-use std::io::Write;
 use diffutilslib::params::Params;
+use std::fs::{self, File};
+use std::io::Write;
 
 fuzz_target!(|x: (Vec<u8>, Vec<u8>, /* usize, usize */ bool)| {
     let (original, new, /* width, tabsize, */ expand) = x;
@@ -21,6 +21,7 @@ fuzz_target!(|x: (Vec<u8>, Vec<u8>, /* usize, usize */ bool)| {
         expand_tabs: expand,
         ..Default::default()
     };
+    fs::create_dir_all("target").unwrap();
     let mut output_buf = vec![];
     side_diff::diff(&original, &new, &mut output_buf, &params);
     File::create("target/fuzz.file.original")

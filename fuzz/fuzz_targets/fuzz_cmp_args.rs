@@ -11,6 +11,9 @@ fn os(s: &str) -> OsString {
 }
 
 fuzz_target!(|x: Vec<OsString>| -> Corpus {
+    if x.iter().any(|a| a == "--help") {
+        return Corpus::Reject;
+    }
     if x.len() > 6 {
         // Make sure we try to parse an option when we get longer args. x[0] will be
         // the executable name.
