@@ -291,27 +291,15 @@ fn prepare_reader(
     let mut reader: Box<dyn BufRead> = if path == "-" {
         Box::new(BufReader::new(io::stdin()))
     } else {
-        match fs::File::open(path) {
-            Ok(file) => Box::new(BufReader::new(file)),
-            Err(e) => {
-                return Err(format_failure_to_read_input_file(
-                    &params.executable,
-                    path,
-                    &e,
-                ));
-            }
-        }
+        let file = fs::File::open(path)
+            .map_err(|e| format_failure_to_read_input_file(&params.executable, path, &e))?;
+        Box::new(BufReader::new(file))
     };
 
     if let Some(skip) = skip {
         // cast as u64 must remain, because value of IgnInit data type could be changed.
-        if let Err(e) = io::copy(&mut reader.by_ref().take(*skip), &mut io::sink()) {
-            return Err(format_failure_to_read_input_file(
-                &params.executable,
-                path,
-                &e,
-            ));
-        }
+        io::copy(&mut reader.by_ref().take(*skip), &mut io::sink())
+            .map_err(|e| format_failure_to_read_input_file(&params.executable, path, &e))?;
     }
 
     Ok(reader)
@@ -358,27 +346,13 @@ pub fn cmp(params: &Params) -> Result<Cmp, String> {
     let mut compare = Cmp::Equal;
     loop {
         // Fill up our buffers.
-        let from_buf = match from.fill_buf() {
-            Ok(buf) => buf,
-            Err(e) => {
-                return Err(format_failure_to_read_input_file(
-                    &params.executable,
-                    &params.from,
-                    &e,
-                ));
-            }
-        };
+        let from_buf = from
+            .fill_buf()
+            .map_err(|e| format_failure_to_read_input_file(&params.executable, &params.from, &e))?;
 
-        let to_buf = match to.fill_buf() {
-            Ok(buf) => buf,
-            Err(e) => {
-                return Err(format_failure_to_read_input_file(
-                    &params.executable,
-                    &params.to,
-                    &e,
-                ));
-            }
-        };
+        let to_buf = to
+            .fill_buf()
+            .map_err(|e| format_failure_to_read_input_file(&params.executable, &params.to, &e))?;
 
         // Check for EOF conditions.
         if from_buf.is_empty() && to_buf.is_empty() {
