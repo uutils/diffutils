@@ -31,7 +31,6 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           brew install gpatch
-          echo "/opt/homebrew/opt/gpatch/libexec/gnubin" >> "$GITHUB_PATH"
       - name: set up PATH on Windows
         # Needed to use GNU's patch.exe instead of Strawberry Perl patch
         if: runner.os == 'Windows'
@@ -85,7 +84,6 @@ jobs:
       if: runner.os == 'macOS'
       run: |
         brew install gpatch
-        echo "/opt/homebrew/opt/gpatch/libexec/gnubin" >> "$GITHUB_PATH"
     - name: set up PATH on Windows
       # Needed to use GNU's patch.exe instead of Strawberry Perl patch
       if: runner.os == 'Windows'
