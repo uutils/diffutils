@@ -150,7 +150,7 @@ pub mod testcmds {
 
     pub static PATCH_CMD: CmdFactory = CmdFactory {
         cmd: if cfg!(target_os = "macos") {
-            "gpatch" // brew install patch
+            "gpatch" // brew install gpatch
         } else {
             "patch"
         },
@@ -160,7 +160,7 @@ pub mod testcmds {
             let output = Command::new(myself.cmd)
                 .arg("--version")
                 .output()
-                .expect("`patch --version` failed");
+                .expect(format!("`{} --version` failed", myself.cmd).as_str());
             // Non-GNU versions have subtle differences. When some newlines are missing in some test
             // patches, the macOS version can even stall the whole test run.
             assert!(output.stdout.starts_with(b"GNU patch"));
