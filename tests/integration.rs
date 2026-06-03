@@ -32,7 +32,7 @@ mod common {
                 "Expected utility name as second argument, got nothing.\n",
             ));
 
-        for subcmd in ["diff", "cmp"] {
+        for subcmd in ["diff", "cmp", "uu-diff", "uucmp"] {
             let mut cmd = cargo_bin_cmd!("diffutils");
             cmd.arg(subcmd);
             cmd.arg("--foobar");
