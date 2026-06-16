@@ -11,12 +11,6 @@ use std::iter::Peekable;
 use std::process::ExitCode;
 use std::{cmp, fs, io};
 
-#[cfg(unix)]
-use std::os::fd::{AsRawFd, FromRawFd};
-
-#[cfg(unix)]
-use std::os::unix::fs::MetadataExt;
-
 #[cfg(target_os = "windows")]
 use std::os::windows::fs::MetadataExt;
 
@@ -45,24 +39,12 @@ fn usage_string(executable: &str) -> String {
 
 #[cfg(unix)]
 fn is_stdout_dev_null() -> bool {
-    let Ok(dev_null) = fs::metadata("/dev/null") else {
+    let stdout = io::stdout();
+    let Ok(stat) = rustix::fs::fstat(stdout) else {
         return false;
     };
-
-    let stdout_fd = io::stdout().lock().as_raw_fd();
-
-    // SAFETY: we have exclusive access to stdout right now.
-    let stdout_file = unsafe { fs::File::from_raw_fd(stdout_fd) };
-    let Ok(stdout) = stdout_file.metadata() else {
-        return false;
-    };
-
-    let is_dev_null = stdout.dev() == dev_null.dev() && stdout.ino() == dev_null.ino();
-
-    // Don't let File close the fd. It's unfortunate that File doesn't have a leak_fd().
-    std::mem::forget(stdout_file);
-
-    is_dev_null
+    let dev = stat.st_rdev;
+    rustix::fs::major(dev) == 1 && rustix::fs::minor(dev) == 3
 }
 
 #[cfg(not(any(unix, target_os = "windows")))]
