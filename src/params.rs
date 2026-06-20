@@ -60,7 +60,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
     let mut format = None;
     let mut context = None;
     let tabsize_re = Regex::new(r"^--tabsize=(?<num>\d+)$").unwrap();
-    let width_re = Regex::new(r"--width=(?P<long>\d+)$").unwrap();
+    let width_re = Regex::new(r"^--width=(?P<long>\d+)$").unwrap();
     while let Some(param) = opts.next() {
         let next_param = opts.peek();
         if param == "--" {
@@ -809,6 +809,40 @@ mod tests {
             .iter()
             .cloned()
             .peekable()
+        )
+        .is_err());
+    }
+    #[test]
+    fn width() {
+        assert_eq!(
+            Ok(Params {
+                executable: os("diff"),
+                from: os("foo"),
+                to: os("bar"),
+                width: 100,
+                ..Default::default()
+            }),
+            parse_params(
+                [os("diff"), os("--width=100"), os("foo"), os("bar")]
+                    .iter()
+                    .cloned()
+                    .peekable()
+            )
+        );
+    }
+    #[cfg(unix)]
+    #[test]
+    fn width_non_utf8_is_not_an_option() {
+        use std::os::unix::ffi::OsStringExt;
+        // A non-UTF-8 argument whose lossy form ends in `--width=N` must be
+        // treated as an operand, not parsed as the width option (which used to
+        // panic in `into_string().unwrap()`).
+        let bad = OsString::from_vec(b"\xff--width=5".to_vec());
+        assert!(parse_params(
+            [os("diff"), bad, os("foo"), os("bar")]
+                .iter()
+                .cloned()
+                .peekable()
         )
         .is_err());
     }
