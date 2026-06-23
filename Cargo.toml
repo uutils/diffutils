@@ -24,7 +24,7 @@ unicode-width = "0.2.0"
 
 [dev-dependencies]
 assert_cmd = "2.0.14"
-divan = { version = "4.3.0", package = "codspeed-divan-compat" }
+divan = { version = "5.0.0", package = "codspeed-divan-compat" }
 pretty_assertions = "1.4.0"
 predicates = "3.1.0"
 rand = "0.10.0"
