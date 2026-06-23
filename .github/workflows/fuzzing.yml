@@ -61,7 +61,7 @@ jobs:
           shared-key: "cargo-fuzz-cache-key"
           cache-directories: "fuzz/target"
       - name: Restore Cached Corpus
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@v6
         with:
           key: corpus-cache-${{ matrix.test-target.name }}
           path: |
@@ -72,7 +72,7 @@ jobs:
         run: |
           cargo fuzz run ${{ matrix.test-target.name }} -- -max_total_time=${{ env.RUN_FOR }} -detect_leaks=0
       - name: Save Corpus Cache
-        uses: actions/cache/save@v5
+        uses: actions/cache/save@v6
         with:
           key: corpus-cache-${{ matrix.test-target.name }}
           path: |
