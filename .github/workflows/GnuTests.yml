@@ -69,7 +69,7 @@ jobs:
           TERM: xterm
 
       - name: Upload full json results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: diffutils-gnu-full-result
           path: tests/test-results.json
@@ -110,7 +110,7 @@ jobs:
           if_no_artifact_found: warn
 
       - name: Download full json results
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: diffutils-gnu-full-result
           path: results
@@ -155,13 +155,13 @@ jobs:
           outputs HASH TOTAL PASS FAIL SKIP
 
       - name: Upload SHA1/ID of 'test-summary'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: "${{ steps.summary.outputs.HASH }}"
           path: "${{ steps.vars.outputs.TEST_SUMMARY_FILE }}"
 
       - name: Upload test results summary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-summary
           path: "${{ steps.vars.outputs.TEST_SUMMARY_FILE }}"
@@ -209,7 +209,7 @@ jobs:
 
       - name: Upload comparison log (for GnuComment workflow)
         if: success() || failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: comment
           path: reference/comment/
