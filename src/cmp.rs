@@ -706,8 +706,8 @@ fn report_difference(
     };
     print!(
         "{} {} differ: {term} {}, line {}",
-        &params.from.to_string_lossy(),
-        &params.to.to_string_lossy(),
+        params.from.to_string_lossy(),
+        params.to.to_string_lossy(),
         at_byte,
         at_line
     );
