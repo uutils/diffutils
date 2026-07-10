@@ -477,7 +477,7 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
 
 #[inline]
 fn format_octal(byte: u8, buf: &mut [u8; 3]) -> &str {
-    *buf = [b' ', b' ', b'0'];
+    *buf = *b"  0";
 
     let mut num = byte;
     let mut idx = 2; // Start at the last position in the buffer
