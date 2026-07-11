@@ -85,12 +85,13 @@ checksum = "56254986775e3233ffa9c4d7d3faaf6d36a2c09d30b20687e9f88bc8bafc16c8"
 name = "diffutils"
 version = "0.5.0"
 dependencies = [
- "chrono",
  "diff",
- "itoa",
  "regex",
  "same-file",
  "unicode-width",
+ "uu_cmp",
+ "uu_diff",
+ "uucore",
 ]
 
 [[package]]
@@ -307,6 +308,34 @@ version = "0.0.0"
 dependencies = [
  "diffutils",
  "libfuzzer-sys",
+]
+
+[[package]]
+name = "uu_cmp"
+version = "0.5.0"
+dependencies = [
+ "itoa",
+ "same-file",
+ "uucore",
+]
+
+[[package]]
+name = "uu_diff"
+version = "0.5.0"
+dependencies = [
+ "diff",
+ "same-file",
+ "unicode-width",
+ "uucore",
+]
+
+[[package]]
+name = "uucore"
+version = "0.5.0"
+dependencies = [
+ "chrono",
+ "regex",
+ "unicode-width",
 ]
 
 [[package]]

@@ -1,0 +1,23 @@
+[package]
+name = "uu_diff"
+categories.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+uucore = { workspace = true }
+same-file = { workspace = true }
+diff = { workspace = true }
+unicode-width = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }
+regex = { workspace = true }
+uucore = { workspace = true, features = ["test-utils"] }
+
+[lib]
+path = "./src/diff.rs"

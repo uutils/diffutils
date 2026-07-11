@@ -5,8 +5,8 @@
 
 use std::io::Write;
 
-use crate::params::Params;
-use crate::utils::do_write_line;
+use uucore::params::Params;
+use uucore::utils::do_write_line;
 
 #[derive(Debug, PartialEq)]
 struct Mismatch {
@@ -215,7 +215,7 @@ mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
 
-    use crate::utils::testcmds::PATCH_CMD;
+    use uucore::utils::testcmds::PATCH_CMD;
 
     #[test]
     fn test_basic() {
@@ -230,7 +230,7 @@ mod tests {
 
     #[test]
     fn test_permutations() {
-        let target = "target/normal-diff/";
+        let target = "../../../target/normal-diff/";
         // test all possible six-line files.
         let _ = std::fs::create_dir(target);
         for &a in &[0, 1, 2] {
@@ -308,7 +308,7 @@ mod tests {
 
     #[test]
     fn test_permutations_missing_line_ending() {
-        let target = "target/normal-diff/";
+        let target = "../../../target/normal-diff/";
         // test all possible six-line files with missing newlines.
         let _ = std::fs::create_dir(target);
         for &a in &[0, 1, 2] {
@@ -402,7 +402,7 @@ mod tests {
 
     #[test]
     fn test_permutations_empty_lines() {
-        let target = "target/normal-diff/";
+        let target = "../../../target/normal-diff/";
         // test all possible six-line files with missing newlines.
         let _ = std::fs::create_dir(target);
         for &a in &[0, 1, 2] {
@@ -474,7 +474,7 @@ mod tests {
 
     #[test]
     fn test_permutations_reverse() {
-        let target = "target/normal-diff/";
+        let target = "../../../target/normal-diff/";
         // test all possible six-line files.
         let _ = std::fs::create_dir(target);
         for &a in &[0, 1, 2] {

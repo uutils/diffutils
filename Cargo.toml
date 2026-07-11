@@ -1,10 +1,45 @@
 [package]
 name = "diffutils"
-version = "0.5.0"
-edition = "2021"
 description = "A CLI app for generating diff files"
-license = "MIT OR Apache-2.0"
 repository = "https://github.com/uutils/diffutils"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+license.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[workspace]
+members = [
+    "src/uu/*",
+    "src/uucore/",
+]
+
+default-members = [
+    "src/uu/*",
+    "src/uucore/",
+]
+
+[workspace.dependencies]
+uucore = { path = "src/uucore" }
+chrono = "0.4.38"
+diff = "0.1.13"
+itoa = "1.0.11"
+regex = "1.10.4"
+same-file = "1.0.6"
+unicode-width = "0.2.0"
+pretty_assertions = "1.4.0"
+tempfile = "3.26.0"
+
+[workspace.package]
+categories = ["command-line-utilities"]
+edition = "2021"
+rust-version = "1.87.0"
+homepage = "https://github.com/uutils/diffutils"
+keywords = ["diffutils", "uutils", "cross-platform", "cli", "utility"]
+license = "MIT OR Apache-2.0"
+version = "0.5.0"
 
 [lib]
 name = "diffutilslib"
@@ -15,20 +50,20 @@ name = "diffutils"
 path = "src/main.rs"
 
 [dependencies]
-chrono = "0.4.38"
-diff = "0.1.13"
-itoa = "1.0.11"
-regex = "1.10.4"
-same-file = "1.0.6"
-unicode-width = "0.2.0"
+diff = { workspace = true }
+same-file = { workspace = true }
+regex = { workspace = true }
+unicode-width = { workspace = true }
+tempfile = { workspace = true }
+uu_cmp = { path = "src/uu/cmp" }
+uu_diff = { path = "src/uu/diff" }
+uucore = { path = "src/uucore" }
 
 [dev-dependencies]
 assert_cmd = "2.0.14"
 divan = { version = "5.0.0", package = "codspeed-divan-compat" }
-pretty_assertions = "1.4.0"
 predicates = "3.1.0"
 rand = "0.10.0"
-tempfile = "3.26.0"
 
 [profile.release]
 lto = "thin"

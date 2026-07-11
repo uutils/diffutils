@@ -8,7 +8,7 @@ use diff::Result;
 use std::{io::Write, vec};
 use unicode_width::UnicodeWidthStr;
 
-use crate::params::Params;
+use uucore::params::Params;
 
 const GUTTER_WIDTH_MIN: usize = 3;
 

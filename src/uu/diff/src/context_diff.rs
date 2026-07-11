@@ -6,9 +6,8 @@
 use std::collections::VecDeque;
 use std::io::Write;
 
-use crate::params::Params;
-use crate::utils::do_write_line;
-use crate::utils::get_modification_time;
+use uucore::params::Params;
+use uucore::utils::{do_write_line, get_modification_time};
 
 #[derive(Debug, PartialEq)]
 pub enum DiffLine {
@@ -382,12 +381,12 @@ mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
 
-    use crate::utils::testcmds::PATCH_CMD;
+    use uucore::utils::testcmds::PATCH_CMD;
 
     #[test]
     fn test_permutations() {
         // test all possible six-line files.
-        let target = "target/context-diff/";
+        let target = "../../../target/context-diff/";
         let _ = std::fs::create_dir(target);
         for &a in &[0, 1, 2] {
             for &b in &[0, 1, 2] {
@@ -454,7 +453,8 @@ mod tests {
                                 let _ = fb;
                                 let output = PATCH_CMD
                                     .new()
-                                    .arg("-p0")
+                                    .arg("-d")
+                                    .arg(&format!("{target}"))
                                     .arg("--context")
                                     .stdin(File::open(format!("{target}/ab.diff")).unwrap())
                                     .output()
@@ -474,7 +474,7 @@ mod tests {
 
     #[test]
     fn test_permutations_empty_lines() {
-        let target = "target/context-diff/";
+        let target = "../../../target/context-diff/";
         // test all possible six-line files with missing newlines.
         let _ = std::fs::create_dir(target);
         for &a in &[0, 1, 2] {
@@ -536,7 +536,8 @@ mod tests {
                                 let _ = fb;
                                 let output = PATCH_CMD
                                     .new()
-                                    .arg("-p0")
+                                    .arg("-d")
+                                    .arg(&format!("{target}"))
                                     .arg("--context")
                                     .stdin(File::open(format!("{target}/ab_.diff")).unwrap())
                                     .output()
@@ -556,7 +557,7 @@ mod tests {
 
     #[test]
     fn test_permutations_missing_lines() {
-        let target = "target/context-diff/";
+        let target = "../../../target/context-diff/";
         // test all possible six-line files.
         let _ = std::fs::create_dir(target);
         for &a in &[0, 1, 2] {
@@ -621,7 +622,8 @@ mod tests {
                                 let _ = fb;
                                 let output = PATCH_CMD
                                     .new()
-                                    .arg("-p0")
+                                    .arg("-d")
+                                    .arg(&format!("{target}"))
                                     .arg("--context")
                                     .stdin(File::open(format!("{target}/abx.diff")).unwrap())
                                     .output()
@@ -641,7 +643,7 @@ mod tests {
 
     #[test]
     fn test_permutations_reverse() {
-        let target = "target/context-diff/";
+        let target = "../../../target/context-diff/";
         // test all possible six-line files.
         let _ = std::fs::create_dir(target);
         for &a in &[0, 1, 2] {
@@ -709,7 +711,8 @@ mod tests {
                                 let _ = fb;
                                 let output = PATCH_CMD
                                     .new()
-                                    .arg("-p0")
+                                    .arg("-d")
+                                    .arg(&format!("{target}"))
                                     .arg("--context")
                                     .stdin(File::open(format!("{target}/abr.diff")).unwrap())
                                     .output()
@@ -729,7 +732,7 @@ mod tests {
 
     #[test]
     fn test_stop_early() {
-        use crate::assert_diff_eq;
+        use uucore::assert_diff_eq;
 
         let from_filename = "foo";
         let from = ["a", "b", "c", ""].join("\n");

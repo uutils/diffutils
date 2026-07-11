@@ -1,0 +1,17 @@
+[package]
+name = "uu_cmp"
+categories.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+uucore = { workspace = true }
+itoa = { workspace = true }
+same-file = { workspace = true }
+
+[lib]
+path = "./src/cmp.rs"

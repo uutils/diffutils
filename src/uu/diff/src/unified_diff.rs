@@ -6,9 +6,8 @@
 use std::collections::VecDeque;
 use std::io::Write;
 
-use crate::params::Params;
-use crate::utils::do_write_line;
-use crate::utils::get_modification_time;
+use uucore::params::Params;
+use uucore::utils::{do_write_line, get_modification_time};
 
 #[derive(Debug, PartialEq)]
 pub enum DiffLine {
@@ -408,11 +407,11 @@ mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
 
-    use crate::utils::testcmds::PATCH_CMD;
+    use uucore::utils::testcmds::PATCH_CMD;
 
     #[test]
     fn test_permutations() {
-        let target = "target/unified-diff/";
+        let target = "../../../target/unified-diff/";
         // test all possible six-line files.
         let _ = std::fs::create_dir(target);
         for &a in &[0, 1, 2] {
@@ -494,11 +493,12 @@ mod tests {
                                         .unwrap_or_else(|_| String::from("[Invalid UTF-8]"))
                                 );
 
-                                use crate::utils::testcmds::PATCH_CMD;
+                                use uucore::utils::testcmds::PATCH_CMD;
 
                                 let output = PATCH_CMD
                                     .new()
-                                    .arg("-p0")
+                                    .arg("-d")
+                                    .arg(&format!("{target}"))
                                     .stdin(File::open(format!("{target}/ab.diff")).unwrap())
                                     .output()
                                     .unwrap();
@@ -517,7 +517,7 @@ mod tests {
 
     #[test]
     fn test_permutations_missing_line_ending() {
-        let target = "target/unified-diff/";
+        let target = "../../../target/unified-diff/";
         // test all possible six-line files with missing newlines.
         let _ = std::fs::create_dir(target);
         for &a in &[0, 1, 2] {
@@ -599,7 +599,8 @@ mod tests {
                                     let _ = fb;
                                     let output = PATCH_CMD
                                         .new()
-                                        .arg("-p0")
+                                        .arg("-d")
+                                        .arg(&format!("{target}"))
                                         .stdin(File::open(format!("{target}/abn.diff")).unwrap())
                                         .output()
                                         .unwrap();
@@ -619,7 +620,7 @@ mod tests {
 
     #[test]
     fn test_permutations_empty_lines() {
-        let target = "target/unified-diff/";
+        let target = "../../../target/unified-diff/";
         // test all possible six-line files with missing newlines.
         let _ = std::fs::create_dir(target);
         for &a in &[0, 1, 2] {
@@ -696,7 +697,8 @@ mod tests {
                                     let _ = fb;
                                     let output = PATCH_CMD
                                         .new()
-                                        .arg("-p0")
+                                        .arg("-d")
+                                        .arg(&format!("{target}"))
                                         .stdin(File::open(format!("{target}/ab_.diff")).unwrap())
                                         .output()
                                         .unwrap();
@@ -716,7 +718,7 @@ mod tests {
 
     #[test]
     fn test_permutations_missing_lines() {
-        let target = "target/unified-diff/";
+        let target = "../../../target/unified-diff/";
         // test all possible six-line files.
         let _ = std::fs::create_dir(target);
         for &a in &[0, 1, 2] {
@@ -778,7 +780,8 @@ mod tests {
                                 let _ = fb;
                                 let output = PATCH_CMD
                                     .new()
-                                    .arg("-p0")
+                                    .arg("-d")
+                                    .arg(&format!("{target}"))
                                     .stdin(File::open(format!("{target}/abx.diff")).unwrap())
                                     .output()
                                     .unwrap();
@@ -797,7 +800,7 @@ mod tests {
 
     #[test]
     fn test_permutations_reverse() {
-        let target = "target/unified-diff/";
+        let target = "../../../target/unified-diff/";
         // test all possible six-line files.
         let _ = std::fs::create_dir(target);
         for &a in &[0, 1, 2] {
@@ -865,7 +868,8 @@ mod tests {
                                 let _ = fb;
                                 let output = PATCH_CMD
                                     .new()
-                                    .arg("-p0")
+                                    .arg("-d")
+                                    .arg(&format!("{target}"))
                                     .stdin(File::open(format!("{target}/abr.diff")).unwrap())
                                     .output()
                                     .unwrap();
@@ -884,7 +888,7 @@ mod tests {
 
     #[test]
     fn test_stop_early() {
-        use crate::assert_diff_eq;
+        use uucore::assert_diff_eq;
 
         let from_filename = "foo";
         let from = ["a", "b", "c", ""].join("\n");
