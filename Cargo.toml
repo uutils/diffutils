@@ -17,6 +17,7 @@ members = [
 ]
 
 default-members = [
+    ".",
     "src/uu/*",
     "src/uucore/",
 ]
