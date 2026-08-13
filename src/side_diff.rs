@@ -1463,7 +1463,6 @@ mod tests {
 
         #[test]
         fn test_full_width_40_tab_8() {
-            // Expanded, so the layout uses a tab stop on every column.
             let config = create_config(40, 8, true);
             assert_eq!(config.sdiff_half_width, 18);
             assert_eq!(config.sdiff_column_two_offset, 22);
