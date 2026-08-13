@@ -76,7 +76,8 @@ impl Config {
     pub fn new(full_width: usize, tab_size: usize, expanded: bool) -> Self {
         let tab_size = tab_size.max(1);
 
-        let (half_width, column_two_offset) = Self::layout(full_width, tab_size);
+        let (half_width, column_two_offset) =
+            Self::layout(full_width, if expanded { 1 } else { tab_size });
 
         Self {
             expanded,
@@ -143,10 +144,15 @@ fn format_tabs_and_spaces<T: Write>(
         return Ok(());
     }
 
-    while current + (tab_size - current % tab_size) <= to {
-        let next_tab = current + (tab_size - current % tab_size);
+    loop {
+        let advance = tab_size - current % tab_size;
+
+        if advance > to - current {
+            break;
+        }
+
         buf.write_all(b"\t")?;
-        current = next_tab;
+        current += advance;
     }
 
     while current < to {
@@ -215,17 +221,18 @@ fn process_half_line<T: Write>(
 
         match char {
             b"\t" => {
-                if expanded && (current_width + tab_size - (current_width % tab_size)) <= max_width
-                {
-                    let mut spaces = tab_size - (current_width % tab_size);
-                    while spaces > 0 {
-                        buf.write_all(b" ")?;
-                        current_width += 1;
-                        spaces -= 1;
+                let advance = tab_size - current_width % tab_size;
+
+                if advance <= max_width - current_width {
+                    if expanded {
+                        for _ in 0..advance {
+                            buf.write_all(b" ")?;
+                        }
+                    } else {
+                        buf.write_all(b"\t")?;
                     }
-                } else if current_width + tab_size - (current_width % tab_size) <= max_width {
-                    buf.write_all(b"\t")?;
-                    current_width += tab_size - (current_width % tab_size);
+
+                    current_width += advance;
                 }
             }
             b"\n" => {
@@ -399,7 +406,44 @@ mod tests {
             column_two_offset: usize,
             separator_pos: usize,
         ) {
-            let config = Config::new(full_width, tab_size, false);
+            assert_config(
+                full_width,
+                tab_size,
+                false,
+                half_width,
+                column_two_offset,
+                separator_pos,
+            );
+        }
+
+        #[track_caller]
+        fn assert_layout_expanded(
+            full_width: usize,
+            tab_size: usize,
+            half_width: usize,
+            column_two_offset: usize,
+            separator_pos: usize,
+        ) {
+            assert_config(
+                full_width,
+                tab_size,
+                true,
+                half_width,
+                column_two_offset,
+                separator_pos,
+            );
+        }
+
+        #[track_caller]
+        fn assert_config(
+            full_width: usize,
+            tab_size: usize,
+            expanded: bool,
+            half_width: usize,
+            column_two_offset: usize,
+            separator_pos: usize,
+        ) {
+            let config = Config::new(full_width, tab_size, expanded);
 
             assert_eq!(config.sdiff_half_width, half_width, "half width");
             assert_eq!(
@@ -412,6 +456,61 @@ mod tests {
         #[test]
         fn default_width_and_tab_size() {
             assert_layout(130, 8, 61, 64, 62);
+        }
+
+        #[test]
+        fn expanded_tabs_lay_out_as_a_stop_on_every_column() {
+            assert_layout(130, 1, 63, 67, 64);
+            assert_layout_expanded(130, 8, 63, 67, 64);
+            assert_layout_expanded(130, usize::MAX, 63, 67, 64);
+        }
+
+        #[test]
+        fn expanded_tabs_widen_the_half_line() {
+            assert_layout(130, 8, 61, 64, 62);
+            assert_layout_expanded(130, 8, 63, 67, 64);
+
+            assert_layout(40, 8, 16, 24, 19);
+            assert_layout_expanded(40, 8, 18, 22, 19);
+        }
+
+        #[test]
+        fn expanded_tabs_keep_the_real_tab_size_for_rendering() {
+            assert_eq!(Config::new(130, 8, true).tab_size, 8);
+            assert_eq!(Config::new(130, 8, false).tab_size, 8);
+        }
+
+        #[test]
+        fn expanded_tabs_reach_the_next_real_tab_stop() {
+            let params = Params {
+                width: 40,
+                tabsize: 8,
+                expand_tabs: true,
+                ..Default::default()
+            };
+            let mut output = vec![];
+
+            diff(b"a\tb\n", b"a\tc\n", &mut output, &params);
+
+            assert!(!output.contains(&b'\t'), "expanded output still has tabs");
+            assert!(
+                output.starts_with(b"a       b"),
+                "tab did not reach column 8"
+            );
+        }
+
+        #[test]
+        fn unexpanded_tabs_stay_tabs() {
+            let params = Params {
+                width: 40,
+                tabsize: 8,
+                ..Default::default()
+            };
+            let mut output = vec![];
+
+            diff(b"a\tb\n", b"a\tc\n", &mut output, &params);
+
+            assert!(output.starts_with(b"a\tb"));
         }
 
         #[test]
@@ -1366,9 +1465,9 @@ mod tests {
         fn test_full_width_40_tab_8() {
             // Expanded, so the layout uses a tab stop on every column.
             let config = create_config(40, 8, true);
-            assert_eq!(config.sdiff_half_width, 16);
-            assert_eq!(config.sdiff_column_two_offset, 24);
-            assert_eq!(config.separator_pos, 19); // (16 +24 -1) /2 = 19.5
+            assert_eq!(config.sdiff_half_width, 18);
+            assert_eq!(config.sdiff_column_two_offset, 22);
+            assert_eq!(config.separator_pos, 19); // (18 + 22 - 1) / 2 = 19.5
         }
 
         #[test]
