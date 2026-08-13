@@ -8,16 +8,12 @@ use diffutilslib::params::Params;
 use std::fs::{self, File};
 use std::io::Write;
 
-fuzz_target!(|x: (Vec<u8>, Vec<u8>, /* usize, usize */ bool)| {
-    let (original, new, /* width, tabsize, */ expand) = x;
-
-    // if width == 0 || tabsize == 0 {
-    //     return;
-    // }
+fuzz_target!(|x: (Vec<u8>, Vec<u8>, u16, u16, bool)| {
+    let (original, new, width, tabsize, expand) = x;
 
     let params = Params {
-        // width,
-        // tabsize,
+        width: width as usize,
+        tabsize: tabsize as usize,
         expand_tabs: expand,
         ..Default::default()
     };
