@@ -604,6 +604,19 @@ mod tests {
             }
         }
 
+        #[test]
+        fn carriage_return_at_the_widest_line_and_tab_size() {
+            let params = Params {
+                width: usize::MAX,
+                tabsize: usize::MAX,
+                expand_tabs: false,
+                ..Default::default()
+            };
+            let mut output = vec![];
+
+            diff(b"a\rb\n", b"c\n", &mut output, &params);
+        }
+
         #[test_case(b"aaa\tbbb\n", b"aaa\tccc\n" ; "tabs on both sides")]
         #[test_case(b"\t\t\n", b"\n" ; "tabs against an empty line")]
         #[test_case("\u{4f60}\u{597d}\t\u{1f600}\n".as_bytes(), b"a\n" ; "wide and multibyte")]
