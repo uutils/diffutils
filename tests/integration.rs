@@ -348,6 +348,26 @@ mod diff {
 mod cmp {
     use super::*;
 
+    // A file whose metadata length is 0 but which still yields bytes (/dev/zero)
+    // collapses the offset column to two characters, so the padding subtraction
+    // underflowed once the running offset reached three digits.
+    #[test]
+    #[cfg(unix)]
+    fn cmp_verbose_zero_length_metadata() -> Result<(), Box<dyn std::error::Error>> {
+        let mut file = NamedTempFile::new()?;
+        file.write_all(&[0xffu8; 150])?;
+
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("cmp")
+            .arg("--verbose")
+            .arg("/dev/zero")
+            .arg(file.path());
+        cmd.assert()
+            .code(predicate::eq(1))
+            .stdout(predicate::str::contains("150   0 377"));
+        Ok(())
+    }
+
     #[test]
     fn cmp_incompatible_params() -> Result<(), Box<dyn std::error::Error>> {
         let mut cmd = cargo_bin_cmd!("diffutils");

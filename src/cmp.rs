@@ -607,7 +607,7 @@ fn format_verbose_difference(
     } else {
         // "{:>width$} {:>3o} {:>3o}"
         let at_byte_str = at_byte_buf.format(at_byte);
-        let at_byte_padding = offset_width - at_byte_str.len();
+        let at_byte_padding = offset_width.saturating_sub(at_byte_str.len());
 
         for _ in 0..at_byte_padding {
             output.push(b' ')
