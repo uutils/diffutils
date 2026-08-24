@@ -82,10 +82,20 @@ cd ../tests || die "Cannot enter the upstream tests directory"
 
 # Fetch tests/init.sh from the gnulib repository (needed since
 # https://git.savannah.gnu.org/cgit/diffutils.git/commit/tests?id=1d2456f539)
-curl -sL --fail --retry 3 --retry-delay 5 --retry-all-errors \
-  "$gitserver/gitweb/?p=gnulib.git;a=blob_plain;f=tests/init.sh;hb=HEAD" -o init.sh \
-  || die "Failed to fetch tests/init.sh from the gnulib repository"
-[[ -s init.sh ]] || die "Fetched an empty tests/init.sh from the gnulib repository"
+# The savannah gitweb interface is often rate-limited or unavailable, so fall
+# back to the official gnulib mirror on GitHub
+initsh_urls=(
+  "$gitserver/gitweb/?p=gnulib.git;a=blob_plain;f=tests/init.sh;hb=HEAD"
+  "https://raw.githubusercontent.com/coreutils/gnulib/master/tests/init.sh"
+)
+for url in "${initsh_urls[@]}"
+do
+  echo "Fetching tests/init.sh from $url"
+  curl -sSL --fail --retry 3 --retry-delay 5 --retry-all-errors \
+    --connect-timeout 30 --max-time 300 "$url" -o init.sh && [[ -s init.sh ]] && break
+  rm -f init.sh
+done
+[[ -s init.sh ]] || die "Failed to fetch tests/init.sh from the gnulib repository"
 
 if [[ -n "$TESTS" ]]
 then
