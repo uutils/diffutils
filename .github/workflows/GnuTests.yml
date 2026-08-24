@@ -64,7 +64,16 @@ jobs:
         shell: bash
         run: |
           ## Run GNU diffutils testsuite
-          ./tests/run-upstream-testsuite.sh release || true
+          # Exit code 1 means some tests failed, which is expected and handled
+          # by the comparison below; 2 means the suite couldn't be run at all
+          # 'shell: bash' runs with -e, so don't let the expected exit code 1
+          # abort the step before the exit code is inspected
+          result=0
+          ./tests/run-upstream-testsuite.sh release || result=$?
+          if [[ $result -ge 2 ]]; then
+            echo "::error ::The GNU testsuite could not be run (exit code $result); see the log above"
+            exit 1
+          fi
         env:
           TERM: xterm
 
@@ -128,11 +137,21 @@ jobs:
             exit 1
           fi
 
+          if ! jq -e . "$RESULT_FILE" > /dev/null; then
+            echo "::error ::Test results at $RESULT_FILE are not valid JSON"
+            exit 1
+          fi
+
           TOTAL=$(jq '[.tests[]] | length' "$RESULT_FILE")
           PASS=$(jq '[.tests[] | select(.result=="PASS")] | length' "$RESULT_FILE")
           FAIL=$(jq '[.tests[] | select(.result=="FAIL")] | length' "$RESULT_FILE")
           SKIP=$(jq '[.tests[] | select(.result=="SKIP")] | length' "$RESULT_FILE")
           ERROR=0
+
+          if [[ "$TOTAL" -eq 0 ]]; then
+            echo "::error ::No test was run; refusing to report or compare an empty test run"
+            exit 1
+          fi
 
           output="GNU diffutils tests summary = TOTAL: $TOTAL / PASS: $PASS / FAIL: $FAIL / SKIP: $SKIP"
           echo "${output}"
@@ -175,14 +194,20 @@ jobs:
 
           IGNORE_INTERMITTENT=".github/workflows/ignore-intermittent.txt"
 
-          COMMENT_DIR="reference/comment"
+          # Build the comment in a directory of its own: 'reference/' holds the
+          # artifacts downloaded from the reference run, including its own
+          # 'comment' artifact, and re-uploading those would post a comparison
+          # belonging to another run (see https://github.com/uutils/diffutils/pull/262)
+          COMMENT_DIR="comment"
+          rm -rf ${COMMENT_DIR}
           mkdir -p ${COMMENT_DIR}
           echo ${{ github.event.number }} > ${COMMENT_DIR}/NR
           COMMENT_LOG="${COMMENT_DIR}/result.txt"
+          : > "${COMMENT_LOG}"
 
           COMPARISON_RESULT=0
           if test -f "${CURRENT_SUMMARY_FILE}"; then
-            if test -f "${REF_SUMMARY_FILE}"; then
+            if test -s "${REF_SUMMARY_FILE}"; then
               echo "Reference summary SHA1/ID: $(sha1sum -- "${REF_SUMMARY_FILE}")"
               echo "Current summary SHA1/ID: $(sha1sum -- "${CURRENT_SUMMARY_FILE}")"
 
@@ -193,7 +218,7 @@ jobs:
 
               COMPARISON_RESULT=$?
             else
-              echo "::warning ::Skipping test comparison; no prior reference summary is available at '${REF_SUMMARY_FILE}'."
+              echo "::warning ::Skipping test comparison; no usable reference summary is available at '${REF_SUMMARY_FILE}'."
             fi
           else
             echo "::error ::Failed to find summary of test results (missing '${CURRENT_SUMMARY_FILE}'); failing early"
@@ -203,6 +228,11 @@ jobs:
           if [ ${COMPARISON_RESULT} -eq 1 ]; then
             echo "::error ::Found new non-intermittent test failures"
             exit 1
+          elif [ ${COMPARISON_RESULT} -ge 2 ]; then
+            # The comparison itself failed (e.g. an unusable reference summary).
+            # Don't post a comment rather than post a misleading one.
+            : > "${COMMENT_LOG}"
+            echo "::warning ::Could not compare the test results against the reference"
           else
             echo "::notice ::No new test failures detected"
           fi
@@ -212,7 +242,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: comment
-          path: reference/comment/
+          path: comment/
 
       - name: Report test results
         if: success() || failure()

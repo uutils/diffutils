@@ -4,6 +4,10 @@
 Compare the current GNU test results to the last results gathered from the main branch to
 highlight if a PR is making the results better/worse.
 Don't exit with error code if all failing tests are in the ignore-intermittent.txt list.
+
+Exit status: 0 if the comparison shows no new failure, 1 if new non-intermittent
+failures appeared, and 2 if the comparison couldn't be performed at all (e.g. one
+of the result files is missing or malformed).
 """
 
 import json
@@ -49,7 +53,7 @@ def compare_results(current_file, reference_file, ignore_file=None, output_file=
         current_summary, current_failed = extract_test_results(current_data)
     except Exception as e:
         print(f"Error loading current results: {e}")
-        return 1
+        return 2
 
     try:
         with open(reference_file, "r") as f:
@@ -57,7 +61,7 @@ def compare_results(current_file, reference_file, ignore_file=None, output_file=
         reference_summary, reference_failed = extract_test_results(reference_data)
     except Exception as e:
         print(f"Error loading reference results: {e}")
-        return 1
+        return 2
 
     # Calculate differences
     pass_diff  = int(current_summary.get("passed",  0)) - int(reference_summary.get("passed",  0))
