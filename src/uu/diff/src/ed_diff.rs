@@ -5,8 +5,8 @@
 
 use std::io::Write;
 
-use uucore::params::Params;
-use uucore::utils::do_write_line;
+use diffutils_core::params::Params;
+use diffutils_core::utils::do_write_line;
 
 #[derive(Debug, PartialEq)]
 struct Mismatch {
@@ -163,7 +163,7 @@ mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
 
-    use uucore::utils::testcmds::ED_CMD;
+    use diffutils_core::utils::testcmds::ED_CMD;
 
     pub fn diff_w(expected: &[u8], actual: &[u8], filename: &str) -> Result<Vec<u8>, DiffError> {
         let mut output = diff(expected, actual, &Params::default())?;

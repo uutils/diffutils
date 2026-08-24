@@ -6,8 +6,8 @@
 use std::collections::VecDeque;
 use std::io::Write;
 
-use uucore::params::Params;
-use uucore::utils::{do_write_line, get_modification_time};
+use diffutils_core::params::Params;
+use diffutils_core::utils::{do_write_line, get_modification_time};
 
 #[derive(Debug, PartialEq)]
 pub enum DiffLine {
@@ -407,7 +407,7 @@ mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
 
-    use uucore::utils::testcmds::PATCH_CMD;
+    use diffutils_core::utils::testcmds::PATCH_CMD;
 
     #[test]
     fn test_permutations() {
@@ -493,7 +493,7 @@ mod tests {
                                         .unwrap_or_else(|_| String::from("[Invalid UTF-8]"))
                                 );
 
-                                use uucore::utils::testcmds::PATCH_CMD;
+                                use diffutils_core::utils::testcmds::PATCH_CMD;
 
                                 let output = PATCH_CMD
                                     .new()
@@ -888,7 +888,7 @@ mod tests {
 
     #[test]
     fn test_stop_early() {
-        use uucore::assert_diff_eq;
+        use diffutils_core::assert_diff_eq;
 
         let from_filename = "foo";
         let from = ["a", "b", "c", ""].join("\n");

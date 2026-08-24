@@ -1,15 +1,17 @@
 [package]
 name = "uu_cmp"
+description = "diffutils ~ implementation of the cmp utility"
 categories.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 homepage.workspace = true
+repository.workspace = true
 keywords.workspace = true
 license.workspace = true
 version.workspace = true
 
 [dependencies]
-uucore = { workspace = true }
+diffutils_core = { workspace = true }
 itoa = { workspace = true }
 same-file = { workspace = true }
 

@@ -3,13 +3,13 @@
 // For the full copyright and license information, please view the LICENSE-*
 // files that was distributed with this source code.
 
+use diffutils_core::utils::format_failure_to_read_input_file;
 use std::env::{self, ArgsOs};
 use std::ffi::OsString;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::iter::Peekable;
 use std::process::ExitCode;
 use std::{cmp, fs, io};
-use uucore::utils::format_failure_to_read_input_file;
 
 #[cfg(unix)]
 use std::os::fd::{AsRawFd, FromRawFd};

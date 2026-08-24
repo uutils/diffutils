@@ -1,7 +1,7 @@
 [package]
 name = "diffutils"
 description = "A CLI app for generating diff files"
-repository = "https://github.com/uutils/diffutils"
+repository.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 version.workspace = true
@@ -13,17 +13,17 @@ categories.workspace = true
 [workspace]
 members = [
     "src/uu/*",
-    "src/uucore/",
+    "src/diffutils_core/",
 ]
 
 default-members = [
     ".",
     "src/uu/*",
-    "src/uucore/",
+    "src/diffutils_core/",
 ]
 
 [workspace.dependencies]
-uucore = { path = "src/uucore" }
+diffutils_core = { path = "src/diffutils_core" }
 chrono = "0.4.38"
 diff = "0.1.13"
 itoa = "1.0.11"
@@ -38,6 +38,7 @@ categories = ["command-line-utilities"]
 edition = "2021"
 rust-version = "1.87.0"
 homepage = "https://github.com/uutils/diffutils"
+repository = "https://github.com/uutils/diffutils"
 keywords = ["diffutils", "uutils", "cross-platform", "cli", "utility"]
 license = "MIT OR Apache-2.0"
 version = "0.5.0"
@@ -51,20 +52,17 @@ name = "diffutils"
 path = "src/main.rs"
 
 [dependencies]
-diff = { workspace = true }
-same-file = { workspace = true }
-regex = { workspace = true }
-unicode-width = { workspace = true }
-tempfile = { workspace = true }
 uu_cmp = { path = "src/uu/cmp" }
 uu_diff = { path = "src/uu/diff" }
-uucore = { path = "src/uucore" }
+diffutils_core = { workspace = true }
 
 [dev-dependencies]
 assert_cmd = "2.0.14"
 divan = { version = "5.0.0", package = "codspeed-divan-compat" }
 predicates = "3.1.0"
 rand = "0.10.0"
+regex = { workspace = true }
+tempfile = { workspace = true }
 
 [profile.release]
 lto = "thin"

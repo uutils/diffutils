@@ -5,8 +5,8 @@
 
 use std::io::Write;
 
-use uucore::params::Params;
-use uucore::utils::do_write_line;
+use diffutils_core::params::Params;
+use diffutils_core::utils::do_write_line;
 
 #[derive(Debug, PartialEq)]
 struct Mismatch {
@@ -215,7 +215,7 @@ mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
 
-    use uucore::utils::testcmds::PATCH_CMD;
+    use diffutils_core::utils::testcmds::PATCH_CMD;
 
     #[test]
     fn test_basic() {
