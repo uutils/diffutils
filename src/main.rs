@@ -40,10 +40,10 @@ fn name(binary_path: &Path) -> &OsStr {
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn usage(name: &str) {
-    println!("{name} {VERSION} (multi-call binary)\n");
-    println!("Usage: {name} [function [arguments...]]\n");
-    println!("Currently defined functions:\n");
-    println!("    cmp, diff\n");
+    safe_println!("{name} {VERSION} (multi-call binary)\n");
+    safe_println!("Usage: {name} [function [arguments...]]\n");
+    safe_println!("Currently defined functions:\n");
+    safe_println!("    cmp, diff\n");
 }
 
 fn second_arg_error(name: &OsStr) -> ! {
