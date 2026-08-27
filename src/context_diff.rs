@@ -53,6 +53,11 @@ fn make_diff(
 ) -> Vec<Mismatch> {
     let mut line_number_expected = 1;
     let mut line_number_actual = 1;
+    // `context_size` comes straight from the command line and may be enormous.
+    // Neither file can have more lines than it has bytes, so a larger request
+    // already means "the whole file"; clamping keeps the arithmetic below in
+    // range and the preallocation proportional to the input.
+    let context_size = context_size.min(expected.len() + actual.len() + 1);
     let mut context_queue: VecDeque<&[u8]> = VecDeque::with_capacity(context_size);
     let mut lines_since_mismatch = context_size + 1;
     let mut results = Vec::new();
