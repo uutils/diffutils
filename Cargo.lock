@@ -272,6 +272,7 @@ dependencies = [
  "pretty_assertions",
  "rand",
  "regex",
+ "rustix",
  "same-file",
  "tempfile",
  "unicode-width",

@@ -11,12 +11,6 @@ use std::iter::Peekable;
 use std::process::ExitCode;
 use std::{cmp, fs, io};
 
-#[cfg(unix)]
-use std::os::fd::{AsRawFd, FromRawFd};
-
-#[cfg(unix)]
-use std::os::unix::fs::MetadataExt;
-
 #[cfg(target_os = "windows")]
 use std::os::windows::fs::MetadataExt;
 
@@ -43,8 +37,22 @@ fn usage_string(executable: &str) -> String {
     format!("Usage: {executable} <from> <to>")
 }
 
-#[cfg(unix)]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 fn is_stdout_dev_null() -> bool {
+    use rustix::fs;
+    let stdout = io::stdout();
+    let Ok(stat) = fs::fstat(stdout) else {
+        return false;
+    };
+    let dev = stat.st_rdev;
+    fs::major(dev) == 1 && fs::minor(dev) == 3
+}
+
+#[cfg(unix)]
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+fn is_stdout_dev_null() -> bool {
+    use std::os::fd::{AsRawFd, FromRawFd};
+    use std::os::unix::fs::MetadataExt;
     let Ok(dev_null) = fs::metadata("/dev/null") else {
         return false;
     };
