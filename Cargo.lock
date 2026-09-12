@@ -264,15 +264,23 @@ name = "diffutils"
 version = "0.5.0"
 dependencies = [
  "assert_cmd",
- "chrono",
  "codspeed-divan-compat",
- "diff",
- "itoa",
+ "diffutils_core",
  "predicates",
- "pretty_assertions",
  "rand",
  "regex",
- "same-file",
+ "tempfile",
+ "uu_cmp",
+ "uu_diff",
+]
+
+[[package]]
+name = "diffutils_core"
+version = "0.5.0"
+dependencies = [
+ "chrono",
+ "pretty_assertions",
+ "regex",
  "tempfile",
  "unicode-width",
 ]
@@ -823,6 +831,27 @@ name = "unicode-xid"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
+
+[[package]]
+name = "uu_cmp"
+version = "0.5.0"
+dependencies = [
+ "diffutils_core",
+ "itoa",
+ "same-file",
+]
+
+[[package]]
+name = "uu_diff"
+version = "0.5.0"
+dependencies = [
+ "diff",
+ "diffutils_core",
+ "pretty_assertions",
+ "regex",
+ "same-file",
+ "unicode-width",
+]
 
 [[package]]
 name = "wait-timeout"

@@ -3,9 +3,14 @@
 // For the full copyright and license information, please view the LICENSE-*
 // files that was distributed with this source code.
 
-use crate::params::{parse_params, Format};
-use crate::utils::report_failure_to_read_input_file;
-use crate::{context_diff, ed_diff, normal_diff, side_diff, unified_diff};
+pub mod context_diff;
+pub mod ed_diff;
+pub mod normal_diff;
+pub mod side_diff;
+pub mod unified_diff;
+
+use diffutils_core::params::{parse_params, Format};
+use diffutils_core::utils::report_failure_to_read_input_file;
 use std::env::ArgsOs;
 use std::ffi::OsString;
 use std::fs;
