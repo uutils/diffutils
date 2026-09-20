@@ -11,17 +11,6 @@ use std::{
     process::ExitCode,
 };
 
-mod cmp;
-mod context_diff;
-mod diff;
-mod ed_diff;
-mod macros;
-mod normal_diff;
-mod params;
-mod side_diff;
-mod unified_diff;
-mod utils;
-
 /// # Panics
 /// Panics if the binary path cannot be determined
 fn binary_path(args: &mut Peekable<ArgsOs>) -> PathBuf {
@@ -70,8 +59,8 @@ fn main() -> ExitCode {
     };
 
     match util_name.as_encoded_bytes() {
-        name if name.ends_with(b"diff") => diff::main(args),
-        name if name.ends_with(b"cmp") => cmp::main(args),
+        name if name.ends_with(b"diff") => uu_diff::main(args),
+        name if name.ends_with(b"cmp") => uu_cmp::main(args),
         name => {
             use std::io::{stderr, Write as _};
             let _ = writeln!(

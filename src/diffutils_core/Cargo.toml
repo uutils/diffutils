@@ -1,0 +1,23 @@
+[package]
+name = "diffutils_core"
+description = "diffutils ~ code shared by the diffutils utilities"
+categories.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+homepage.workspace = true
+repository.workspace = true
+keywords.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+chrono = { workspace = true }
+regex = { workspace = true }
+unicode-width = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }
+tempfile = { workspace = true }
+
+[features]
+test-utils = []

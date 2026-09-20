@@ -98,7 +98,7 @@ pub fn report_failure_to_read_input_file(
     );
 }
 
-#[cfg(test)]
+#[cfg(feature = "test-utils")]
 pub mod testcmds {
     // Command construction wrapper that provides some validation and non-obscure, "fail fast"
     // feedback and error messages.
