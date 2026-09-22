@@ -24,7 +24,7 @@ jobs:
     name: Build the fuzzers
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install `cargo-fuzz`
         run: |
           cargo install cargo-fuzz --locked
@@ -52,7 +52,7 @@ jobs:
           - { name: fuzz_patch, should_pass: true }
           - { name: fuzz_side, should_pass: true }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install `cargo-fuzz`
         run: |
           cargo install cargo-fuzz --locked
