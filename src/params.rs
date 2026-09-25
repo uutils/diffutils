@@ -830,21 +830,37 @@ mod tests {
             )
         );
     }
+    #[test]
+    fn width_suffix_is_an_operand() {
+        assert_eq!(
+            Ok(Params {
+                executable: os("diff"),
+                from: os("xyz--width=5"),
+                to: os("foo"),
+                ..Default::default()
+            }),
+            parse_params(
+                [os("diff"), os("xyz--width=5"), os("foo")]
+                    .iter()
+                    .cloned()
+                    .peekable()
+            )
+        );
+    }
     #[cfg(unix)]
     #[test]
     fn width_non_utf8_is_not_an_option() {
         use std::os::unix::ffi::OsStringExt;
-        // A non-UTF-8 argument whose lossy form ends in `--width=N` must be
-        // treated as an operand, not parsed as the width option (which used to
-        // panic in `into_string().unwrap()`).
+        // used to panic in into_string().unwrap()
         let bad = OsString::from_vec(b"\xff--width=5".to_vec());
-        assert!(parse_params(
-            [os("diff"), bad, os("foo"), os("bar")]
+        let params = parse_params(
+            [os("diff"), bad.clone(), os("foo")]
                 .iter()
                 .cloned()
-                .peekable()
+                .peekable(),
         )
-        .is_err());
+        .unwrap();
+        assert_eq!(params.from, bad);
     }
     #[test]
     fn double_dash() {
