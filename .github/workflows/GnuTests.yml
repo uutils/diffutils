@@ -24,7 +24,7 @@ env:
 jobs:
   native:
     name: Run GNU diffutils testsuite
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -91,7 +91,7 @@ jobs:
       contents: read
       pull-requests: read
     name: Aggregate GNU test results
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - name: Initialize workflow variables
         id: vars
