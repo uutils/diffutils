@@ -3,12 +3,14 @@
 // For the full copyright and license information, please view the LICENSE-*
 // files that was distributed with this source code.
 
+use assert_cmd::assert::OutputAssertExt;
 use assert_cmd::cargo::cargo_bin_cmd;
 use predicates::prelude::*;
 use std::fs::File;
 #[cfg(not(windows))]
 use std::fs::OpenOptions;
 use std::io::Write;
+use std::process::Stdio;
 use tempfile::{tempdir, NamedTempFile};
 
 // Integration tests for the diffutils command
@@ -642,6 +644,79 @@ mod cmp {
         Ok(())
     }
 
+    #[track_caller]
+    fn assert_cmp(dir: &std::path::Path, args: &[&str], stdin: Stdio, code: i32, stderr: &str) {
+        std::process::Command::new(assert_cmd::cargo::cargo_bin!("diffutils"))
+            .env("LC_ALL", "C")
+            .current_dir(dir)
+            .arg("cmp")
+            .args(args)
+            .stdin(stdin)
+            .output()
+            .unwrap()
+            .assert()
+            .append_context("args", format!("{args:?}"))
+            .code(predicate::eq(code))
+            .stdout(predicate::str::is_empty())
+            .stderr(predicate::eq(stderr));
+    }
+
+    #[test]
+    fn cmp_quiet_bytes_limit() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+        let dir = tmp_dir.path();
+        for name in ["a", "ab", "b", "abc", "xabc"] {
+            std::fs::write(dir.join(name), name)?;
+        }
+        for (args, code) in [
+            (&["-s", "-n", "1", "a", "ab"][..], 0),
+            (&["-s", "-n", "2", "a", "ab"][..], 1),
+            (&["-s", "-n", "0", "a", "b"][..], 0),
+            (&["-s", "-i", "1:0", "xabc", "abc"][..], 0),
+            (&["-s", "-i", "1:0", "-n", "2", "xabc", "ab"][..], 0),
+        ] {
+            assert_cmp(dir, args, Stdio::null(), code, "");
+        }
+        std::fs::write(dir.join("-"), "zz")?;
+        for (args, stdin) in [
+            (&["-s", "-", "abc"][..], "abc"),
+            (&["-s", "-i", "0:1", "abc", "-"], "xabc"),
+        ] {
+            assert_cmp(dir, args, File::open(dir.join(stdin))?.into(), 0, "");
+        }
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn cmp_directory_and_device_operands() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempdir()?;
+        let dir = tmp_dir.path();
+        std::fs::write(dir.join("file"), "a")?;
+        std::fs::write(dir.join("nul"), "\0")?;
+        std::fs::create_dir(dir.join("dir"))?;
+        for (args, code, stderr) in [
+            (&["-s", "file", "dir"][..], 2, ""),
+            (
+                &["-n", "0", "file", "dir"][..],
+                2,
+                "cmp: dir: Is a directory\n",
+            ),
+            (&["-s", "-n", "1", "/dev/zero", "nul"][..], 0, ""),
+        ] {
+            assert_cmp(dir, args, Stdio::null(), code, stderr);
+        }
+        let stdin = File::open(dir)?.into();
+        assert_cmp(
+            dir,
+            &["-n", "0", "file", "-"],
+            stdin,
+            2,
+            "cmp: -: Is a directory\n",
+        );
+        Ok(())
+    }
+
     #[test]
     fn cmp_skip_args_parsing() -> Result<(), Box<dyn std::error::Error>> {
         let tmp_dir = tempdir()?;
@@ -829,7 +904,8 @@ mod cmp {
         // validating the /dev/null optimization.
         let a_path = tmp_dir.path().join("a");
         let a = File::create(&a_path).unwrap();
-        a.set_len(14 * 1024 * 1024 * 1024 * 1024).unwrap();
+        let a_len = 14 * 1024 * 1024 * 1024 * 1024;
+        a.set_len(a_len).unwrap();
 
         let b_path = tmp_dir.path().join("b");
         let b = File::create(&b_path).unwrap();
@@ -837,31 +913,35 @@ mod cmp {
 
         let dev_null = OpenOptions::new().write(true).open("/dev/null").unwrap();
 
-        let mut child = std::process::Command::new(assert_cmd::cargo::cargo_bin!("diffutils"))
-            .arg("cmp")
-            .arg(&a_path)
-            .arg(&b_path)
-            .stdout(dev_null)
-            .spawn()
-            .unwrap();
+        let limit = (a_len + 1).to_string();
+        for args in [&[][..], &["-i", "0"], &["-i", "1"], &["-n", &limit]] {
+            let mut child = std::process::Command::new(assert_cmd::cargo::cargo_bin!("diffutils"))
+                .arg("cmp")
+                .args(args)
+                .arg(&a_path)
+                .arg(&b_path)
+                .stdout(dev_null.try_clone().unwrap())
+                .spawn()
+                .unwrap();
 
-        // Bound the runtime to a very short time that still allows for some resource
-        // constraint to slow it down while also allowing very fast systems to exit as
-        // early as possible.
-        const MAX_TRIES: u8 = 50;
-        for tries in 0..=MAX_TRIES {
-            if tries == MAX_TRIES {
-                panic!("cmp took too long to run, /dev/null optimization probably not working")
-            }
-            match child.try_wait() {
-                Ok(Some(status)) => {
-                    assert_eq!(status.code(), Some(1));
-                    break;
+            // Bound the runtime to a very short time that still allows for some resource
+            // constraint to slow it down while also allowing very fast systems to exit as
+            // early as possible.
+            const MAX_TRIES: u8 = 50;
+            for tries in 0..=MAX_TRIES {
+                if tries == MAX_TRIES {
+                    panic!("cmp {args:?} took too long to run, /dev/null optimization probably not working")
                 }
-                Ok(None) => (),
-                Err(e) => panic!("{e:#?}"),
+                match child.try_wait() {
+                    Ok(Some(status)) => {
+                        assert_eq!(status.code(), Some(1));
+                        break;
+                    }
+                    Ok(None) => (),
+                    Err(e) => panic!("{e:#?}"),
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
             }
-            std::thread::sleep(std::time::Duration::from_millis(10));
         }
 
         // Two stdins should be equal
