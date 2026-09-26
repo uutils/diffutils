@@ -60,7 +60,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
     let mut format = None;
     let mut context = None;
     let tabsize_re = Regex::new(r"^--tabsize=(?<num>\d+)$").unwrap();
-    let width_re = Regex::new(r"--width=(?P<long>\d+)$").unwrap();
+    let width_re = Regex::new(r"^--width=(?P<long>\d+)$").unwrap();
     while let Some(param) = opts.next() {
         let next_param = opts.peek();
         if param == "--" {
@@ -113,6 +113,8 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
             continue;
         }
         if width_re.is_match(param.to_string_lossy().as_ref()) {
+            // Because param matches the regular expression,
+            // it is safe to assume it is valid UTF-8.
             let param = param.into_string().unwrap();
             let width_str: &str = width_re
                 .captures(param.as_str())
@@ -809,6 +811,84 @@ mod tests {
             .iter()
             .cloned()
             .peekable()
+        )
+        .is_err());
+    }
+    #[test]
+    fn width() {
+        assert_eq!(
+            Ok(Params {
+                executable: os("diff"),
+                from: os("foo"),
+                to: os("bar"),
+                width: 1,
+                ..Default::default()
+            }),
+            parse_params(
+                [os("diff"), os("--width=1"), os("foo"), os("bar")]
+                    .iter()
+                    .cloned()
+                    .peekable()
+            )
+        );
+        assert_eq!(
+            Ok(Params {
+                executable: os("diff"),
+                from: os("foo"),
+                to: os("bar"),
+                width: 42,
+                ..Default::default()
+            }),
+            parse_params(
+                [os("diff"), os("--width=42"), os("foo"), os("bar")]
+                    .iter()
+                    .cloned()
+                    .peekable()
+            )
+        );
+        for bad in [
+            "--width",
+            "--width=",
+            "--width=r2",
+            "--width=-1",
+            "--width=0",
+            "--width=92233720368547758088",
+        ] {
+            assert!(
+                parse_params(
+                    [os("diff"), os(bad), os("foo"), os("bar")]
+                        .iter()
+                        .cloned()
+                        .peekable()
+                )
+                .is_err(),
+                "expected an error for {bad}"
+            );
+        }
+        // An argument that merely ends in "--width=<digits>" is a file operand and
+        // not the option, so three operands is an error. While the regex was
+        // unanchored this was accepted as a width and the operand silently dropped.
+        assert!(parse_params(
+            [os("diff"), os("xx--width=5"), os("foo"), os("bar")]
+                .iter()
+                .cloned()
+                .peekable()
+        )
+        .is_err());
+    }
+    // The same operand, but not valid UTF-8. Its lossy form ends in
+    // "--width=5", which used to match the unanchored regex and then abort in
+    // into_string(). GNU diff treats it as an operand and exits 2.
+    #[cfg(unix)]
+    #[test]
+    fn width_non_utf8_operand() {
+        use std::os::unix::ffi::OsStringExt;
+        let operand = OsString::from_vec(b"\xff--width=5".to_vec());
+        assert!(parse_params(
+            [os("diff"), operand, os("foo"), os("bar")]
+                .iter()
+                .cloned()
+                .peekable()
         )
         .is_err());
     }
