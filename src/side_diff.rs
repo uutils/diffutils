@@ -9,6 +9,7 @@ use std::{io::Write, vec};
 use unicode_width::UnicodeWidthStr;
 
 use crate::params::Params;
+use crate::utils::exit_on_broken_pipe_or_panic;
 
 const GUTTER_WIDTH_MIN: usize = 3;
 
@@ -350,10 +351,20 @@ pub fn diff<T: Write>(
     */
     for result in diff::slice(&left_lines, &right_lines) {
         match result {
-            Result::Left(left_ln) => push_output(left_ln, b"", b'<', output, &config).unwrap(),
-            Result::Right(right_ln) => push_output(b"", right_ln, b'>', output, &config).unwrap(),
+            Result::Left(left_ln) => {
+                if let Err(e) = push_output(left_ln, b"", b'<', output, &config) {
+                    exit_on_broken_pipe_or_panic(e);
+                }
+            }
+            Result::Right(right_ln) => {
+                if let Err(e) = push_output(b"", right_ln, b'>', output, &config) {
+                    exit_on_broken_pipe_or_panic(e);
+                }
+            }
             Result::Both(left_ln, right_ln) => {
-                push_output(left_ln, right_ln, b' ', output, &config).unwrap()
+                if let Err(e) = push_output(left_ln, right_ln, b' ', output, &config) {
+                    exit_on_broken_pipe_or_panic(e);
+                }
             }
         }
     }

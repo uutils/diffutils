@@ -7,6 +7,17 @@ use regex::Regex;
 use std::{ffi::OsString, io::Write};
 use unicode_width::UnicodeWidthStr;
 
+/// Handle a write error to stdout: if the pipe was closed by the reader
+/// (e.g. `diff big1 big2 | head`), exit quietly like GNU does under
+/// `SIGPIPE` (128 + 13 = 141) instead of panicking with a core dump.
+/// Any other write error is a genuine bug, so it still panics.
+pub fn exit_on_broken_pipe_or_panic(e: std::io::Error) -> ! {
+    if e.kind() == std::io::ErrorKind::BrokenPipe {
+        std::process::exit(141);
+    }
+    panic!("{e}");
+}
+
 /// Replace tabs by spaces in the input line.
 /// Correctly handle multi-bytes characters.
 /// This assumes that line does not contain any line breaks (if it does, the result is undefined).
