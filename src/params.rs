@@ -276,7 +276,9 @@ fn match_context_diff_params(
             .or(captures.name("num3"));
         if let Some(numvalue) = num {
             if !numvalue.as_str().is_empty() {
-                context_count = Some(numvalue.as_str().parse::<usize>().unwrap());
+                // GNU accepts a count larger than the machine can represent and
+                // clamps it, so saturate rather than panicking on overflow.
+                context_count = Some(numvalue.as_str().parse::<usize>().unwrap_or(usize::MAX));
             }
         }
         if param == "-C" {
@@ -320,7 +322,9 @@ fn match_unified_diff_params(
             .or(captures.name("num3"));
         if let Some(numvalue) = num {
             if !numvalue.as_str().is_empty() {
-                context_count = Some(numvalue.as_str().parse::<usize>().unwrap());
+                // GNU accepts a count larger than the machine can represent and
+                // clamps it, so saturate rather than panicking on overflow.
+                context_count = Some(numvalue.as_str().parse::<usize>().unwrap_or(usize::MAX));
             }
         }
         if param == "-U" {
@@ -914,6 +918,26 @@ mod tests {
                     .peekable()
             )
             .is_err());
+        }
+    }
+
+    #[test]
+    fn oversized_context_count_saturates() {
+        // A digit run too large for usize must clamp rather than panic.
+        for arg in [
+            "-u99999999999999999999",
+            "-c99999999999999999999",
+            "--unified=99999999999999999999",
+            "--context=99999999999999999999",
+        ] {
+            let params = parse_params(
+                [os("diff"), os(arg), os("foo"), os("bar")]
+                    .iter()
+                    .cloned()
+                    .peekable(),
+            )
+            .unwrap();
+            assert_eq!(params.context_count, usize::MAX);
         }
     }
 }

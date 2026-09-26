@@ -225,6 +225,35 @@ mod diff {
     }
 
     #[test]
+    fn oversized_context_count() -> Result<(), Box<dyn std::error::Error>> {
+        let mut file1 = NamedTempFile::new()?;
+        file1.write_all("a\nb\nc\n".as_bytes())?;
+        let mut file2 = NamedTempFile::new()?;
+        file2.write_all("a\nX\nc\n".as_bytes())?;
+
+        // A context count past usize, and one that fits but would overflow the
+        // queue's capacity in bytes. Both used to abort.
+        for option in [
+            "-u99999999999999999999",
+            "-c99999999999999999999",
+            "--unified=99999999999999999999",
+            "--context=99999999999999999999",
+            "-U600000000000000000",
+            "-C600000000000000000",
+        ] {
+            let mut cmd = cargo_bin_cmd!("diffutils");
+            cmd.arg("diff")
+                .arg(option)
+                .arg(file1.path())
+                .arg(file2.path());
+            cmd.assert()
+                .code(predicate::eq(1))
+                .stdout(predicate::str::contains("X"));
+        }
+        Ok(())
+    }
+
+    #[test]
     fn read_from_stdin() -> Result<(), Box<dyn std::error::Error>> {
         let mut file1 = NamedTempFile::new()?;
         file1.write_all("foo\n".as_bytes())?;
