@@ -72,6 +72,19 @@ fn missing_newline() {
 }
 
 #[rstest]
+fn huge_tabsize(#[values(&[][..], &["-u"], &["-c"])] format: &[&str]) {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", "\tx\n");
+    at.write("file2", "y\n");
+    ts.ucmd()
+        .args(format)
+        .args(&["-t", "--tabsize=18446744073709551615", "file1", "file2"])
+        .fails_with_code(2)
+        .no_stdout()
+        .stderr_contains("invalid tabsize «18446744073709551615»");
+}
+
+#[rstest]
 #[case::second(&["file1", "-"], "bar\n", "--- file1\tTIMESTAMP\n+++ -\tTIMESTAMP\n")]
 #[case::first(&["-", "file2"], "foo\n", "--- -\tTIMESTAMP\n+++ file2\tTIMESTAMP\n")]
 fn read_from_stdin(#[case] operands: &[&str], #[case] input: &str, #[case] headers: &str) {
