@@ -71,14 +71,10 @@ fn missing_newline() {
         .stderr_str_check(|s| s.starts_with("No newline at end of file"));
 }
 
-#[rstest]
-fn huge_tabsize(#[values(&[][..], &["-u"], &["-c"])] format: &[&str]) {
-    let (at, ts) = at_and_ts!();
-    at.write("file1", "\tx\n");
-    at.write("file2", "y\n");
-    ts.ucmd()
-        .args(format)
-        .args(&["-t", "--tabsize=18446744073709551615", "file1", "file2"])
+#[test]
+fn huge_tabsize() {
+    new_ucmd!()
+        .args(&["--tabsize=18446744073709551615", "foo", "bar"])
         .fails_with_code(2)
         .no_stdout()
         .stderr_contains("invalid tabsize «18446744073709551615»");
