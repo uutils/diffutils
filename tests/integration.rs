@@ -343,6 +343,54 @@ mod diff {
 
         Ok(())
     }
+
+    // Visual (tab-aware) column of the `-y` gutter marker on the first output line.
+    fn side_marker_visual_column(output: &[u8], tabsize: usize) -> Option<usize> {
+        let text = String::from_utf8_lossy(output);
+        let line = text.lines().next()?;
+        let mut col = 0;
+        for c in line.chars() {
+            match c {
+                '<' | '|' | '>' => return Some(col),
+                '\t' => col += tabsize - (col % tabsize),
+                _ => col += 1,
+            }
+        }
+        None
+    }
+
+    // Regression for #269: the `-y` gutter marker must sit at the middle of the gutter.
+    #[test]
+    fn sdiff_gutter_marker_column() -> Result<(), Box<dyn std::error::Error>> {
+        let mut file1 = NamedTempFile::new()?;
+        file1.write_all("aa\n".as_bytes())?;
+        let mut file2 = NamedTempFile::new()?;
+        file2.write_all("bb\n".as_bytes())?;
+
+        // --expand-tabs: padding is spaces, marker lands at visual column 19.
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff")
+            .arg("-y")
+            .arg("--width=40")
+            .arg("--expand-tabs")
+            .arg(file1.path())
+            .arg(file2.path());
+        let output = cmd.output().unwrap().stdout;
+        assert_eq!(side_marker_visual_column(&output, 8), Some(19));
+
+        // Default (expand_tabs: false): padding goes through the tab path, but the
+        // marker must still land at the same visual column.
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff")
+            .arg("-y")
+            .arg("--width=40")
+            .arg(file1.path())
+            .arg(file2.path());
+        let output = cmd.output().unwrap().stdout;
+        assert_eq!(side_marker_visual_column(&output, 8), Some(19));
+
+        Ok(())
+    }
 }
 
 mod cmp {

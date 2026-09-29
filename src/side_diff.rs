@@ -285,10 +285,7 @@ fn push_output<T: Write>(
         // the diff always want to put all tabs possible in the usable are,
         // even in the middle space between the gutters if possible.
 
-        // `process_half_line` left the cursor one column past the half width. The gutter marker
-        // belongs at the middle of the gutter (`separator_pos`), which is only `half_width + 1`
-        // when the gutter is 3 or 4 columns wide; pad up to it for wider gutters so the marker
-        // doesn't drift (see #269). `format_tabs_and_spaces` is a no-op when already at/past it.
+        // Pad to the middle of the gutter so the marker doesn't drift on wider gutters (#269).
         format_tabs_and_spaces(half_width + 1, separator_pos, config, output)?;
         output.write_all(&[symbol])?;
         if !right_ln.is_empty() {
@@ -1008,10 +1005,7 @@ mod tests {
             assert_eq!(contains_string(&output, "equal"), 2)
         }
 
-        // Regression test for #269: the `-y` gutter marker must sit at the middle of the gutter
-        // (separator_pos) regardless of gutter width. At the default width (gutter 3) the marker
-        // was already correct; at other widths it drifted. Here width=40 yields a wider gutter, so
-        // the marker must land at column 19 (matching GNU), not the old `half_width + 1`.
+        // Regression for #269: the `-y` marker must sit at the gutter middle at any width.
         #[test]
         fn test_gutter_marker_column_wide_gutter() {
             let params = Params {
