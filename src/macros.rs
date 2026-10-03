@@ -23,3 +23,15 @@ macro_rules! assert_diff_eq {
         assert_eq!(actual, $expected);
     }};
 }
+
+/// A safe version of println!() that does not panic if stdout is redirected to /dev/full
+#[macro_export]
+macro_rules! safe_println {
+    () => {
+        let _ = ::std::io::Write::write_all(&mut ::std::io::stdout(), b"\n");
+    };
+    ($($arg:tt)*) => {
+        let _ = ::std::io::Write::write_fmt(&mut ::std::io::stdout(), format_args!($($arg)*))
+            .and_then(|_| ::std::io::Write::write_all(&mut ::std::io::stdout(), b"\n"));
+    };
+}
