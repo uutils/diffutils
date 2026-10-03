@@ -29,6 +29,7 @@ pretty_assertions = "1.4.0"
 predicates = "3.1.0"
 rand = "0.10.0"
 tempfile = "3.26.0"
+test-case = "3.3.1"
 
 [profile.release]
 lto = "thin"

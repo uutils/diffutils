@@ -8,16 +8,17 @@ use diffutilslib::params::Params;
 use std::fs::{self, File};
 use std::io::Write;
 
-fuzz_target!(|x: (Vec<u8>, Vec<u8>, /* usize, usize */ bool)| {
-    let (original, new, /* width, tabsize, */ expand) = x;
-
-    // if width == 0 || tabsize == 0 {
-    //     return;
-    // }
+// We can't fuzz with width equals to usize, otherwise we
+// would could have 2^64 - 1 of padding columns, which means
+// exabytes nescessary for this. u32 also doesn't have a
+// great perfomance here, with almost 537 MB being nescessary
+// and 57 seconds of execution.
+fuzz_target!(|x: (Vec<u8>, Vec<u8>, u16, usize, bool)| {
+    let (original, new, width, tabsize, expand) = x;
 
     let params = Params {
-        // width,
-        // tabsize,
+        width: width as usize,
+        tabsize,
         expand_tabs: expand,
         ..Default::default()
     };
