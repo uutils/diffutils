@@ -70,6 +70,9 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
         return ExitCode::from(2);
     }
 
+    // Side-by-side writes its output directly, so its result cannot indicate differences.
+    let side_by_side_differs = params.format == Format::SideBySide && from_content != to_content;
+
     // run diff
     let result: Vec<u8> = match params.format {
         Format::Normal => normal_diff::diff(&from_content, &to_content, &params),
@@ -79,12 +82,14 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
             eprintln!("{error}");
             exit(2);
         }),
+        Format::SideBySide if params.brief => Vec::new(),
         Format::SideBySide => {
             let mut output = stdout().lock();
             side_diff::diff(&from_content, &to_content, &mut output, &params)
         }
     };
-    if params.brief && !result.is_empty() {
+    let differs = side_by_side_differs || !result.is_empty();
+    if params.brief && differs {
         println!(
             "Files {} and {} differ",
             params.from.to_string_lossy(),
@@ -93,7 +98,7 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
     } else {
         io::stdout().write_all(&result).unwrap();
     }
-    if result.is_empty() {
+    if !differs {
         maybe_report_identical_files();
         ExitCode::SUCCESS
     } else {
