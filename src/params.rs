@@ -4,6 +4,9 @@ use std::path::PathBuf;
 
 use regex::Regex;
 
+/// Largest value accepted for `--tabsize`, matching GNU diff.
+const MAX_TABSIZE: usize = isize::MAX as usize - 3;
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum Format {
     #[default]
@@ -144,14 +147,8 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
                 .unwrap()
                 .as_str();
             params.tabsize = match tabsize_str.parse::<usize>() {
-                Ok(num) => {
-                    if num == 0 {
-                        return Err("invalid tabsize «0»".to_string());
-                    }
-
-                    num
-                }
-                Err(_) => return Err(format!("invalid tabsize «{tabsize_str}»")),
+                Ok(num) if num != 0 && num <= MAX_TABSIZE => num,
+                _ => return Err(format!("invalid tabsize «{tabsize_str}»")),
             };
 
             continue;
@@ -811,6 +808,42 @@ mod tests {
             .peekable()
         )
         .is_err());
+        for too_large in [(MAX_TABSIZE + 1).to_string(), usize::MAX.to_string()] {
+            assert_eq!(
+                Err(format!("invalid tabsize «{too_large}»")),
+                parse_params(
+                    [
+                        os("diff"),
+                        os(&format!("--tabsize={too_large}")),
+                        os("foo"),
+                        os("bar")
+                    ]
+                    .iter()
+                    .cloned()
+                    .peekable()
+                )
+            );
+        }
+        assert_eq!(
+            Ok(Params {
+                executable: os("diff"),
+                from: os("foo"),
+                to: os("bar"),
+                tabsize: MAX_TABSIZE,
+                ..Default::default()
+            }),
+            parse_params(
+                [
+                    os("diff"),
+                    os(&format!("--tabsize={MAX_TABSIZE}")),
+                    os("foo"),
+                    os("bar")
+                ]
+                .iter()
+                .cloned()
+                .peekable()
+            )
+        );
     }
     #[test]
     fn width() {
