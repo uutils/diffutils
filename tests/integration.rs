@@ -344,21 +344,6 @@ mod diff {
         Ok(())
     }
 
-    // Visual (tab-aware) column of the `-y` gutter marker on the first output line.
-    fn side_marker_visual_column(output: &[u8], tabsize: usize) -> Option<usize> {
-        let text = String::from_utf8_lossy(output);
-        let line = text.lines().next()?;
-        let mut col = 0;
-        for c in line.chars() {
-            match c {
-                '<' | '|' | '>' => return Some(col),
-                '\t' => col += tabsize - (col % tabsize),
-                _ => col += 1,
-            }
-        }
-        None
-    }
-
     // Regression for #269: the `-y` gutter marker must sit at the middle of the gutter.
     #[test]
     fn sdiff_gutter_marker_column() -> Result<(), Box<dyn std::error::Error>> {
@@ -367,7 +352,7 @@ mod diff {
         let mut file2 = NamedTempFile::new()?;
         file2.write_all("bb\n".as_bytes())?;
 
-        // --expand-tabs: padding is spaces, marker lands at visual column 19.
+        // --expand-tabs: padding is spaces.
         let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.arg("diff")
             .arg("-y")
@@ -376,10 +361,12 @@ mod diff {
             .arg(file1.path())
             .arg(file2.path());
         let output = cmd.output().unwrap().stdout;
-        assert_eq!(side_marker_visual_column(&output, 8), Some(19));
+        assert_eq!(
+            output,
+            b"aa                 <\n                   >    bb\n"
+        );
 
-        // Default (expand_tabs: false): padding goes through the tab path, but the
-        // marker must still land at the same visual column.
+        // Default (expand_tabs: false): padding goes through the tab path.
         let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.arg("diff")
             .arg("-y")
@@ -387,7 +374,7 @@ mod diff {
             .arg(file1.path())
             .arg(file2.path());
         let output = cmd.output().unwrap().stdout;
-        assert_eq!(side_marker_visual_column(&output, 8), Some(19));
+        assert_eq!(output, b"aa\t\t   <\n\t\t   >\tbb\n");
 
         Ok(())
     }
