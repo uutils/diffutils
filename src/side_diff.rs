@@ -337,8 +337,8 @@ fn push_output<T: Write>(
 }
 
 pub fn diff<T: Write>(
-    from_file: &[u8],
-    to_file: &[u8],
+    from_file: &[u8], // The left file
+    to_file: &[u8],   // The right file
     output: &mut T,
     params: &Params,
 ) -> Vec<u8> {
