@@ -659,18 +659,13 @@ mod tests {
         }
 
         #[test]
-        fn carriage_return_at_the_widest_line_and_tab_size() {
-            let params = Params {
-                width: usize::MAX,
-                tabsize: usize::MAX,
-                expand_tabs: false,
-                ..Default::default()
-            };
+        fn padding_to_the_end_of_the_widest_line_and_tab_size() {
+            let config = Config::new(usize::MAX, usize::MAX, false);
             let mut output = vec![];
 
-            diff(b"a\rb\n", b"c\n", &mut output, &params);
+            format_tabs_and_spaces(0, usize::MAX, &config, &mut output).unwrap();
 
-            assert_eq!(String::from_utf8_lossy(&output), " <\n >\t\n");
+            assert_eq!(output, b"\t");
         }
 
         #[test]

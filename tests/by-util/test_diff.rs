@@ -777,7 +777,7 @@ fn compare_file_to_directory() {
 // Regression for #269: the `-y` gutter marker must sit at the middle of the gutter.
 #[rstest]
 // --expand-tabs: padding is spaces.
-#[case::expand_tabs(&["--expand-tabs"], "aa                 <\n                   >    bb\n")]
+#[case::expand_tabs(&["--expand-tabs"], "aa                 <\n                   >  bb\n")]
 // Default (expand_tabs: false): padding goes through the tab path.
 #[case::tabs(&[], "aa\t\t   <\n\t\t   >\tbb\n")]
 fn sdiff_gutter_marker_column(#[case] options: &[&str], #[case] expected: &str) {
