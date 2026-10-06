@@ -583,7 +583,58 @@ mod tests {
                 let mut output = vec![];
 
                 diff(from, to, &mut output, &params);
+
+                if expand_tabs {
+                    assert!(
+                        !output.contains(&b'\t'),
+                        "tab in expanded output, width {width}, tab size {tabsize}"
+                    );
+                }
             }
+        }
+
+        #[track_caller]
+        fn assert_output(from: &[u8], to: &[u8], width: usize, expand_tabs: bool, expected: &str) {
+            let params = Params {
+                width,
+                tabsize: 8,
+                expand_tabs,
+                ..Default::default()
+            };
+            let mut output = vec![];
+
+            diff(from, to, &mut output, &params);
+
+            assert_eq!(String::from_utf8_lossy(&output), expected);
+        }
+
+        #[test]
+        fn changed_line_output() {
+            assert_output(
+                b"a\tb\n",
+                b"a\tc\n",
+                130,
+                false,
+                "a\tb\t\t\t\t\t\t      <\n\t\t\t\t\t\t\t      >\ta\tc\n",
+            );
+            assert_output(
+                b"a\tb\n",
+                b"a\tc\n",
+                40,
+                true,
+                "a       b          <\n                   >  a       c\n",
+            );
+        }
+
+        #[test]
+        fn unchanged_line_output() {
+            assert_output(
+                b"same\n",
+                b"same\n",
+                130,
+                false,
+                "same\t\t\t\t\t\t\t\tsame\n",
+            );
         }
 
         #[test]
