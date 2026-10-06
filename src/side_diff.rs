@@ -667,6 +667,8 @@ mod tests {
             let mut output = vec![];
 
             diff(b"a\rb\n", b"c\n", &mut output, &params);
+
+            assert_eq!(String::from_utf8_lossy(&output), " <\n >\t\n");
         }
 
         #[test]
