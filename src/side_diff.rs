@@ -396,7 +396,6 @@ mod tests {
 
     mod layout {
         use super::*;
-        use test_case::test_case;
 
         #[track_caller]
         fn assert_layout(
@@ -589,18 +588,22 @@ mod tests {
             }
         }
 
-        #[test_case(0 ; "zero")]
-        #[test_case(1 ; "one")]
-        #[test_case(2 ; "two")]
-        #[test_case(7 ; "odd")]
-        #[test_case(8 ; "default")]
-        #[test_case(1000 ; "wider than any line")]
-        #[test_case(usize::MAX / 2 ; "half of usize")]
-        #[test_case(usize::MAX - 1 ; "one below usize max")]
-        #[test_case(usize::MAX ; "usize max")]
-        fn extreme_tab_size_renders(tabsize: usize) {
-            for width in [0, 1, 2, 3, 5, 10, 40, 130, 1000, 65535] {
-                assert_renders(b"a\tb\n", b"a\tc\n", width, tabsize);
+        #[test]
+        fn extreme_tab_size_renders() {
+            for tabsize in [
+                0,
+                1,
+                2,
+                7,
+                8,
+                1000,
+                usize::MAX / 2,
+                usize::MAX - 1,
+                usize::MAX,
+            ] {
+                for width in [0, 1, 2, 3, 5, 10, 40, 130, 1000, 65535] {
+                    assert_renders(b"a\tb\n", b"a\tc\n", width, tabsize);
+                }
             }
         }
 
@@ -617,13 +620,18 @@ mod tests {
             diff(b"a\rb\n", b"c\n", &mut output, &params);
         }
 
-        #[test_case(b"aaa\tbbb\n", b"aaa\tccc\n" ; "tabs on both sides")]
-        #[test_case(b"\t\t\n", b"\n" ; "tabs against an empty line")]
-        #[test_case("\u{4f60}\u{597d}\t\u{1f600}\n".as_bytes(), b"a\n" ; "wide and multibyte")]
-        fn every_small_width_and_tab_size_renders(from: &[u8], to: &[u8]) {
-            for width in 0..96 {
-                for tabsize in 0..96 {
-                    assert_renders(from, to, width, tabsize);
+        #[test]
+        fn every_small_width_and_tab_size_renders() {
+            let cases: [(&[u8], &[u8]); 3] = [
+                (b"aaa\tbbb\n", b"aaa\tccc\n"),
+                (b"\t\t\n", b"\n"),
+                ("\u{4f60}\u{597d}\t\u{1f600}\n".as_bytes(), b"a\n"),
+            ];
+            for (from, to) in cases {
+                for width in 0..96 {
+                    for tabsize in 0..96 {
+                        assert_renders(from, to, width, tabsize);
+                    }
                 }
             }
         }
