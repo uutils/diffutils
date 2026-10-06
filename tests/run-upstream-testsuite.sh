@@ -30,6 +30,8 @@
 
 scriptpath=$(dirname "$(readlink -f "$0")")
 rev=$(git rev-parse HEAD)
+gnu_version="3.12"
+gnu_tarball_blake2b=5b4593b39da71578d7f975603abe9359be215b9ac76548a6ab0d6e3838bb103c7ffcddf7fa01abcd5c6289db9a2f16b43aa3d5e846a9aa4b8db866763c2660de
 
 # Report an infrastructure error: the test suite could not be run at all
 die() {
@@ -53,49 +55,22 @@ tempdir=$(mktemp -d)
 trap 'rm -rf "$tempdir"' EXIT
 cd "$tempdir" || die "Cannot enter temporary directory $tempdir"
 
-# Check out the upstream test suite. git.savannah.gnu.org is regularly
-# unavailable or slow, so retry a few times before giving up.
-gitserver="https://git.savannah.gnu.org"
-testsuite="$gitserver/git/diffutils.git"
-attempts=3
-for (( attempt = 1; attempt <= attempts; attempt++ ))
-do
-  echo "Fetching upstream test suite from $testsuite (attempt $attempt/$attempts)"
-  rm -rf diffutils
-  git clone -n --depth=1 --filter=tree:0 "$testsuite" && break
-  (( attempt < attempts )) && sleep $(( attempt * 10 ))
-done
-[[ -d diffutils ]] || die "Failed to fetch the upstream test suite from $testsuite"
-cd diffutils || die "Failed to fetch the upstream test suite from $testsuite"
-git sparse-checkout set --no-cone tests &> /dev/null || die "Cannot sparse-checkout the upstream tests"
-git checkout &> /dev/null || die "Cannot check out the upstream tests"
-upstreamrev=$(git rev-parse HEAD)
-[[ -d tests ]] || die "The upstream checkout contains no tests directory"
+# Fetch the upstream test suite
+echo "Fetching upstream test suite"
+curl -fsSL --retry 5 https://ftpmirror.gnu.org/diffutils/diffutils-${gnu_version}.tar.xz -o gnu-diffutils.tar.xz || die "Failed to fetch test suite"
+echo ${gnu_tarball_blake2b}  gnu-diffutils.tar.xz \
+ | b2sum --check || die "Failed to verify checksum of tarball of GNU diffutils"
+mkdir -p diffutils
+tar xJf gnu-diffutils.tar.xz --strip-components=1 -C diffutils || die "Failed to extract test suite"
+
+cd diffutils || die "Test suite src is broken"
 
 # Ensure that calling `diff` invokes the built `diffutils` binary instead of
 # the upstream `diff` binary that is most likely installed on the system
-mkdir src
-cd src || die "Cannot create the directory holding the diff and cmp symlinks"
+cd src || die "Missing the directory holding the diff and cmp symlinks"
 ln -s "$binary" diff
 ln -s "$binary" cmp
 cd ../tests || die "Cannot enter the upstream tests directory"
-
-# Fetch tests/init.sh from the gnulib repository (needed since
-# https://git.savannah.gnu.org/cgit/diffutils.git/commit/tests?id=1d2456f539)
-# The savannah gitweb interface is often rate-limited or unavailable, so fall
-# back to the official gnulib mirror on GitHub
-initsh_urls=(
-  "$gitserver/gitweb/?p=gnulib.git;a=blob_plain;f=tests/init.sh;hb=HEAD"
-  "https://raw.githubusercontent.com/coreutils/gnulib/master/tests/init.sh"
-)
-for url in "${initsh_urls[@]}"
-do
-  echo "Fetching tests/init.sh from $url"
-  curl -sSL --fail --retry 3 --retry-delay 5 --retry-all-errors \
-    --connect-timeout 30 --max-time 300 "$url" -o init.sh && [[ -s init.sh ]] && break
-  rm -f init.sh
-done
-[[ -s init.sh ]] || die "Failed to fetch tests/init.sh from the gnulib repository"
 
 if [[ -n "$TESTS" ]]
 then
@@ -111,7 +86,6 @@ echo "Running $total tests"
 export LC_ALL=C
 export KEEP=yes
 timestamp=$(date -Iseconds)
-urlroot="$gitserver/cgit/diffutils.git/tree/tests/"
 passed=0
 failed=0
 skipped=0
@@ -119,7 +93,6 @@ normal="$(tput sgr0)"
 for test in $tests
 do
   result="FAIL"
-  url="$urlroot$test?id=$upstreamrev"
   # Run only the tests that invoke `diff` or `cmp`,
   # because other binaries aren't implemented yet
   if ! grep -E -s -q "(diff3|sdiff)" "$test"
@@ -130,7 +103,6 @@ do
       result="SKIP"
     else
       json+="{\"test\":\"$test\",\"result\":\"$result\","
-      json+="\"url\":\"$url\","
       json+="\"stdout\":\"$(base64 -w0 < stdout.txt)\","
       json+="\"stderr\":\"$(base64 -w0 < stderr.txt)\","
       json+="\"files\":{"
@@ -156,7 +128,7 @@ do
   if [[ $result = "SKIP" ]]
   then
     (( skipped++ ))
-    json+="{\"test\":\"$test\",\"url\":\"$url\",\"result\":\"$result\"},"
+    json+="{\"test\":\"$test\",\"result\":\"$result\"},"
     color=3 # yellow
   fi
   printf "  %-40s $(tput setaf $color)$result$(tput sgr0)\n" "$test"
@@ -171,7 +143,7 @@ echo ""
 json="\"tests\":[${json%,}]"
 metadata="\"timestamp\":\"$timestamp\","
 metadata+="\"revision\":\"$rev\","
-metadata+="\"upstream-revision\":\"$upstreamrev\","
+metadata+="\"upstream-version\":\"$gnu_version\","
 if [[ -n "$GITHUB_ACTIONS" ]]
 then
   metadata+="\"branch\":\"$GITHUB_REF\","
