@@ -26,14 +26,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Install `cargo-fuzz`
-        run: |
-          cargo install cargo-fuzz --locked
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-fuzz
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: "cargo-fuzz-cache-key"
           cache-directories: "fuzz/target"
       - name: Run `cargo-fuzz build`
-        run: cargo fuzz build
+        # https://github.com/rust-fuzz/cargo-fuzz/issues/398
+        run: cargo fuzz build --target host-tuple
 
   fuzz-run:
     needs: fuzz-build
@@ -54,8 +56,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Install `cargo-fuzz`
-        run: |
-          cargo install cargo-fuzz --locked
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-fuzz
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: "cargo-fuzz-cache-key"
@@ -70,7 +73,7 @@ jobs:
         shell: bash
         continue-on-error: ${{ !matrix.test-target.should_pass }}
         run: |
-          cargo fuzz run ${{ matrix.test-target.name }} -- -max_total_time=${{ env.RUN_FOR }} -detect_leaks=0
+          cargo fuzz run --target host-tuple ${{ matrix.test-target.name }} -- -max_total_time=${{ env.RUN_FOR }} -detect_leaks=0
       - name: Save Corpus Cache
         uses: actions/cache/save@v6
         with:
