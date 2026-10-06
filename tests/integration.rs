@@ -343,10 +343,65 @@ mod diff {
 
         Ok(())
     }
+
+    // Regression for #269: the `-y` gutter marker must sit at the middle of the gutter.
+    #[test]
+    fn sdiff_gutter_marker_column() -> Result<(), Box<dyn std::error::Error>> {
+        let mut file1 = NamedTempFile::new()?;
+        file1.write_all("aa\n".as_bytes())?;
+        let mut file2 = NamedTempFile::new()?;
+        file2.write_all("bb\n".as_bytes())?;
+
+        // --expand-tabs: padding is spaces.
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff")
+            .arg("-y")
+            .arg("--width=40")
+            .arg("--expand-tabs")
+            .arg(file1.path())
+            .arg(file2.path());
+        let output = cmd.output().unwrap().stdout;
+        assert_eq!(
+            output,
+            b"aa                 <\n                   >    bb\n"
+        );
+
+        // Default (expand_tabs: false): padding goes through the tab path.
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff")
+            .arg("-y")
+            .arg("--width=40")
+            .arg(file1.path())
+            .arg(file2.path());
+        let output = cmd.output().unwrap().stdout;
+        assert_eq!(output, b"aa\t\t   <\n\t\t   >\tbb\n");
+
+        Ok(())
+    }
 }
 
 mod cmp {
     use super::*;
+
+    // A file whose metadata length is 0 but which still yields bytes (/dev/zero)
+    // collapses the offset column to two characters, so the padding subtraction
+    // underflowed once the running offset reached three digits.
+    #[test]
+    #[cfg(unix)]
+    fn cmp_verbose_zero_length_metadata() -> Result<(), Box<dyn std::error::Error>> {
+        let mut file = NamedTempFile::new()?;
+        file.write_all(&[0xffu8; 150])?;
+
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("cmp")
+            .arg("--verbose")
+            .arg("/dev/zero")
+            .arg(file.path());
+        cmd.assert()
+            .code(predicate::eq(1))
+            .stdout(predicate::str::contains("150   0 377"));
+        Ok(())
+    }
 
     #[test]
     fn cmp_incompatible_params() -> Result<(), Box<dyn std::error::Error>> {

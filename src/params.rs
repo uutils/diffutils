@@ -60,7 +60,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
     let mut format = None;
     let mut context = None;
     let tabsize_re = Regex::new(r"^--tabsize=(?<num>\d+)$").unwrap();
-    let width_re = Regex::new(r"--width=(?P<long>\d+)$").unwrap();
+    let width_re = Regex::new(r"^--width=(?P<long>\d+)$").unwrap();
     while let Some(param) = opts.next() {
         let next_param = opts.peek();
         if param == "--" {
@@ -811,6 +811,56 @@ mod tests {
             .peekable()
         )
         .is_err());
+    }
+    #[test]
+    fn width() {
+        assert_eq!(
+            Ok(Params {
+                executable: os("diff"),
+                from: os("foo"),
+                to: os("bar"),
+                width: 100,
+                ..Default::default()
+            }),
+            parse_params(
+                [os("diff"), os("--width=100"), os("foo"), os("bar")]
+                    .iter()
+                    .cloned()
+                    .peekable()
+            )
+        );
+    }
+    #[test]
+    fn width_suffix_is_an_operand() {
+        assert_eq!(
+            Ok(Params {
+                executable: os("diff"),
+                from: os("xyz--width=5"),
+                to: os("foo"),
+                ..Default::default()
+            }),
+            parse_params(
+                [os("diff"), os("xyz--width=5"), os("foo")]
+                    .iter()
+                    .cloned()
+                    .peekable()
+            )
+        );
+    }
+    #[cfg(unix)]
+    #[test]
+    fn width_non_utf8_is_not_an_option() {
+        use std::os::unix::ffi::OsStringExt;
+        // used to panic in into_string().unwrap()
+        let bad = OsString::from_vec(b"\xff--width=5".to_vec());
+        let params = parse_params(
+            [os("diff"), bad.clone(), os("foo")]
+                .iter()
+                .cloned()
+                .peekable(),
+        )
+        .unwrap();
+        assert_eq!(params.from, bad);
     }
     #[test]
     fn double_dash() {

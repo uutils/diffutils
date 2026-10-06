@@ -315,6 +315,8 @@ fn push_output<T: Write>(
         // the diff always want to put all tabs possible in the usable are,
         // even in the middle space between the gutters if possible.
 
+        // Pad to the middle of the gutter so the marker doesn't drift on wider gutters (#269).
+        format_tabs_and_spaces(half_width + 1, separator_pos, config, output)?;
         output.write_all(&[symbol])?;
         if !right_ln.is_empty() {
             format_tabs_and_spaces(separator_pos + 1, column_two_offset, config, output)?;
@@ -1322,6 +1324,26 @@ mod tests {
             assert!(!output.contains(&b'<'));
             assert!(!output.contains(&b'>'));
             assert_eq!(contains_string(&output, "equal"), 2)
+        }
+
+        // Regression for #269: the `-y` marker must sit at the gutter middle at any width.
+        #[test]
+        fn test_gutter_marker_column_wide_gutter() {
+            let params = Params {
+                tabsize: 8,
+                expand_tabs: true,
+                width: 40,
+                ..Default::default()
+            };
+            let mut output = vec![];
+            diff(b"aa\n", b"", &mut output, &params);
+            let text = String::from_utf8(output).unwrap();
+            let line = text.lines().next().unwrap();
+            assert_eq!(
+                line.find('<'),
+                Some(19),
+                "gutter marker '<' should be at column 19 for --width=40, got: {line:?}"
+            );
         }
 
         #[test]
