@@ -120,6 +120,76 @@ mod diff {
     }
 
     #[test]
+    fn side_by_side_exit_status() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempdir()?;
+        let left = dir.path().join("left");
+        let right = dir.path().join("right");
+
+        for (left_content, right_content, code) in [
+            (b"alpha\n".as_slice(), b"alpha\n".as_slice(), 0),
+            (b"alpha\n", b"alpha\nbeta\n", 1),
+            (b"alpha\n", b"bravo\n", 1),
+            (b"alpha", b"alpha\n", 1),
+            (b"alpha", b"alpha", 0),
+            (b"\xff\n", b"\xfe\n", 1),
+            (b"", b"alpha\n", 1),
+            (b"alpha\n", b"", 1),
+            (b"", b"", 0),
+        ] {
+            std::fs::write(&left, left_content)?;
+            std::fs::write(&right, right_content)?;
+            for options in [
+                &["-y"][..],
+                &["-y", "-q"],
+                &["-y", "-s"],
+                &["-y", "--width=40"],
+            ] {
+                let mut cmd = cargo_bin_cmd!("diffutils");
+                cmd.arg("diff").args(options).arg(&left).arg(&right);
+                let assertion = cmd
+                    .assert()
+                    .code(predicate::eq(code))
+                    .stderr(predicate::str::is_empty());
+                if options == ["-y", "-q"] {
+                    let expected = if code == 1 {
+                        format!("Files {} and {} differ\n", left.display(), right.display())
+                    } else {
+                        String::new()
+                    };
+                    assertion.stdout(predicate::eq(expected));
+                }
+            }
+        }
+
+        std::fs::write(&left, b"alpha\n")?;
+        for (right_content, identical) in [(b"alpha\n".as_slice(), true), (b"bravo\n", false)] {
+            std::fs::write(&right, right_content)?;
+            let mut cmd = cargo_bin_cmd!("diffutils");
+            cmd.arg("diff").arg("-y").arg("-s").arg(&left).arg(&right);
+            let assertion = cmd.assert();
+            if identical {
+                assertion.stdout(predicate::str::contains(format!(
+                    "Files {} and {} are identical\n",
+                    left.display(),
+                    right.display()
+                )));
+            } else {
+                assertion.stdout(predicate::str::contains("are identical").not());
+            }
+        }
+
+        std::fs::remove_file(&right)?;
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff").arg("-y").arg(&left).arg(&right);
+        cmd.assert()
+            .code(predicate::eq(2))
+            .failure()
+            .stdout(predicate::str::is_empty())
+            .stderr(predicate::str::contains("right"));
+        Ok(())
+    }
+
+    #[test]
     fn no_differences_report_identical_files() -> Result<(), Box<dyn std::error::Error>> {
         // same file
         let mut file1 = NamedTempFile::new()?;
