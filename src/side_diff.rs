@@ -253,6 +253,7 @@ fn process_half_line<T: Write>(
         }
     }
 
+    // gnu sdiff do not tabulate the hole empty right line, instead, just keep the line empty
     if !is_right {
         // we always sum + 1 or + GUTTER_WIDTH_MIN cause we want to expand
         // up to the third column of the gutter column if the gutter is gutter white space,
