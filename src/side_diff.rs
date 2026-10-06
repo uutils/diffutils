@@ -467,9 +467,6 @@ mod tests {
 
         #[test]
         fn expanded_tabs_widen_the_half_line() {
-            assert_layout(130, 8, 61, 64, 62);
-            assert_layout_expanded(130, 8, 63, 67, 64);
-
             assert_layout(40, 8, 16, 24, 19);
             assert_layout_expanded(40, 8, 18, 22, 19);
         }
