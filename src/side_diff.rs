@@ -6,7 +6,7 @@
 use core::cmp::min;
 use diff::Result;
 use std::{io::Write, vec};
-use unicode_width::UnicodeWidthStr;
+use unicode_width::UnicodeWidthChar;
 
 use crate::params::Params;
 
@@ -31,8 +31,9 @@ impl<'a> From<&'a [u8]> for CharIter<'a> {
 }
 
 impl<'a> Iterator for CharIter<'a> {
-    // (bytes for the next char, visible width)
-    type Item = (&'a [u8], usize);
+    // (bytes for the next char, visible width). The width is None when the
+    // bytes are not a character.
+    type Item = (&'a [u8], Option<usize>);
 
     fn next(&mut self) -> Option<Self::Item> {
         let max = self.current.len().min(4);
@@ -61,12 +62,14 @@ impl<'a> Iterator for CharIter<'a> {
                     .current
                     .get(view.len()..)
                     .unwrap_or(&self.current[0..0]);
-                Some((view, UnicodeWidthStr::width(c)))
+                // A control character has no width, it does not move the column.
+                let width = c.chars().next().and_then(UnicodeWidthChar::width);
+                Some((view, Some(width.unwrap_or(0))))
             }
             Err(_) => {
                 // We did not find an utf-8 char within the next 4 bytes, return the single byte.
                 self.current = &self.current[1..];
-                Some((&view[..1], 1))
+                Some((&view[..1], None))
             }
         }
     }
@@ -163,116 +166,96 @@ fn format_tabs_and_spaces<T: Write>(
     Ok(())
 }
 
-fn process_half_line<T: Write>(
-    s: &[u8],
-    max_width: usize,
-    is_right: bool,
-    white_space_gutter: bool,
+// Print the text of one half of a row, cut at out_bound columns, and return
+// the column where the output stopped. indent is the column the half starts
+// at, a carriage return goes back to it.
+fn print_half_line<T: Write>(
+    line: &[u8],
+    indent: usize,
+    out_bound: usize,
     config: &Config,
     buf: &mut T,
-) -> std::io::Result<()> {
-    if s.is_empty() {
-        if !is_right {
-            format_tabs_and_spaces(
-                0,
-                max_width
-                    + if white_space_gutter {
-                        GUTTER_WIDTH_MIN
-                    } else {
-                        1
-                    },
-                config,
-                buf,
-            )?;
-        }
-
-        return Ok(());
-    }
-
-    if max_width > config.sdiff_half_width {
-        return Ok(());
-    }
-
-    if max_width > config.sdiff_column_two_offset && !is_right {
-        return Ok(());
-    }
-
+) -> std::io::Result<usize> {
     let expanded = config.expanded;
     let tab_size = config.tab_size;
-    let sdiff_column_two_offset = config.sdiff_column_two_offset;
-    let mut current_width = 0;
-    let iter = CharIter::from(s);
 
-    // the encoding will probably be compatible with utf8, so we can take advantage
-    // of that to get the size of the columns and iterate without breaking the encoding of anything.
-    // It seems like a good trade, since there is still a fallback in case it is not utf8.
-    // But I think it would be better if we used some lib that would allow us to handle this
-    // in the best way possible, in order to avoid overhead (currently 2 for loops are needed).
-    // There is a library called mcel (mcel.h) that is used in GNU diff, but the documentation
-    // about it is very scarce, nor is its use documented on the internet. In fact, from my
-    // research I didn't even find any information about it in the GNU lib's own documentation.
+    // in_position is the column the text has reached, out_position the one
+    // the output has. They part once something is cut.
+    let mut in_position: usize = 0;
+    let mut out_position: usize = 0;
 
-    for c in iter {
-        let (char, c_width) = c;
-
-        if current_width + c_width > max_width {
-            break;
-        }
-
+    for (char, width) in CharIter::from(line) {
         match char {
             b"\t" => {
-                let advance = tab_size - current_width % tab_size;
+                let spaces = tab_size - in_position % tab_size;
 
-                if advance <= max_width - current_width {
+                if in_position == out_position {
+                    let tabstop = out_position.saturating_add(spaces);
+
                     if expanded {
-                        for _ in 0..advance {
+                        while out_position < min(tabstop, out_bound) {
                             buf.write_all(b" ")?;
+                            out_position += 1;
                         }
-                    } else {
+                    } else if tabstop < out_bound {
+                        out_position = tabstop;
                         buf.write_all(b"\t")?;
                     }
-
-                    current_width += advance;
                 }
+
+                in_position = in_position.saturating_add(spaces);
             }
             b"\n" => {
                 break;
             }
             b"\r" => {
                 buf.write_all(b"\r")?;
-                format_tabs_and_spaces(0, sdiff_column_two_offset, config, buf)?;
-                current_width = 0;
+                format_tabs_and_spaces(0, indent, config, buf)?;
+                in_position = 0;
+                out_position = 0;
             }
-            b"\0" | b"\x07" | b"\x0C" | b"\x0B" => {
-                buf.write_all(char)?;
+            b"\x08" => {
+                if in_position != 0 {
+                    in_position -= 1;
+
+                    if in_position < out_bound {
+                        if out_position <= in_position {
+                            // make up for a tab that was cut
+                            while out_position < in_position {
+                                buf.write_all(b" ")?;
+                                out_position += 1;
+                            }
+                        } else {
+                            out_position = in_position;
+                            buf.write_all(char)?;
+                        }
+                    }
+                }
             }
-            _ => {
-                buf.write_all(char)?;
-                current_width += c_width;
+            b"\0" | b"\x0C" | b"\x0B" => {
+                if in_position < out_bound {
+                    buf.write_all(char)?;
+                }
             }
+            _ => match width {
+                Some(width) => {
+                    in_position = in_position.saturating_add(width);
+
+                    if in_position <= out_bound {
+                        out_position = in_position;
+                        buf.write_all(char)?;
+                    }
+                }
+                None => {
+                    if in_position < out_bound {
+                        buf.write_all(char)?;
+                    }
+                }
+            },
         }
     }
 
-    // gnu sdiff do not tabulate the hole empty right line, instead, just keep the line empty
-    if !is_right {
-        // we always sum + 1 or + GUTTER_WIDTH_MIN cause we want to expand
-        // up to the third column of the gutter column if the gutter is gutter white space,
-        // otherwise we can expand to only the first column of the gutter middle column, cause
-        // the next is the sep char
-        format_tabs_and_spaces(
-            current_width,
-            max_width
-                + if white_space_gutter {
-                    GUTTER_WIDTH_MIN
-                } else {
-                    1
-                },
-            config,
-            buf,
-        )?;
-    }
-
-    Ok(())
+    Ok(out_position)
 }
 
 fn push_output<T: Write>(
@@ -287,7 +270,6 @@ fn push_output<T: Write>(
         return Ok(());
     }
 
-    let white_space_gutter = symbol == b' ';
     let half_width = config.sdiff_half_width;
     let column_two_offset = config.sdiff_column_two_offset;
     let separator_pos = config.separator_pos;
@@ -303,33 +285,26 @@ fn push_output<T: Write>(
     //     put_new_line = put_new_line || (right_ln.last() == Some(&b'\n'));
     // }
 
-    process_half_line(
-        left_ln,
-        half_width,
-        false,
-        white_space_gutter,
-        config,
-        output,
-    )?;
-    if symbol != b' ' {
-        // the diff always want to put all tabs possible in the usable are,
-        // even in the middle space between the gutters if possible.
+    // Every padding starts at the column the output is at, so a short or a
+    // blank left line never leaves the right one out of place.
+    let mut column = 0;
 
-        // Pad to the middle of the gutter so the marker doesn't drift on wider gutters (#269).
-        format_tabs_and_spaces(half_width + 1, separator_pos, config, output)?;
-        output.write_all(&[symbol])?;
-        if !right_ln.is_empty() {
-            format_tabs_and_spaces(separator_pos + 1, column_two_offset, config, output)?;
-        }
+    if !left_ln.is_empty() {
+        column = print_half_line(left_ln, 0, half_width, config, output)?;
     }
-    process_half_line(
-        right_ln,
-        half_width,
-        true,
-        white_space_gutter,
-        config,
-        output,
-    )?;
+
+    if symbol != b' ' {
+        // The marker sits at the middle of the gutter.
+        format_tabs_and_spaces(column, separator_pos, config, output)?;
+        output.write_all(&[symbol])?;
+        column = separator_pos + 1;
+    }
+
+    // A blank right line is not padded, the row ends where it is.
+    if !right_ln.is_empty() && right_ln[0] != b'\n' {
+        format_tabs_and_spaces(column, column_two_offset, config, output)?;
+        print_half_line(right_ln, column_two_offset, half_width, config, output)?;
+    }
 
     if put_new_line {
         writeln!(output)?;
@@ -629,6 +604,53 @@ mod tests {
         }
 
         #[test]
+        fn common_line_starts_at_column_two() {
+            assert_output(
+                b"a\nb\nc\n",
+                b"a\nB\nc\n",
+                40,
+                false,
+                "a\t\t\ta\nb\t\t   <\n\t\t   >\tB\nc\t\t\tc\n",
+            );
+            assert_output(
+                b"a\nb\nc\n",
+                b"a\nB\nc\n",
+                40,
+                true,
+                "a                     a\nb                  <\n                   >  B\nc                     c\n",
+            );
+        }
+
+        #[test]
+        fn common_blank_line_is_left_empty() {
+            assert_output(
+                b"a\n\nc\n",
+                b"a\n\nc\n",
+                130,
+                false,
+                "a\t\t\t\t\t\t\t\ta\n\nc\t\t\t\t\t\t\t\tc\n",
+            );
+            assert_output(
+                b"a\n\nc\n",
+                b"a\n\nc\n",
+                40,
+                true,
+                "a                     a\n\nc                     c\n",
+            );
+        }
+
+        #[test]
+        fn tab_reaching_the_end_of_the_right_half_is_cut() {
+            assert_output(
+                b"  \tspaces\n",
+                b"\t\t tabs\n",
+                40,
+                false,
+                "  \tspaces\t   <\n\t\t   >\t\t\n",
+            );
+        }
+
+        #[test]
         fn unchanged_line_output() {
             assert_output(
                 b"same\n",
@@ -782,355 +804,127 @@ mod tests {
         }
     }
 
-    mod process_half_line {
+    mod print_half_line {
         use super::*;
 
-        fn create_test_config(expanded: bool, tab_size: usize) -> Config {
-            Config {
-                sdiff_half_width: 30,
-                sdiff_column_two_offset: 60,
-                tab_size,
+        #[track_caller]
+        fn assert_half_line(
+            line: &[u8],
+            indent: usize,
+            out_bound: usize,
+            expanded: bool,
+            expected: &[u8],
+            expected_column: usize,
+        ) {
+            let config = Config {
+                sdiff_half_width: out_bound,
+                sdiff_column_two_offset: indent,
+                tab_size: 8,
                 expanded,
-                separator_pos: 15,
-            }
+                separator_pos: 0,
+            };
+            let mut buf = vec![];
+            let column = print_half_line(line, indent, out_bound, &config, &mut buf).unwrap();
+
+            assert_eq!(buf, expected);
+            assert_eq!(column, expected_column);
         }
 
         #[test]
-        fn test_empty_line_left_expanded_false() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            process_half_line(b"", 10, false, false, &config, &mut buf).unwrap();
-            assert_eq!(buf.len(), 5);
-            assert_eq!(buf, vec![b'\t', b'\t', b' ', b' ', b' ']);
+        fn test_text_that_fits() {
+            assert_half_line(b"abc", 0, 10, false, b"abc", 3);
         }
 
         #[test]
-        fn test_tabs_unexpanded() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            process_half_line(b"\tabc", 8, false, false, &config, &mut buf).unwrap();
-            assert_eq!(buf, vec![b'\t', b'a', b'b', b'c', b'\t', b' ']);
+        fn test_empty_line() {
+            assert_half_line(b"", 0, 10, false, b"", 0);
         }
 
         #[test]
-        fn test_utf8_multibyte() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = "😉😉😉".as_bytes();
-            process_half_line(s, 3, false, false, &config, &mut buf).unwrap();
-            let mut r = vec![];
-            r.write_all("😉\t".as_bytes()).unwrap();
-            assert_eq!(buf, r)
+        fn test_stops_at_the_newline() {
+            assert_half_line(b"abc\ndef", 0, 10, false, b"abc", 3);
         }
 
         #[test]
-        fn test_newline_handling() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            process_half_line(b"abc\ndef", 5, false, false, &config, &mut buf).unwrap();
-            assert_eq!(buf, vec![b'a', b'b', b'c', b'\t', b' ', b' ']);
+        fn test_cut_at_the_bound() {
+            assert_half_line(b"abcdef", 0, 4, false, b"abcd", 4);
         }
 
         #[test]
-        fn test_carriage_return() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            process_half_line(b"\rxyz", 5, true, false, &config, &mut buf).unwrap();
-            let mut r = vec![b'\r'];
-            r.extend(vec![b'\t'; 15]);
-            r.extend(vec![b'x', b'y', b'z']);
-            assert_eq!(buf, r);
+        fn test_zero_bound() {
+            assert_half_line(b"abc", 0, 0, false, b"", 0);
         }
 
         #[test]
-        fn test_exact_width_fit() {
-            let config = create_test_config(true, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            process_half_line(b"abcd", 4, false, false, &config, &mut buf).unwrap();
-            assert_eq!(buf.len(), 5);
-            assert_eq!(buf, b"abcd ".to_vec());
+        fn test_tab_inside_the_bound() {
+            assert_half_line(b"a\tb", 0, 16, false, b"a\tb", 9);
         }
 
         #[test]
-        fn test_non_utf8_bytes() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            // ISO-8859-1
-            process_half_line(
-                &[0x63, 0x61, 0x66, 0xE9],
-                5,
-                false,
-                false,
-                &config,
-                &mut buf,
-            )
-            .unwrap();
-            assert_eq!(&buf, &[0x63, 0x61, 0x66, 0xE9, b' ', b' ']);
-            assert!(String::from_utf8(buf).is_err());
+        fn test_tab_reaching_the_bound_is_cut() {
+            // the text after the tab is past the bound, even without the tab
+            assert_half_line(b"a\tb", 0, 8, false, b"a", 1);
+            assert_half_line(b"\tab", 0, 8, false, b"", 0);
         }
 
         #[test]
-        fn test_non_utf8_bytes_ignore_padding_bytes() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-
-            let utf32le_bytes = [
-                0x63, 0x00, 0x00, 0x00, // 'c'
-                0x61, 0x00, 0x00, 0x00, // 'a'
-                0x66, 0x00, 0x00, 0x00, // 'f'
-                0xE9, 0x00, 0x00, 0x00, // 'é'
-            ];
-            // utf8 little endiand 32 bits (or 4 bytes per char)
-            process_half_line(&utf32le_bytes, 6, false, false, &config, &mut buf).unwrap();
-            let mut r = utf32le_bytes.to_vec();
-            r.extend(vec![b' '; 3]);
-            assert_eq!(buf, r);
+        fn test_only_the_first_cut_tab_counts() {
+            assert_half_line(b"a\t\t\tb", 0, 12, false, b"a\t", 8);
         }
 
         #[test]
-        fn test_non_utf8_non_preserve_ascii_bytes_cut() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-
-            let gb18030 = b"\x63\x61\x66\xA8\x80"; // some random chinese encoding
-                                                   //                                   ^ é char, start multi byte
-            process_half_line(gb18030, 4, false, false, &config, &mut buf).unwrap();
-            assert_eq!(buf, b"\x63\x61\x66\xA8 "); // break the encoding of 'é' letter
+        fn test_expanded_tab() {
+            assert_half_line(b"a\tb", 0, 16, true, b"a       b", 9);
         }
 
         #[test]
-        fn test_right_line_padding() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            process_half_line(b"xyz", 5, true, true, &config, &mut buf).unwrap();
-            assert_eq!(buf.len(), 3);
+        fn test_expanded_tab_stops_at_the_bound() {
+            assert_half_line(b"a\tb", 0, 5, true, b"a    ", 5);
         }
 
         #[test]
-        fn test_mixed_tabs_spaces() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            process_half_line(b"\t  \t", 10, false, false, &config, &mut buf).unwrap();
-            assert_eq!(buf, vec![b'\t', b' ', b' ', b'\t', b' ', b' ', b' ']);
+        fn test_wide_characters() {
+            assert_half_line("日本語".as_bytes(), 0, 5, false, "日本".as_bytes(), 4);
         }
 
         #[test]
-        fn test_overflow_multibyte() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = "日本語".as_bytes();
-            process_half_line(s, 5, false, false, &config, &mut buf).unwrap();
-            assert_eq!(buf, "日本  ".as_bytes());
+        fn test_zero_width_character_at_the_bound() {
+            let line = "abc\u{301}d".as_bytes();
+            assert_half_line(line, 0, 3, false, "abc\u{301}".as_bytes(), 3);
         }
 
         #[test]
-        fn test_white_space_gutter() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b"abc";
-            process_half_line(s, 3, false, true, &config, &mut buf).unwrap();
-            assert_eq!(buf, b"abc\t  ");
+        fn test_bytes_that_are_not_a_character_take_no_column() {
+            assert_half_line(b"caf\xE9!", 0, 4, false, b"caf\xE9!", 4);
+            assert_half_line(b"cafe\xE9", 0, 4, false, b"cafe", 4);
         }
 
         #[test]
-        fn test_expanded_true() {
-            let config = create_test_config(true, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b"abc";
-            process_half_line(s, 10, false, false, &config, &mut buf).unwrap();
-            assert_eq!(buf, b"abc        ")
+        fn test_control_characters_take_no_column() {
+            assert_half_line(b"a\0\x0C\x0B\x07b", 0, 2, false, b"a\0\x0C\x0B\x07b", 2);
         }
 
         #[test]
-        fn test_expanded_true_with_gutter() {
-            let config = create_test_config(true, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b"abc";
-            process_half_line(s, 10, false, true, &config, &mut buf).unwrap();
-            assert_eq!(buf, b"abc          ")
+        fn test_carriage_return_goes_back_to_the_indent() {
+            assert_half_line(b"ab\rcd", 0, 10, false, b"ab\rcd", 2);
+            assert_half_line(b"ab\rcd", 16, 10, false, b"ab\r\t\tcd", 2);
+            assert_half_line(b"ab\rcd", 3, 10, true, b"ab\r   cd", 2);
         }
 
         #[test]
-        fn test_width0_chars() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b"abc\0\x0B\x07\x0C";
-            process_half_line(s, 4, false, false, &config, &mut buf).unwrap();
-            assert_eq!(buf, b"abc\0\x0B\x07\x0C\t ")
+        fn test_carriage_return_starts_the_bound_over() {
+            assert_half_line(b"abcdef\rghi", 0, 4, false, b"abcd\rghi", 3);
         }
 
         #[test]
-        fn test_left_empty_white_space_gutter() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b"";
-            process_half_line(s, 9, false, true, &config, &mut buf).unwrap();
-            assert_eq!(buf, b"\t\t\t");
+        fn test_backspace() {
+            assert_half_line(b"ab\x08c", 0, 10, false, b"ab\x08c", 2);
+            assert_half_line(b"\x08a", 0, 10, false, b"a", 1);
         }
 
         #[test]
-        fn test_s_size_eq_max_width_p1() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b"abcdefghij";
-            process_half_line(s, 10, false, false, &config, &mut buf).unwrap();
-            assert_eq!(buf, b"abcdefghij ");
-        }
-
-        #[test]
-        fn test_mixed_tabs_and_spaces_inversion() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b" \t \t ";
-            process_half_line(s, 10, false, false, &config, &mut buf).unwrap();
-            assert_eq!(buf, b" \t \t   ");
-        }
-
-        #[test]
-        fn test_expanded_with_tabs() {
-            let config = create_test_config(true, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b" \t \t ";
-            process_half_line(s, 10, false, false, &config, &mut buf).unwrap();
-            assert_eq!(buf, b"           ");
-        }
-
-        #[test]
-        fn test_expanded_with_tabs_and_space_gutter() {
-            let config = create_test_config(true, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b" \t \t ";
-            process_half_line(s, 10, false, true, &config, &mut buf).unwrap();
-            assert_eq!(buf, b"             ");
-        }
-
-        #[test]
-        fn test_zero_width_unicode_chars() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = "\u{200B}".as_bytes();
-            process_half_line(s, 10, false, false, &config, &mut buf).unwrap();
-            assert_eq!(buf, "\u{200B}\t\t   ".as_bytes());
-        }
-
-        #[test]
-        fn test_multiple_carriage_returns() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b"\r\r";
-            process_half_line(s, 10, false, false, &config, &mut buf).unwrap();
-            let mut r = vec![b'\r'];
-            r.extend(vec![b'\t'; 15]);
-            r.push(b'\r');
-            r.extend(vec![b'\t'; 15]);
-            r.extend(vec![b'\t'; 2]);
-            r.extend(vec![b' '; 3]);
-            assert_eq!(buf, r);
-        }
-
-        #[test]
-        fn test_multiple_carriage_returns_is_right_true() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b"\r\r";
-            process_half_line(s, 10, true, false, &config, &mut buf).unwrap();
-            let mut r = vec![b'\r'];
-            r.extend(vec![b'\t'; 15]);
-            r.push(b'\r');
-            r.extend(vec![b'\t'; 15]);
-            assert_eq!(buf, r);
-        }
-
-        #[test]
-        fn test_mixed_invalid_utf8_with_valid() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b"abc\xFF\xFEdef";
-            process_half_line(s, 10, false, false, &config, &mut buf).unwrap();
-            assert!(String::from_utf8(s.to_vec()).is_err());
-            assert_eq!(buf, b"abc\xFF\xFEdef   ");
-        }
-
-        #[test]
-        fn test_max_width_zero() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b"foo bar";
-            process_half_line(s, 0, false, false, &config, &mut buf).unwrap();
-            assert_eq!(buf, vec![b' ']);
-        }
-
-        #[test]
-        fn test_line_only_with_tabs() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b"\t\t\t";
-            process_half_line(s, 10, false, false, &config, &mut buf).unwrap();
-            assert_eq!(buf, vec![b'\t', b'\t', b' ', b' ', b' '])
-        }
-
-        #[test]
-        fn test_tabs_expanded() {
-            let config = create_test_config(true, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b"\t\t\t";
-            process_half_line(s, 12, false, false, &config, &mut buf).unwrap();
-            assert_eq!(buf, b" ".repeat(13));
-        }
-
-        #[test]
-        fn test_mixed_tabs() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b"a\tb\tc\t";
-            process_half_line(s, 10, false, false, &config, &mut buf).unwrap();
-            assert_eq!(buf, b"a\tb\tc  ");
-        }
-
-        #[test]
-        fn test_mixed_tabs_with_gutter() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b"a\tb\tc\t";
-            process_half_line(s, 10, false, true, &config, &mut buf).unwrap();
-            assert_eq!(buf, b"a\tb\tc\t ");
-        }
-
-        #[test]
-        fn test_mixed_tabs_expanded() {
-            let config = create_test_config(true, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b"a\tb\tc\t";
-            process_half_line(s, 10, false, false, &config, &mut buf).unwrap();
-            assert_eq!(buf, b"a   b   c  ");
-        }
-
-        #[test]
-        fn test_mixed_tabs_expanded_with_gutter() {
-            let config = create_test_config(true, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b"a\tb\tc\t";
-            process_half_line(s, 10, false, true, &config, &mut buf).unwrap();
-            assert_eq!(buf, b"a   b   c    ");
-        }
-
-        #[test]
-        fn test_break_if_invalid_max_width() {
-            let config = create_test_config(true, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b"a\tb\tc\t";
-            process_half_line(s, 61, false, true, &config, &mut buf).unwrap();
-            assert_eq!(buf, b"");
-            assert_eq!(buf.len(), 0);
-        }
-
-        #[test]
-        fn test_new_line() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b"abc";
-            process_half_line(s, 10, false, false, &config, &mut buf).unwrap();
-            assert_eq!(buf, b"abc\t\t   ");
+        fn test_backspace_after_a_cut_tab_pads_with_spaces() {
+            assert_half_line(b"a\t\x08b", 0, 8, false, b"a      b", 8);
         }
     }
 
