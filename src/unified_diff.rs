@@ -3,6 +3,8 @@
 // For the full copyright and license information, please view the LICENSE-*
 // files that was distributed with this source code.
 
+// spell-checker:ignore alef alefn alefr alefx betn betr betx nodiff
+
 use std::collections::VecDeque;
 use std::io::Write;
 

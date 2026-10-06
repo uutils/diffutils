@@ -3,6 +3,8 @@
 // For the full copyright and license information, please view the LICENSE-*
 // files that was distributed with this source code.
 
+// spell-checker:ignore alef alefr betr nodiff
+
 use std::io::Write;
 
 use crate::params::Params;
