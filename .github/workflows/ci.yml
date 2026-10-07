@@ -99,8 +99,9 @@ jobs:
       id: build_grcov
       shell: bash
       run: |
-        git clone https://github.com/mozilla/grcov.git ~/grcov/
+        mkdir -p ~/grcov
         cd ~/grcov
+        curl -L https://github.com/mozilla/grcov/archive/refs/heads/master.tar.xz | tar -xzf -
         # Hardcode the version of crossbeam-epoch. See
         # https://github.com/uutils/coreutils/issues/3680
         sed -i -e "s|tempfile =|crossbeam-epoch = \"=0.9.8\"\ntempfile =|" Cargo.toml
