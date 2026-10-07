@@ -99,7 +99,7 @@ jobs:
       id: build_grcov
       shell: bash
       run: |
-        git clone https://github.com/mozilla/grcov.git ~/grcov/
+        git clone --depth=1 https://github.com/mozilla/grcov.git ~/grcov/
         cd ~/grcov
         # Hardcode the version of crossbeam-epoch. See
         # https://github.com/uutils/coreutils/issues/3680
