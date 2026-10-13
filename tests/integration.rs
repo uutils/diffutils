@@ -209,6 +209,80 @@ mod diff {
     }
 
     #[test]
+    fn short_option_clusters_match_split_options() -> Result<(), Box<dyn std::error::Error>> {
+        let mut left = NamedTempFile::new()?;
+        left.write_all(b"a\tb\n")?;
+        let mut right = NamedTempFile::new()?;
+        right.write_all(b"a b\n")?;
+
+        let equivalent = |cluster: &[&str],
+                          split: &[&str],
+                          other: &std::path::Path|
+         -> Result<std::process::Output, Box<dyn std::error::Error>> {
+            let run = |options: &[&str]| {
+                cargo_bin_cmd!("diffutils")
+                    .arg("diff")
+                    .args(options)
+                    .arg(left.path())
+                    .arg(other)
+                    .output()
+            };
+            let clustered = run(cluster)?;
+            let separate = run(split)?;
+            assert_eq!(
+                clustered.status.code(),
+                separate.status.code(),
+                "{cluster:?}"
+            );
+            assert_eq!(clustered.stdout, separate.stdout, "{cluster:?}");
+            assert_eq!(clustered.stderr, separate.stderr, "{cluster:?}");
+            Ok(clustered)
+        };
+
+        for (cluster, split, expected_code) in [
+            (&["-cc"][..], &["-c", "-c"][..], Some(1)),
+            (&["-ee"], &["-e", "-e"], Some(1)),
+            (&["-qq"], &["-q", "-q"], Some(1)),
+            (&["-ss"], &["-s", "-s"], Some(1)),
+            (&["-tt"], &["-t", "-t"], Some(1)),
+            (&["-uu"], &["-u", "-u"], Some(1)),
+            (&["-cqt"], &["-c", "-q", "-t"], Some(1)),
+            (&["-eqs"], &["-e", "-q", "-s"], Some(1)),
+            (&["-qst"], &["-q", "-s", "-t"], Some(1)),
+            (&["-uqt"], &["-u", "-q", "-t"], Some(1)),
+            (&["-cu"], &["-c", "-u"], Some(2)),
+            (&["-uc"], &["-u", "-c"], Some(2)),
+            (&["-eu"], &["-e", "-u"], Some(2)),
+            (&["-c", "-ut"], &["-c", "-u", "-t"], Some(2)),
+            (&["-ut", "-c"], &["-u", "-t", "-c"], Some(2)),
+        ] {
+            let clustered = equivalent(cluster, split, right.path())?;
+            assert_eq!(clustered.status.code(), expected_code, "{cluster:?}");
+        }
+
+        let mut same = NamedTempFile::new()?;
+        same.write_all(b"a\tb\n")?;
+        let identical = format!(
+            "Files {} and {} are identical\n",
+            left.path().to_string_lossy(),
+            same.path().to_string_lossy()
+        );
+        for (cluster, split) in [
+            (&["-ss"][..], &["-s", "-s"][..]),
+            (&["-qs"], &["-q", "-s"]),
+            (&["-ys"], &["-y", "-s"]),
+        ] {
+            let clustered = equivalent(cluster, split, same.path())?;
+            assert_eq!(clustered.status.code(), Some(0), "{cluster:?}");
+            assert!(
+                clustered.stdout.ends_with(identical.as_bytes()),
+                "{cluster:?}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
     fn missing_newline() -> Result<(), Box<dyn std::error::Error>> {
         let mut file1 = NamedTempFile::new()?;
         file1.write_all("foo".as_bytes())?;
