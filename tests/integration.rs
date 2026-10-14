@@ -361,10 +361,7 @@ mod diff {
             .arg(file1.path())
             .arg(file2.path());
         let output = cmd.output().unwrap().stdout;
-        assert_eq!(
-            output,
-            b"aa                 <\n                   >    bb\n"
-        );
+        assert_eq!(output, b"aa                 <\n                   >  bb\n");
 
         // Default (expand_tabs: false): padding goes through the tab path.
         let mut cmd = cargo_bin_cmd!("diffutils");
