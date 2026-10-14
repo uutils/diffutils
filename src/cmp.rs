@@ -12,7 +12,7 @@ use std::process::ExitCode;
 use std::{cmp, fs, io};
 
 #[cfg(unix)]
-use std::os::fd::{AsRawFd, FromRawFd};
+use std::os::fd::{AsFd, AsRawFd, FromRawFd};
 
 #[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
@@ -311,9 +311,36 @@ pub enum Cmp {
     Different,
 }
 
+fn is_directory(path: &OsString, params: &Params) -> Result<bool, String> {
+    if path != "-" {
+        return Ok(fs::metadata(path).is_ok_and(|metadata| metadata.is_dir()));
+    }
+    #[cfg(unix)]
+    {
+        io::stdin()
+            .as_fd()
+            .try_clone_to_owned()
+            .and_then(|fd| fs::File::from(fd).metadata())
+            .map(|metadata| metadata.is_dir())
+            .map_err(|e| format_failure_to_read_input_file(&params.executable, path, &e))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = params;
+        Ok(false)
+    }
+}
+
 pub fn cmp(params: &Params) -> Result<Cmp, String> {
+    // With -n 0 a directory operand must still be read, so that it is reported.
+    let reads_directory = match params.max_bytes {
+        Some(0) => is_directory(&params.from, params)
+            .and_then(|is_dir| Ok(is_dir || is_directory(&params.to, params)?)),
+        _ => Ok(false),
+    };
     let mut from = prepare_reader(&params.from, &params.skip_a, params)?;
     let mut to = prepare_reader(&params.to, &params.skip_b, params)?;
+    let stop_at_limit = !reads_directory?;
 
     let mut offset_width = params.max_bytes.unwrap_or(BytesLimitU64::MAX);
 
@@ -326,8 +353,21 @@ pub fn cmp(params: &Params) -> Result<Cmp, String> {
 
         // If the files have different sizes, we already know they are not identical. If we have not
         // been asked to show even the first difference, we can quit early.
-        if params.quiet && a_size != b_size {
-            return Ok(Cmp::Different);
+        if params.quiet
+            && params.from != "-"
+            && params.to != "-"
+            && a_meta.is_file()
+            && b_meta.is_file()
+        {
+            let remaining = |size: u64, skip: Option<SkipU64>| {
+                let remaining = size.saturating_sub(skip.unwrap_or(0));
+                params
+                    .max_bytes
+                    .map_or(remaining, |max_bytes| remaining.min(max_bytes))
+            };
+            if remaining(a_size, params.skip_a) != remaining(b_size, params.skip_b) {
+                return Ok(Cmp::Different);
+            }
         }
 
         let smaller = cmp::min(a_size, b_size) as BytesLimitU64;
@@ -345,6 +385,14 @@ pub fn cmp(params: &Params) -> Result<Cmp, String> {
     let mut stdout = BufWriter::new(io::stdout().lock());
     let mut compare = Cmp::Equal;
     loop {
+        if stop_at_limit
+            && params
+                .max_bytes
+                .is_some_and(|max_bytes| at_byte > max_bytes)
+        {
+            break;
+        }
+
         // Fill up our buffers.
         let from_buf = from
             .fill_buf()
@@ -373,6 +421,9 @@ pub fn cmp(params: &Params) -> Result<Cmp, String> {
         // Fast path - for long files in which almost all bytes are the same we
         // can do a direct comparison to let the compiler optimize.
         let consumed = std::cmp::min(from_buf.len(), to_buf.len());
+        let consumed = params.max_bytes.map_or(consumed, |max_bytes| {
+            consumed.min(usize::try_from(max_bytes - (at_byte - 1)).unwrap_or(usize::MAX))
+        });
         if from_buf[..consumed] == to_buf[..consumed] {
             let last = from_buf[..consumed].last().unwrap();
 
@@ -380,12 +431,6 @@ pub fn cmp(params: &Params) -> Result<Cmp, String> {
             at_line += (from_buf[..consumed].iter().filter(|&c| *c == b'\n').count()) as u64;
 
             start_of_line = *last == b'\n';
-
-            if let Some(max_bytes) = params.max_bytes {
-                if at_byte > max_bytes {
-                    break;
-                }
-            }
 
             from.consume(consumed);
             to.consume(consumed);
@@ -395,7 +440,7 @@ pub fn cmp(params: &Params) -> Result<Cmp, String> {
 
         // Iterate over the buffers, the zip iterator will stop us as soon as the
         // first one runs out.
-        for (&from_byte, &to_byte) in from_buf.iter().zip(to_buf.iter()) {
+        for (&from_byte, &to_byte) in from_buf[..consumed].iter().zip(&to_buf[..consumed]) {
             if from_byte != to_byte {
                 compare = Cmp::Different;
 
@@ -427,12 +472,6 @@ pub fn cmp(params: &Params) -> Result<Cmp, String> {
             }
 
             at_byte += 1;
-
-            if let Some(max_bytes) = params.max_bytes {
-                if at_byte > max_bytes {
-                    break;
-                }
-            }
         }
 
         // Notify our readers about the bytes we went over.
