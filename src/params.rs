@@ -79,37 +79,58 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
             }
             continue;
         }
-        if param == "-s" || param == "--report-identical-files" {
+        if let Some(short) = param
+            .to_str()
+            .and_then(|arg| arg.strip_prefix('-'))
+            .filter(|arg| !arg.starts_with('-'))
+        {
+            if short.len() == 1 {
+                if apply_short_option(short.as_bytes()[0], &mut params, &mut format)? {
+                    continue;
+                }
+            } else if short.len() > 1 {
+                // Leave mixed words whole for legacy numeric options and their diagnostics.
+                let all_recognized = short.bytes().all(|option| {
+                    let mut isolated_format = None;
+                    matches!(
+                        apply_short_option(option, &mut Params::default(), &mut isolated_format),
+                        Ok(true)
+                    )
+                });
+                if all_recognized {
+                    let mut clustered_params = params.clone();
+                    let mut clustered_format = format;
+                    for option in short.bytes() {
+                        apply_short_option(option, &mut clustered_params, &mut clustered_format)?;
+                    }
+                    params = clustered_params;
+                    format = clustered_format;
+                    continue;
+                }
+            }
+        }
+        if param == "--report-identical-files" {
             params.report_identical_files = true;
             continue;
         }
-        if param == "-q" || param == "--brief" {
+        if param == "--brief" {
             params.brief = true;
             continue;
         }
-        if param == "-t" || param == "--expand-tabs" {
+        if param == "--expand-tabs" {
             params.expand_tabs = true;
             continue;
         }
         if param == "--normal" {
-            if format.is_some() && format != Some(Format::Normal) {
-                return Err("Conflicting output style options".to_string());
-            }
-            format = Some(Format::Normal);
+            set_format(&mut format, Format::Normal)?;
             continue;
         }
-        if param == "-e" || param == "--ed" {
-            if format.is_some() && format != Some(Format::Ed) {
-                return Err("Conflicting output style options".to_string());
-            }
-            format = Some(Format::Ed);
+        if param == "--ed" {
+            set_format(&mut format, Format::Ed)?;
             continue;
         }
-        if param == "-y" || param == "--side-by-side" {
-            if format.is_some() && format != Some(Format::SideBySide) {
-                return Err("Conflicting output style option".to_string());
-            }
-            format = Some(Format::SideBySide);
+        if param == "--side-by-side" {
+            set_format(&mut format, Format::SideBySide)?;
             continue;
         }
         if width_re.is_match(param.to_string_lossy().as_ref()) {
@@ -156,14 +177,13 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
 
             continue;
         }
-        match match_context_diff_params(&param, next_param, format) {
+        match match_context_diff_params(&param, next_param, &mut format) {
             Ok(DiffStyleMatch {
                 is_match,
                 context_count,
                 next_param_consumed,
             }) => {
                 if is_match {
-                    format = Some(Format::Context);
                     if context_count.is_some() {
                         context = context_count;
                     }
@@ -175,14 +195,13 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
             }
             Err(error) => return Err(error),
         }
-        match match_unified_diff_params(&param, next_param, format) {
+        match match_unified_diff_params(&param, next_param, &mut format) {
             Ok(DiffStyleMatch {
                 is_match,
                 context_count,
                 next_param_consumed,
             }) => {
                 if is_match {
-                    format = Some(Format::Unified);
                     if context_count.is_some() {
                         context = context_count;
                     }
@@ -249,6 +268,38 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
     Ok(params)
 }
 
+fn set_format(format: &mut Option<Format>, requested: Format) -> Result<(), String> {
+    if format.is_some() && *format != Some(requested) {
+        // Preserve the singular side-by-side diagnostic for compatibility.
+        let message = if requested == Format::SideBySide {
+            "Conflicting output style option"
+        } else {
+            "Conflicting output style options"
+        };
+        return Err(message.to_string());
+    }
+    *format = Some(requested);
+    Ok(())
+}
+
+fn apply_short_option(
+    option: u8,
+    params: &mut Params,
+    format: &mut Option<Format>,
+) -> Result<bool, String> {
+    match option {
+        b'c' => set_format(format, Format::Context)?,
+        b'e' => set_format(format, Format::Ed)?,
+        b'q' => params.brief = true,
+        b's' => params.report_identical_files = true,
+        b't' => params.expand_tabs = true,
+        b'u' => set_format(format, Format::Unified)?,
+        b'y' => set_format(format, Format::SideBySide)?,
+        _ => return Ok(false),
+    }
+    Ok(true)
+}
+
 struct DiffStyleMatch {
     is_match: bool,
     context_count: Option<usize>,
@@ -258,7 +309,7 @@ struct DiffStyleMatch {
 fn match_context_diff_params(
     param: &OsString,
     next_param: Option<&OsString>,
-    format: Option<Format>,
+    format: &mut Option<Format>,
 ) -> Result<DiffStyleMatch, String> {
     const CONTEXT_RE: &str = r"^(-[cC](?<num1>\d*)|--context(=(?<num2>\d*))?|-(?<num3>\d+)c)$";
     let regex = Regex::new(CONTEXT_RE).unwrap();
@@ -266,9 +317,7 @@ fn match_context_diff_params(
     let mut context_count = None;
     let mut next_param_consumed = false;
     if is_match {
-        if format.is_some() && format != Some(Format::Context) {
-            return Err("Conflicting output style options".to_string());
-        }
+        set_format(format, Format::Context)?;
         let captures = regex.captures(param.to_str().unwrap()).unwrap();
         let num = captures
             .name("num1")
@@ -302,7 +351,7 @@ fn match_context_diff_params(
 fn match_unified_diff_params(
     param: &OsString,
     next_param: Option<&OsString>,
-    format: Option<Format>,
+    format: &mut Option<Format>,
 ) -> Result<DiffStyleMatch, String> {
     const UNIFIED_RE: &str = r"^(-[uU](?<num1>\d*)|--unified(=(?<num2>\d*))?|-(?<num3>\d+)u)$";
     let regex = Regex::new(UNIFIED_RE).unwrap();
@@ -310,9 +359,7 @@ fn match_unified_diff_params(
     let mut context_count = None;
     let mut next_param_consumed = false;
     if is_match {
-        if format.is_some() && format != Some(Format::Unified) {
-            return Err("Conflicting output style options".to_string());
-        }
+        set_format(format, Format::Unified)?;
         let captures = regex.captures(param.to_str().unwrap()).unwrap();
         let num = captures
             .name("num1")
@@ -719,6 +766,64 @@ mod tests {
         }
     }
     #[test]
+    fn short_option_clusters() {
+        for (cluster, format, brief, report_identical_files, expand_tabs) in [
+            ("-cc", Format::Context, false, false, false),
+            ("-ee", Format::Ed, false, false, false),
+            ("-qq", Format::Normal, true, false, false),
+            ("-ss", Format::Normal, false, true, false),
+            ("-tt", Format::Normal, false, false, true),
+            ("-uu", Format::Unified, false, false, false),
+            ("-yy", Format::SideBySide, false, false, false),
+            ("-cqt", Format::Context, true, false, true),
+            ("-eqs", Format::Ed, true, true, false),
+            ("-qst", Format::Normal, true, true, true),
+            ("-uqt", Format::Unified, true, false, true),
+            ("-yqs", Format::SideBySide, true, true, false),
+        ] {
+            assert_eq!(
+                Ok(Params {
+                    executable: os("diff"),
+                    from: os("foo"),
+                    to: os("bar"),
+                    format,
+                    brief,
+                    report_identical_files,
+                    expand_tabs,
+                    ..Default::default()
+                }),
+                parse_params(
+                    [os("diff"), os(cluster), os("foo"), os("bar")]
+                        .iter()
+                        .cloned()
+                        .peekable()
+                ),
+                "{cluster}"
+            );
+        }
+    }
+    #[test]
+    fn control_partly_recognized_short_option_clusters() {
+        for options in [
+            vec!["-qg"],
+            vec!["-u", "-cX"],
+            vec!["-u", "-qcX"],
+            vec!["-c", "-uX"],
+        ] {
+            let unknown = options.last().unwrap().to_string();
+            let args = ["diff"]
+                .into_iter()
+                .chain(options)
+                .chain(["foo", "bar"])
+                .map(os)
+                .collect::<Vec<_>>();
+            assert_eq!(
+                Err(format!("unrecognized option '{unknown}'")),
+                parse_params(args.into_iter().peekable())
+            );
+        }
+    }
+    #[test]
     fn tabsize() {
         assert_eq!(
             Ok(Params {
@@ -965,5 +1070,14 @@ mod tests {
             )
             .is_err());
         }
+        assert_eq!(
+            Err("Conflicting output style options".to_string()),
+            parse_params(
+                [os("diff"), os("-c"), os("-ut"), os("foo"), os("bar")]
+                    .iter()
+                    .cloned()
+                    .peekable()
+            )
+        );
     }
 }
