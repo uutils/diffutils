@@ -225,6 +225,23 @@ mod diff {
     }
 
     #[test]
+    fn huge_tabsize() -> Result<(), Box<dyn std::error::Error>> {
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff")
+            .arg("--tabsize=18446744073709551615")
+            .arg("foo")
+            .arg("bar");
+        cmd.assert()
+            .code(predicate::eq(2))
+            .failure()
+            .stdout(predicate::str::is_empty())
+            .stderr(predicate::str::contains(
+                "invalid tabsize «18446744073709551615»",
+            ));
+        Ok(())
+    }
+
+    #[test]
     fn read_from_stdin() -> Result<(), Box<dyn std::error::Error>> {
         let mut file1 = NamedTempFile::new()?;
         file1.write_all("foo\n".as_bytes())?;
