@@ -45,7 +45,10 @@ fn make_diff(
     let mut line_number_expected = 1;
     let mut line_number_actual = 1;
     let mut context_queue: VecDeque<&[u8]> = VecDeque::with_capacity(context_size);
-    let mut lines_since_mismatch = context_size + 1;
+    // Like GNU diff, keep changes in one hunk while at most twice the context
+    // size of unchanged lines separates them.
+    let max_gap = 2 * context_size;
+    let mut lines_since_mismatch = max_gap + 1;
     let mut results = Vec::new();
     let mut mismatch = Mismatch::new(0, 0);
 
@@ -68,7 +71,7 @@ fn make_diff(
     for result in diff::slice(&expected_lines, &actual_lines) {
         match result {
             diff::Result::Left(str) => {
-                if lines_since_mismatch >= context_size && lines_since_mismatch > 0 {
+                if lines_since_mismatch > max_gap {
                     results.push(mismatch);
                     mismatch = Mismatch::new(
                         line_number_expected - context_queue.len() as u32,
@@ -105,7 +108,7 @@ fn make_diff(
                 lines_since_mismatch = 0;
             }
             diff::Result::Right(str) => {
-                if lines_since_mismatch >= context_size && lines_since_mismatch > 0 {
+                if lines_since_mismatch > max_gap {
                     results.push(mismatch);
                     mismatch = Mismatch::new(
                         line_number_expected - context_queue.len() as u32,
@@ -142,7 +145,7 @@ fn make_diff(
                     }
                     lines_since_mismatch = 0;
                 } else if line_number_actual > actual_lines_count {
-                    if lines_since_mismatch >= context_size && lines_since_mismatch > 0 {
+                    if lines_since_mismatch > max_gap {
                         results.push(mismatch);
                         mismatch = Mismatch::new(
                             line_number_expected - context_queue.len() as u32,
@@ -158,7 +161,7 @@ fn make_diff(
                     mismatch.lines.push(DiffLine::MissingNL);
                     lines_since_mismatch = 0;
                 } else if line_number_expected > expected_lines_count {
-                    if lines_since_mismatch >= context_size && lines_since_mismatch > 0 {
+                    if lines_since_mismatch > max_gap {
                         results.push(mismatch);
                         mismatch = Mismatch::new(
                             line_number_expected - context_queue.len() as u32,
@@ -950,5 +953,60 @@ mod tests {
             },
         );
         assert!(nodiff_brief.is_empty());
+    }
+
+    #[test]
+    fn test_hunk_merging() {
+        use crate::assert_diff_eq;
+
+        let params = Params {
+            from: "foo".into(),
+            to: "bar".into(),
+            context_count: 1,
+            ..Default::default()
+        };
+
+        // Changes separated by up to twice the context size share one hunk.
+        let from = ["a", "b", "c", "d", "e", "f", ""].join("\n");
+        let to = ["a", "B", "c", "d", "E", "f", ""].join("\n");
+        let expected = [
+            "--- foo\tTIMESTAMP",
+            "+++ bar\tTIMESTAMP",
+            "@@ -1,6 +1,6 @@",
+            " a",
+            "-b",
+            "+B",
+            " c",
+            " d",
+            "-e",
+            "+E",
+            " f",
+            "",
+        ]
+        .join("\n");
+        let output = diff(from.as_bytes(), to.as_bytes(), &params);
+        assert_diff_eq!(output, expected);
+
+        // One more unchanged line between them splits the hunk.
+        let from = ["a", "b", "c", "d", "e", "f", "g", ""].join("\n");
+        let to = ["a", "B", "c", "d", "e", "F", "g", ""].join("\n");
+        let expected = [
+            "--- foo\tTIMESTAMP",
+            "+++ bar\tTIMESTAMP",
+            "@@ -1,3 +1,3 @@",
+            " a",
+            "-b",
+            "+B",
+            " c",
+            "@@ -5,3 +5,3 @@",
+            " e",
+            "-f",
+            "+F",
+            " g",
+            "",
+        ]
+        .join("\n");
+        let output = diff(from.as_bytes(), to.as_bytes(), &params);
+        assert_diff_eq!(output, expected);
     }
 }
