@@ -1008,5 +1008,25 @@ mod tests {
         .join("\n");
         let output = diff(from.as_bytes(), to.as_bytes(), &params);
         assert_diff_eq!(output, expected);
+
+        // An insertion before a nearby change gives the two sides different
+        // line counts; the hunks must still be merged (issue #268).
+        let from = ["milk", "eggs", "bread", "butter", "apples", ""].join("\n");
+        let to = ["milk", "eggs", "yogurt", "bread", "honey", "apples", ""].join("\n");
+        let expected = [
+            "--- foo\tTIMESTAMP",
+            "+++ bar\tTIMESTAMP",
+            "@@ -2,4 +2,5 @@",
+            " eggs",
+            "+yogurt",
+            " bread",
+            "-butter",
+            "+honey",
+            " apples",
+            "",
+        ]
+        .join("\n");
+        let output = diff(from.as_bytes(), to.as_bytes(), &params);
+        assert_diff_eq!(output, expected);
     }
 }
