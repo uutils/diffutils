@@ -133,6 +133,13 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
         let actual_count = result.actual.len();
         match (expected_count, actual_count) {
             (0, 0) => unreachable!(),
+            (0, 1) => writeln!(
+                // exactly one line added
+                &mut output,
+                "{}a{line_number_actual}",
+                line_number_expected - 1
+            )
+            .unwrap(),
             (0, _) => writeln!(
                 // 'a' stands for "Add lines"
                 &mut output,
@@ -140,6 +147,13 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
                 line_number_expected - 1,
                 line_number_actual,
                 line_number_actual + actual_count - 1
+            )
+            .unwrap(),
+            (1, 0) => writeln!(
+                // exactly one line deleted
+                &mut output,
+                "{line_number_expected}d{}",
+                line_number_actual - 1
             )
             .unwrap(),
             (_, 0) => writeln!(
@@ -226,6 +240,15 @@ mod tests {
         let diff = diff(&a, &b, &Params::default());
         let expected = b"1c1\n< a\n---\n> b\n".to_vec();
         assert_eq!(diff, expected);
+    }
+
+    #[test]
+    fn test_single_line_added_or_deleted() {
+        // A one-line range is written as a single number, as for c.
+        let added = diff(b"a\n", b"a\nb\n", &Params::default());
+        assert_eq!(added, b"1a2\n> b\n".to_vec());
+        let deleted = diff(b"a\nb\n", b"a\n", &Params::default());
+        assert_eq!(deleted, b"2d1\n< b\n".to_vec());
     }
 
     #[test]
