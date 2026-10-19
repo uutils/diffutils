@@ -47,7 +47,10 @@ fn make_diff(
     let mut line_number_expected = 1;
     let mut line_number_actual = 1;
     let mut context_queue: VecDeque<&[u8]> = VecDeque::with_capacity(context_size);
-    let mut lines_since_mismatch = context_size + 1;
+    // Like GNU diff, keep changes in one hunk while at most twice the context
+    // size of unchanged lines separates them.
+    let max_gap = 2 * context_size;
+    let mut lines_since_mismatch = max_gap + 1;
     let mut results = Vec::new();
     let mut mismatch = Mismatch::new(0, 0);
 
@@ -70,7 +73,7 @@ fn make_diff(
     for result in diff::slice(&expected_lines, &actual_lines) {
         match result {
             diff::Result::Left(str) => {
-                if lines_since_mismatch >= context_size && lines_since_mismatch > 0 {
+                if lines_since_mismatch > max_gap {
                     results.push(mismatch);
                     mismatch = Mismatch::new(
                         line_number_expected - context_queue.len() as u32,
@@ -107,7 +110,7 @@ fn make_diff(
                 lines_since_mismatch = 0;
             }
             diff::Result::Right(str) => {
-                if lines_since_mismatch >= context_size && lines_since_mismatch > 0 {
+                if lines_since_mismatch > max_gap {
                     results.push(mismatch);
                     mismatch = Mismatch::new(
                         line_number_expected - context_queue.len() as u32,
@@ -144,7 +147,7 @@ fn make_diff(
                     }
                     lines_since_mismatch = 0;
                 } else if line_number_actual > actual_lines_count {
-                    if lines_since_mismatch >= context_size && lines_since_mismatch > 0 {
+                    if lines_since_mismatch > max_gap {
                         results.push(mismatch);
                         mismatch = Mismatch::new(
                             line_number_expected - context_queue.len() as u32,
@@ -160,7 +163,7 @@ fn make_diff(
                     mismatch.lines.push(DiffLine::MissingNL);
                     lines_since_mismatch = 0;
                 } else if line_number_expected > expected_lines_count {
-                    if lines_since_mismatch >= context_size && lines_since_mismatch > 0 {
+                    if lines_since_mismatch > max_gap {
                         results.push(mismatch);
                         mismatch = Mismatch::new(
                             line_number_expected - context_queue.len() as u32,
@@ -410,6 +413,8 @@ mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
 
+    use crate::utils::testcmds::PATCH_CMD;
+
     #[test]
     fn test_permutations() {
         let target = "target/unified-diff/";
@@ -423,7 +428,6 @@ mod tests {
                             for &f in &[0, 1, 2] {
                                 use std::fs::{self, File};
                                 use std::io::Write;
-                                use std::process::Command;
                                 let mut alef = Vec::new();
                                 let mut bet = Vec::new();
                                 alef.write_all(if a == 0 { b"a\n" } else { b"b\n" })
@@ -495,7 +499,10 @@ mod tests {
                                         .unwrap_or_else(|_| String::from("[Invalid UTF-8]"))
                                 );
 
-                                let output = Command::new("patch")
+                                use crate::utils::testcmds::PATCH_CMD;
+
+                                let output = PATCH_CMD
+                                    .new()
                                     .arg("-p0")
                                     .stdin(File::open(format!("{target}/ab.diff")).unwrap())
                                     .output()
@@ -527,7 +534,6 @@ mod tests {
                                 for &g in &[0, 1, 2] {
                                     use std::fs::{self, File};
                                     use std::io::Write;
-                                    use std::process::Command;
                                     let mut alef = Vec::new();
                                     let mut bet = Vec::new();
                                     alef.write_all(if a == 0 { b"a\n" } else { b"b\n" })
@@ -596,7 +602,8 @@ mod tests {
                                     fb.write_all(&bet[..]).unwrap();
                                     let _ = fa;
                                     let _ = fb;
-                                    let output = Command::new("patch")
+                                    let output = PATCH_CMD
+                                        .new()
                                         .arg("-p0")
                                         .stdin(File::open(format!("{target}/abn.diff")).unwrap())
                                         .output()
@@ -629,7 +636,6 @@ mod tests {
                                 for &g in &[0, 1, 2, 3] {
                                     use std::fs::{self, File};
                                     use std::io::Write;
-                                    use std::process::Command;
                                     let mut alef = Vec::new();
                                     let mut bet = Vec::new();
                                     alef.write_all(if a == 0 { b"\n" } else { b"b\n" }).unwrap();
@@ -693,7 +699,8 @@ mod tests {
                                     fb.write_all(&bet[..]).unwrap();
                                     let _ = fa;
                                     let _ = fb;
-                                    let output = Command::new("patch")
+                                    let output = PATCH_CMD
+                                        .new()
                                         .arg("-p0")
                                         .stdin(File::open(format!("{target}/ab_.diff")).unwrap())
                                         .output()
@@ -725,7 +732,6 @@ mod tests {
                             for &f in &[0, 1, 2] {
                                 use std::fs::{self, File};
                                 use std::io::Write;
-                                use std::process::Command;
                                 let mut alef = Vec::new();
                                 let mut bet = Vec::new();
                                 alef.write_all(if a == 0 { b"a\n" } else { b"" }).unwrap();
@@ -775,7 +781,8 @@ mod tests {
                                 fb.write_all(&bet[..]).unwrap();
                                 let _ = fa;
                                 let _ = fb;
-                                let output = Command::new("patch")
+                                let output = PATCH_CMD
+                                    .new()
                                     .arg("-p0")
                                     .stdin(File::open(format!("{target}/abx.diff")).unwrap())
                                     .output()
@@ -806,7 +813,6 @@ mod tests {
                             for &f in &[0, 1, 2] {
                                 use std::fs::{self, File};
                                 use std::io::Write;
-                                use std::process::Command;
                                 let mut alef = Vec::new();
                                 let mut bet = Vec::new();
                                 alef.write_all(if a == 0 { b"a\n" } else { b"f\n" })
@@ -862,7 +868,8 @@ mod tests {
                                 fb.write_all(&bet[..]).unwrap();
                                 let _ = fa;
                                 let _ = fb;
-                                let output = Command::new("patch")
+                                let output = PATCH_CMD
+                                    .new()
                                     .arg("-p0")
                                     .stdin(File::open(format!("{target}/abr.diff")).unwrap())
                                     .output()
@@ -948,5 +955,80 @@ mod tests {
             },
         );
         assert!(nodiff_brief.is_empty());
+    }
+
+    #[test]
+    fn test_hunk_merging() {
+        use crate::assert_diff_eq;
+
+        let params = Params {
+            from: "foo".into(),
+            to: "bar".into(),
+            context_count: 1,
+            ..Default::default()
+        };
+
+        // Changes separated by up to twice the context size share one hunk.
+        let from = ["a", "b", "c", "d", "e", "f", ""].join("\n");
+        let to = ["a", "B", "c", "d", "E", "f", ""].join("\n");
+        let expected = [
+            "--- foo\tTIMESTAMP",
+            "+++ bar\tTIMESTAMP",
+            "@@ -1,6 +1,6 @@",
+            " a",
+            "-b",
+            "+B",
+            " c",
+            " d",
+            "-e",
+            "+E",
+            " f",
+            "",
+        ]
+        .join("\n");
+        let output = diff(from.as_bytes(), to.as_bytes(), &params);
+        assert_diff_eq!(output, expected);
+
+        // One more unchanged line between them splits the hunk.
+        let from = ["a", "b", "c", "d", "e", "f", "g", ""].join("\n");
+        let to = ["a", "B", "c", "d", "e", "F", "g", ""].join("\n");
+        let expected = [
+            "--- foo\tTIMESTAMP",
+            "+++ bar\tTIMESTAMP",
+            "@@ -1,3 +1,3 @@",
+            " a",
+            "-b",
+            "+B",
+            " c",
+            "@@ -5,3 +5,3 @@",
+            " e",
+            "-f",
+            "+F",
+            " g",
+            "",
+        ]
+        .join("\n");
+        let output = diff(from.as_bytes(), to.as_bytes(), &params);
+        assert_diff_eq!(output, expected);
+
+        // An insertion before a nearby change gives the two sides different
+        // line counts; the hunks must still be merged (issue #268).
+        let from = ["milk", "eggs", "bread", "butter", "apples", ""].join("\n");
+        let to = ["milk", "eggs", "yogurt", "bread", "honey", "apples", ""].join("\n");
+        let expected = [
+            "--- foo\tTIMESTAMP",
+            "+++ bar\tTIMESTAMP",
+            "@@ -2,4 +2,5 @@",
+            " eggs",
+            "+yogurt",
+            " bread",
+            "-butter",
+            "+honey",
+            " apples",
+            "",
+        ]
+        .join("\n");
+        let output = diff(from.as_bytes(), to.as_bytes(), &params);
+        assert_diff_eq!(output, expected);
     }
 }

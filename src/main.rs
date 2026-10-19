@@ -58,7 +58,7 @@ fn main() -> ExitCode {
     let exe_path = binary_path(&mut args);
     let exe_name = name(&exe_path);
 
-    let util_name = if exe_name == "diffutils" {
+    let util_name = if exe_name.as_encoded_bytes().ends_with(b"diffutils") {
         // Discard the item we peeked.
         let _ = args.next();
 
@@ -69,13 +69,17 @@ fn main() -> ExitCode {
         OsString::from(exe_name)
     };
 
-    match util_name.to_str() {
-        Some("diff") => diff::main(args),
-        Some("cmp") => cmp::main(args),
-        Some(name) => {
-            eprintln!("{name}: utility not supported");
+    match util_name.as_encoded_bytes() {
+        name if name.ends_with(b"diff") => diff::main(args),
+        name if name.ends_with(b"cmp") => cmp::main(args),
+        name => {
+            use std::io::{stderr, Write as _};
+            let _ = writeln!(
+                stderr(),
+                "{}: utility not supported",
+                String::from_utf8_lossy(name)
+            );
             ExitCode::from(2)
         }
-        None => second_arg_error(exe_name),
     }
 }

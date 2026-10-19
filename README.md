@@ -39,7 +39,7 @@ Fig
 Cherry
 EOF
 
-$ cargo run -- -u fruits_old.txt fruits_new.txt
+$ cargo run -- diff -u fruits_old.txt fruits_new.txt
     Finished dev [unoptimized + debuginfo] target(s) in 0.00s
      Running `target/debug/diffutils -u fruits_old.txt fruits_new.txt`
 --- fruits_old.txt

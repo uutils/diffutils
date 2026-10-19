@@ -16,6 +16,11 @@
 # tests are run might not match exactly that used when the upstream tests are
 # run through the autotools.
 
+# Exit codes: 0 if all tests passed, 1 if at least one test failed, and 2 if
+# the test suite could not be run at all (e.g. the upstream repository couldn't
+# be fetched). Callers must treat 2 as an infrastructure error: no meaningful
+# result was produced.
+
 # By default it expects a release build of the diffutils binary, but a
 # different build profile can be specified as an argument
 # (e.g. 'dev' or 'test').
@@ -26,6 +31,12 @@
 scriptpath=$(dirname "$(readlink -f "$0")")
 rev=$(git rev-parse HEAD)
 
+# Report an infrastructure error: the test suite could not be run at all
+die() {
+  echo "ERROR: $*" >&2
+  exit 2
+}
+
 # Allow passing a specific profile as parameter (default to "release")
 profile="release"
 [[ -n $1 ]] && profile="$1"
@@ -34,35 +45,57 @@ profile="release"
 binary="$scriptpath/../target/$profile/diffutils"
 if [[ ! -x "$binary" ]]
 then
-  echo "Missing build for profile $profile"
-  exit 1
+  die "Missing build for profile $profile"
 fi
 
 # Work in a temporary directory
 tempdir=$(mktemp -d)
-cd "$tempdir"
+trap 'rm -rf "$tempdir"' EXIT
+cd "$tempdir" || die "Cannot enter temporary directory $tempdir"
 
-# Check out the upstream test suite
+# Check out the upstream test suite. git.savannah.gnu.org is regularly
+# unavailable or slow, so retry a few times before giving up.
 gitserver="https://git.savannah.gnu.org"
 testsuite="$gitserver/git/diffutils.git"
-echo "Fetching upstream test suite from $testsuite"
-git clone -n --depth=1 --filter=tree:0 "$testsuite" &> /dev/null
-cd diffutils
-git sparse-checkout set --no-cone tests &> /dev/null
-git checkout &> /dev/null
+attempts=3
+for (( attempt = 1; attempt <= attempts; attempt++ ))
+do
+  echo "Fetching upstream test suite from $testsuite (attempt $attempt/$attempts)"
+  rm -rf diffutils
+  git clone -n --depth=1 --filter=tree:0 "$testsuite" && break
+  (( attempt < attempts )) && sleep $(( attempt * 10 ))
+done
+[[ -d diffutils ]] || die "Failed to fetch the upstream test suite from $testsuite"
+cd diffutils || die "Failed to fetch the upstream test suite from $testsuite"
+git sparse-checkout set --no-cone tests &> /dev/null || die "Cannot sparse-checkout the upstream tests"
+git checkout &> /dev/null || die "Cannot check out the upstream tests"
 upstreamrev=$(git rev-parse HEAD)
+[[ -d tests ]] || die "The upstream checkout contains no tests directory"
 
 # Ensure that calling `diff` invokes the built `diffutils` binary instead of
 # the upstream `diff` binary that is most likely installed on the system
 mkdir src
-cd src
+cd src || die "Cannot create the directory holding the diff and cmp symlinks"
 ln -s "$binary" diff
 ln -s "$binary" cmp
-cd ../tests
+cd ../tests || die "Cannot enter the upstream tests directory"
 
 # Fetch tests/init.sh from the gnulib repository (needed since
 # https://git.savannah.gnu.org/cgit/diffutils.git/commit/tests?id=1d2456f539)
-curl -sL "$gitserver/gitweb/?p=gnulib.git;a=blob_plain;f=tests/init.sh;hb=HEAD" -o init.sh
+# The savannah gitweb interface is often rate-limited or unavailable, so fall
+# back to the official gnulib mirror on GitHub
+initsh_urls=(
+  "$gitserver/gitweb/?p=gnulib.git;a=blob_plain;f=tests/init.sh;hb=HEAD"
+  "https://raw.githubusercontent.com/coreutils/gnulib/master/tests/init.sh"
+)
+for url in "${initsh_urls[@]}"
+do
+  echo "Fetching tests/init.sh from $url"
+  curl -sSL --fail --retry 3 --retry-delay 5 --retry-all-errors \
+    --connect-timeout 30 --max-time 300 "$url" -o init.sh && [[ -s init.sh ]] && break
+  rm -f init.sh
+done
+[[ -s init.sh ]] || die "Failed to fetch tests/init.sh from the gnulib repository"
 
 if [[ -n "$TESTS" ]]
 then
@@ -73,6 +106,7 @@ else
   tests=$(make -f Makefile.am printtests)
 fi
 total=$(echo "$tests" | wc -w)
+(( total > 0 )) || die "No test to run: the upstream test list is empty"
 echo "Running $total tests"
 export LC_ALL=C
 export KEEP=yes
@@ -105,7 +139,9 @@ do
       # but there isn't much value added in doing so
       for file in *
       do
-        [[ -f "$file" ]] && json+="\"$file\":\"$(base64 -w0 < "$file")\","
+        # Encode the name with jq: some tests create files whose name contains
+        # quotes or control characters, which would produce invalid JSON
+        [[ -f "$file" ]] && json+="$(jq -Rn --arg name "$file" '$name'):\"$(base64 -w0 < "$file")\","
       done
       json="${json%,}}},"
       cd - > /dev/null
@@ -144,10 +180,16 @@ json="{$metadata $json}"
 
 # Clean up
 cd "$scriptpath"
-rm -rf "$tempdir"
 
+# Write the results out only once they are known to be valid JSON, so that a
+# malformed (or truncated) file is never left behind for the caller to consume
 resultsfile="test-results.json"
-echo "$json" | jq > "$resultsfile"
+if ! echo "$json" | jq > "$resultsfile.tmp"
+then
+  rm -f "$resultsfile.tmp"
+  die "Generated invalid JSON results"
+fi
+mv "$resultsfile.tmp" "$resultsfile"
 echo "Results written to $scriptpath/$resultsfile"
 
 (( failed > 0 )) && exit 1

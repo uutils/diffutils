@@ -15,7 +15,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macOS-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: cargo check
 
   test:
@@ -26,12 +26,11 @@ jobs:
       matrix:
         os: [ubuntu-latest, macOS-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: install GNU patch on MacOS
         if: runner.os == 'macOS'
         run: |
           brew install gpatch
-          echo "/opt/homebrew/opt/gpatch/libexec/gnubin" >> "$GITHUB_PATH"
       - name: set up PATH on Windows
         # Needed to use GNU's patch.exe instead of Strawberry Perl patch
         if: runner.os == 'Windows'
@@ -42,7 +41,7 @@ jobs:
     name: cargo fmt --all -- --check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: cargo fmt --all -- --check
 
   clippy:
@@ -53,7 +52,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macOS-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: cargo clippy -- -D warnings
 
   coverage:
@@ -69,7 +68,7 @@ jobs:
           - { os: macos-latest   , features: macos }
           - { os: windows-latest , features: windows }
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
     - name: Initialize workflow variables
       id: vars
       shell: bash
@@ -85,7 +84,6 @@ jobs:
       if: runner.os == 'macOS'
       run: |
         brew install gpatch
-        echo "/opt/homebrew/opt/gpatch/libexec/gnubin" >> "$GITHUB_PATH"
     - name: set up PATH on Windows
       # Needed to use GNU's patch.exe instead of Strawberry Perl patch
       if: runner.os == 'Windows'
@@ -101,7 +99,7 @@ jobs:
       id: build_grcov
       shell: bash
       run: |
-        git clone https://github.com/mozilla/grcov.git ~/grcov/
+        git clone --depth=1 https://github.com/mozilla/grcov.git ~/grcov/
         cd ~/grcov
         # Hardcode the version of crossbeam-epoch. See
         # https://github.com/uutils/coreutils/issues/3680
@@ -129,7 +127,7 @@ jobs:
         grcov . --output-type lcov --output-path "${COVERAGE_REPORT_FILE}" --binary-path "${COVERAGE_REPORT_DIR}" --branch
         echo "report=${COVERAGE_REPORT_FILE}" >> $GITHUB_OUTPUT
     - name: Upload coverage results (to Codecov.io)
-      uses: codecov/codecov-action@v6
+      uses: codecov/codecov-action@v7
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         files: ${{ steps.coverage.outputs.report }}

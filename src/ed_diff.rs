@@ -164,6 +164,9 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Result<Vec<u8>, 
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+
+    use crate::utils::testcmds::ED_CMD;
+
     pub fn diff_w(expected: &[u8], actual: &[u8], filename: &str) -> Result<Vec<u8>, DiffError> {
         let mut output = diff(expected, actual, &Params::default())?;
         writeln!(&mut output, "w {filename}").unwrap();
@@ -239,8 +242,8 @@ mod tests {
                                 let _ = fb;
                                 #[cfg(not(windows))] // there's no ed on windows
                                 {
-                                    use std::process::Command;
-                                    let output = Command::new("ed")
+                                    let output = ED_CMD
+                                        .new()
                                         .arg(format!("{target}/alef"))
                                         .stdin(File::open(format!("{target}/ab.ed")).unwrap())
                                         .output()
@@ -313,8 +316,8 @@ mod tests {
                                 let _ = fb;
                                 #[cfg(not(windows))] // there's no ed on windows
                                 {
-                                    use std::process::Command;
-                                    let output = Command::new("ed")
+                                    let output = ED_CMD
+                                        .new()
                                         .arg(format!("{target}/alef_"))
                                         .stdin(File::open(format!("{target}/ab_.ed")).unwrap())
                                         .output()
@@ -393,8 +396,8 @@ mod tests {
                                 let _ = fb;
                                 #[cfg(not(windows))] // there's no ed on windows
                                 {
-                                    use std::process::Command;
-                                    let output = Command::new("ed")
+                                    let output = ED_CMD
+                                        .new()
                                         .arg(format!("{target}/alefr"))
                                         .stdin(File::open(format!("{target}/abr.ed")).unwrap())
                                         .output()
