@@ -74,7 +74,8 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
     let executable = opts.next().ok_or("Usage: <exe> <from> <to>".to_string())?;
     let executable_str = executable.to_string_lossy().to_string();
 
-    let parse_skip = |param: &str, skip_desc: &str| -> Result<SkipU64, String> {
+    // Sizes for --ignore-initial and --bytes, with the same unit suffixes.
+    let parse_size = |param: &str, option: &str, desc: &str| -> Result<SkipU64, String> {
         let suffix_start = param
             .find(|b: char| !b.is_ascii_digit())
             .unwrap_or(param.len());
@@ -83,7 +84,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
             Err(e) if *e.kind() == std::num::IntErrorKind::PosOverflow => SkipU64::MAX,
             Err(_) => {
                 return Err(format!(
-                    "{executable_str}: invalid --ignore-initial value '{skip_desc}'"
+                    "{executable_str}: invalid --{option} value '{desc}'"
                 ))
             }
         };
@@ -111,7 +112,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
                 "Y" => SkipU64::MAX,  // 1_208_925_819_614_629_174_706_176,
                 _ => {
                     return Err(format!(
-                        "{executable_str}: invalid --ignore-initial value '{skip_desc}'"
+                        "{executable_str}: invalid --{option} value '{desc}'"
                     ));
                 }
             };
@@ -123,6 +124,9 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
         }
 
         Ok(num)
+    };
+    let parse_skip = |param: &str, skip_desc: &str| -> Result<SkipU64, String> {
+        parse_size(param, "ignore-initial", skip_desc)
     };
 
     let mut params = Params {
@@ -172,17 +176,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
                 let (_, arg) = param_str.split_once('=').unwrap();
                 arg.to_string()
             };
-            let max_bytes = match max_bytes.parse::<BytesLimitU64>() {
-                Ok(num) => num,
-                // TODO limit to MAX is dangerous, this should become an error like in GNU cmp.
-                Err(e) if *e.kind() == std::num::IntErrorKind::PosOverflow => BytesLimitU64::MAX,
-                Err(_) => {
-                    return Err(format!(
-                        "{executable_str}: invalid --bytes value '{max_bytes}'"
-                    ))
-                }
-            };
-            params.max_bytes = Some(max_bytes);
+            params.max_bytes = Some(parse_size(&max_bytes, "bytes", &max_bytes)?);
             continue;
         }
         if param == "-i" || param_str.starts_with("--ignore-initial=") {
@@ -985,12 +979,33 @@ mod tests {
             )
         );
 
+        // Same unit suffixes as --ignore-initial
+        for (args, bytes) in [
+            (&["-n", "1K"][..], 1_024),
+            (&["--bytes=1kB"][..], 1_000),
+            (&["--bytes=2M"][..], 2_097_152),
+        ] {
+            let mut opts = vec![os("cmp")];
+            opts.extend(args.iter().map(|arg| os(arg)));
+            opts.extend([os("foo"), os("bar")]);
+            assert_eq!(
+                Ok(Params {
+                    executable: os("cmp"),
+                    from: os("foo"),
+                    to: os("bar"),
+                    max_bytes: Some(bytes),
+                    ..Default::default()
+                }),
+                parse_params(opts.into_iter().peekable()),
+                "{args:?}"
+            );
+        }
+
         // Failure case
-        // TODO This is actually fine in GNU cmp. --bytes does not have a unit parser yet.
         assert_eq!(
-            Err("cmp: invalid --bytes value '1K'".to_string()),
+            Err("cmp: invalid --bytes value '1x'".to_string()),
             parse_params(
-                [os("cmp"), os("--bytes=1K"), os("foo"), os("bar")]
+                [os("cmp"), os("--bytes=1x"), os("foo"), os("bar")]
                     .iter()
                     .cloned()
                     .peekable()
