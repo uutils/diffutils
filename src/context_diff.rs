@@ -62,6 +62,20 @@ impl ChangeBlock {
         }
     }
 
+    /// Opens a block at the end of `mismatch` if none is open, and records
+    /// whether it deletes or inserts lines.
+    fn mark(block: &mut Option<Self>, mismatch: &Mismatch, deletes: bool, inserts: bool) {
+        let block = block.get_or_insert_with(|| Self::new(mismatch));
+        block.deletes |= deletes;
+        block.inserts |= inserts;
+    }
+
+    fn close(block: &mut Option<Self>, mismatch: &mut Mismatch) {
+        if let Some(block) = block.take() {
+            block.finish(mismatch);
+        }
+    }
+
     /// Like GNU diff, a block that both deletes and inserts lines marks all of
     /// them as changed (`!`), not only as many as pair up.
     fn finish(self, mismatch: &mut Mismatch) {
@@ -129,9 +143,7 @@ fn make_diff(
                     mismatch.actual.push(DiffLine::Context(line.to_vec()));
                 }
 
-                block
-                    .get_or_insert_with(|| ChangeBlock::new(&mismatch))
-                    .deletes = true;
+                ChangeBlock::mark(&mut block, &mismatch, true, false);
                 mismatch.expected.push(DiffLine::Add(str.to_vec()));
                 if line_number_expected > expected_lines_count {
                     mismatch.expected_missing_nl = true;
@@ -153,9 +165,7 @@ fn make_diff(
                     mismatch.actual.push(DiffLine::Context(line.to_vec()));
                 }
 
-                block
-                    .get_or_insert_with(|| ChangeBlock::new(&mismatch))
-                    .inserts = true;
+                ChangeBlock::mark(&mut block, &mismatch, false, true);
                 mismatch.actual.push(DiffLine::Add(str.to_vec()));
                 if line_number_actual > actual_lines_count {
                     mismatch.actual_missing_nl = true;
@@ -168,9 +178,7 @@ fn make_diff(
                 if (line_number_actual > actual_lines_count)
                     && (line_number_expected > expected_lines_count)
                 {
-                    if let Some(block) = block.take() {
-                        block.finish(&mut mismatch);
-                    }
+                    ChangeBlock::close(&mut block, &mut mismatch);
                     if context_queue.len() < context_size {
                         while let Some(line) = context_queue.pop_front() {
                             mismatch.expected.push(DiffLine::Context(line.to_vec()));
@@ -196,9 +204,7 @@ fn make_diff(
                         mismatch.expected.push(DiffLine::Context(line.to_vec()));
                         mismatch.actual.push(DiffLine::Context(line.to_vec()));
                     }
-                    let block = block.get_or_insert_with(|| ChangeBlock::new(&mismatch));
-                    block.deletes = true;
-                    block.inserts = true;
+                    ChangeBlock::mark(&mut block, &mismatch, true, true);
                     mismatch.expected.push(DiffLine::Change(str.to_vec()));
                     mismatch.actual.push(DiffLine::Change(str.to_vec()));
                     mismatch.actual_missing_nl = true;
@@ -215,17 +221,13 @@ fn make_diff(
                         mismatch.expected.push(DiffLine::Context(line.to_vec()));
                         mismatch.actual.push(DiffLine::Context(line.to_vec()));
                     }
-                    let block = block.get_or_insert_with(|| ChangeBlock::new(&mismatch));
-                    block.deletes = true;
-                    block.inserts = true;
+                    ChangeBlock::mark(&mut block, &mismatch, true, true);
                     mismatch.expected.push(DiffLine::Change(str.to_vec()));
                     mismatch.expected_missing_nl = true;
                     mismatch.actual.push(DiffLine::Change(str.to_vec()));
                     lines_since_mismatch = 0;
                 } else {
-                    if let Some(block) = block.take() {
-                        block.finish(&mut mismatch);
-                    }
+                    ChangeBlock::close(&mut block, &mut mismatch);
                     debug_assert!(context_queue.len() <= context_size);
                     if context_queue.len() >= context_size {
                         let _ = context_queue.pop_front();
@@ -248,7 +250,7 @@ fn make_diff(
         }
     }
 
-    if let Some(block) = block.take() {
+    if let Some(block) = block {
         block.finish(&mut mismatch);
     }
     results.push(mismatch);
