@@ -26,6 +26,8 @@ pub struct Params {
     pub expand_tabs: bool,
     pub tabsize: usize,
     pub width: usize,
+    pub from_label: Option<OsString>,
+    pub to_label: Option<OsString>,
 }
 
 impl Default for Params {
@@ -41,6 +43,8 @@ impl Default for Params {
             expand_tabs: false,
             tabsize: 8,
             width: 130,
+            from_label: None,
+            to_label: None,
         }
     }
 }
@@ -62,6 +66,28 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
     let tabsize_re = Regex::new(r"^--tabsize=(?<num>\d+)$").unwrap();
     let width_re = Regex::new(r"^--width=(?P<long>\d+)$").unwrap();
     while let Some(param) = opts.next() {
+        // -L LABEL, -LLABEL, --label LABEL or --label=LABEL: the first names
+        // the from-file in headers and messages, the second the to-file.
+        let label = match param.to_str() {
+            Some("-L" | "--label") => Some(opts.next().ok_or_else(|| {
+                format!("option '{}' requires an argument", param.to_string_lossy())
+            })?),
+            Some(p) => p
+                .strip_prefix("--label=")
+                .or_else(|| p.strip_prefix("-L"))
+                .map(OsString::from),
+            None => None,
+        };
+        if let Some(label) = label {
+            if params.from_label.is_none() {
+                params.from_label = Some(label);
+            } else if params.to_label.is_none() {
+                params.to_label = Some(label);
+            } else {
+                return Err("too many file label options".to_string());
+            }
+            continue;
+        }
         let next_param = opts.peek();
         if param == "--" {
             break;
@@ -827,6 +853,49 @@ mod tests {
                     .iter()
                     .cloned()
                     .peekable()
+            )
+        );
+    }
+    #[test]
+    fn labels() {
+        assert_eq!(
+            Ok(Params {
+                executable: os("diff"),
+                from: os("foo"),
+                to: os("bar"),
+                from_label: Some(os("old")),
+                to_label: Some(os("new")),
+                ..Default::default()
+            }),
+            parse_params(
+                [
+                    os("diff"),
+                    os("--label"),
+                    os("old"),
+                    os("-Lnew"),
+                    os("foo"),
+                    os("bar")
+                ]
+                .iter()
+                .cloned()
+                .peekable()
+            )
+        );
+        assert_eq!(
+            Err("too many file label options".to_string()),
+            parse_params(
+                [
+                    os("diff"),
+                    os("--label=a"),
+                    os("-L"),
+                    os("b"),
+                    os("-Lc"),
+                    os("foo"),
+                    os("bar")
+                ]
+                .iter()
+                .cloned()
+                .peekable()
             )
         );
     }

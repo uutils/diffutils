@@ -28,8 +28,16 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
         if params.report_identical_files {
             println!(
                 "Files {} and {} are identical",
-                params.from.to_string_lossy(),
-                params.to.to_string_lossy(),
+                params
+                    .from_label
+                    .as_ref()
+                    .unwrap_or(&params.from)
+                    .to_string_lossy(),
+                params
+                    .to_label
+                    .as_ref()
+                    .unwrap_or(&params.to)
+                    .to_string_lossy(),
             );
         }
     };
@@ -87,8 +95,16 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
     if params.brief && !result.is_empty() {
         println!(
             "Files {} and {} differ",
-            params.from.to_string_lossy(),
-            params.to.to_string_lossy()
+            params
+                .from_label
+                .as_ref()
+                .unwrap_or(&params.from)
+                .to_string_lossy(),
+            params
+                .to_label
+                .as_ref()
+                .unwrap_or(&params.to)
+                .to_string_lossy()
         );
     } else {
         io::stdout().write_all(&result).unwrap();

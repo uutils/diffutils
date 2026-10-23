@@ -119,6 +119,49 @@ fn differences_brief() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
+fn labels_replace_file_names() -> Result<(), Box<dyn std::error::Error>> {
+    let mut file1 = NamedTempFile::new()?;
+    file1.write_all("foo\n".as_bytes())?;
+    let mut file2 = NamedTempFile::new()?;
+    file2.write_all("bar\n".as_bytes())?;
+    for (args, expected) in [
+        (
+            vec!["-u", "--label", "a/x", "--label=b/x"],
+            "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-foo\n+bar\n",
+        ),
+        (
+            vec!["-c", "-L", "old", "-Lnew"],
+            "*** old\n--- new\n***************\n*** 1 ****\n! foo\n--- 1 ----\n! bar\n",
+        ),
+        (
+            vec!["-q", "-L", "old", "-L", "new"],
+            "Files old and new differ\n",
+        ),
+    ] {
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff")
+            .args(args)
+            .arg(file1.path())
+            .arg(file2.path());
+        cmd.assert()
+            .code(predicate::eq(1))
+            .failure()
+            .stdout(predicate::eq(expected));
+    }
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff")
+        .args(["-L", "a", "-L", "b", "-L", "c"])
+        .arg(file1.path())
+        .arg(file2.path());
+    cmd.assert()
+        .code(predicate::eq(2))
+        .failure()
+        .stderr(predicate::str::contains("too many file label options"));
+    Ok(())
+}
+
+#[test]
 fn missing_newline() -> Result<(), Box<dyn std::error::Error>> {
     let mut file1 = NamedTempFile::new()?;
     file1.write_all("foo".as_bytes())?;
