@@ -125,9 +125,6 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
 
         Ok(num)
     };
-    let parse_skip = |param: &str, skip_desc: &str| -> Result<SkipU64, String> {
-        parse_size(param, "ignore-initial", skip_desc)
-    };
 
     let mut params = Params {
         executable,
@@ -191,11 +188,11 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
             };
             let (skip_a, skip_b) = if let Some((skip_a, skip_b)) = skip_desc.split_once(':') {
                 (
-                    parse_skip(skip_a, &skip_desc)?,
-                    parse_skip(skip_b, &skip_desc)?,
+                    parse_size(skip_a, "ignore-initial", &skip_desc)?,
+                    parse_size(skip_b, "ignore-initial", &skip_desc)?,
                 )
             } else {
-                let skip = parse_skip(&skip_desc, &skip_desc)?;
+                let skip = parse_size(&skip_desc, "ignore-initial", &skip_desc)?;
                 (skip, skip)
             };
             params.skip_a = Some(skip_a);
@@ -218,9 +215,9 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
         } else if to.is_none() {
             to = Some(param);
         } else if skip_pos1.is_none() {
-            skip_pos1 = Some(parse_skip(&param_str, &param_str)?);
+            skip_pos1 = Some(parse_size(&param_str, "ignore-initial", &param_str)?);
         } else if skip_pos2.is_none() {
-            skip_pos2 = Some(parse_skip(&param_str, &param_str)?);
+            skip_pos2 = Some(parse_size(&param_str, "ignore-initial", &param_str)?);
         } else {
             return Err(usage_string(&executable_str));
         }
@@ -262,7 +259,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
             params.skip_a = skip_pos1;
         } else if let Some(param) = opts.next() {
             let param_str = param.to_string_lossy().to_string();
-            params.skip_a = Some(parse_skip(&param_str, &param_str)?);
+            params.skip_a = Some(parse_size(&param_str, "ignore-initial", &param_str)?);
         }
     };
     if params.skip_b.is_none() {
@@ -270,7 +267,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
             params.skip_b = skip_pos2;
         } else if let Some(param) = opts.next() {
             let param_str = param.to_string_lossy().to_string();
-            params.skip_b = Some(parse_skip(&param_str, &param_str)?);
+            params.skip_b = Some(parse_size(&param_str, "ignore-initial", &param_str)?);
         }
     }
 
