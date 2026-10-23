@@ -674,6 +674,19 @@ mod cmp {
             .failure()
             .stderr(predicate::str::is_empty())
             .stdout(predicate::eq(" 4  40      144 d\n 8  40      150 h\n"));
+
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("cmp");
+        cmd.arg("-l");
+        cmd.arg("-b");
+        cmd.arg("-n");
+        cmd.arg("1K");
+        cmd.arg(&a_path).arg(&b_path);
+        cmd.assert()
+            .code(predicate::eq(1))
+            .failure()
+            .stderr(predicate::str::is_empty())
+            .stdout(predicate::eq(" 4  40      144 d\n 8  40      150 h\n"));
         Ok(())
     }
 
