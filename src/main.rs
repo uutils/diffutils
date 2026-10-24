@@ -11,6 +11,7 @@ use std::{
     process::ExitCode,
 };
 
+mod bre;
 mod cmp;
 mod color;
 mod context_diff;
