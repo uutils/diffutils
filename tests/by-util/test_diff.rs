@@ -5,6 +5,8 @@
 
 use diffutilslib::assert_diff_eq;
 
+#[cfg(any(target_os = "linux", target_os = "android"))]
+use assert_cmd::assert::OutputAssertExt;
 use assert_cmd::cargo::cargo_bin_cmd;
 use predicates::prelude::*;
 use std::fs::File;
@@ -277,6 +279,31 @@ fn binary_files() -> Result<(), Box<dyn std::error::Error>> {
         .code(predicate::eq(1))
         .failure()
         .stdout(predicate::str::starts_with("1c1\n"));
+    Ok(())
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+#[test]
+fn stdin_is_directory() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+    let dir = tmp_dir.path().join("dir");
+    std::fs::create_dir(&dir)?;
+    std::fs::write(dir.join("notes"), "alpha\n")?;
+    let notes = tmp_dir.path().join("notes");
+    std::fs::write(&notes, "beta\n")?;
+
+    // The directory itself must be standard input, not its contents.
+    let output = std::process::Command::new(assert_cmd::cargo::cargo_bin!("diffutils"))
+        .arg("diff")
+        .arg("-")
+        .arg(&notes)
+        .stdin(File::open(&dir)?)
+        .output()?;
+    output
+        .assert()
+        .code(predicate::eq(1))
+        .failure()
+        .stdout("1c1\n< alpha\n---\n> beta\n");
     Ok(())
 }
 
