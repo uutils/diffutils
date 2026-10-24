@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use regex::Regex;
 
+use crate::bre::Bre;
 use crate::color::ColorWhen;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -47,7 +48,13 @@ pub struct Params {
     /// The raw `--palette` value, validated when colors are enabled.
     pub palette: Option<String>,
     pub presume_output_tty: bool,
+    /// Basic regular expressions matching the lines shown after hunk
+    /// headers (`-F` and `-p`).
+    pub function_line_patterns: Vec<Bre>,
 }
+
+/// The pattern of `-p`, matching the first line of C functions.
+const C_FUNCTION_PATTERN: &str = "^[[:alpha:]$_]";
 
 impl Default for Params {
     fn default() -> Self {
@@ -67,6 +74,7 @@ impl Default for Params {
             color: ColorWhen::default(),
             palette: None,
             presume_output_tty: false,
+            function_line_patterns: Vec::new(),
         }
     }
 }
@@ -85,6 +93,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
     let mut to = None;
     let mut format = None;
     let mut context = None;
+    let mut show_c_function = false;
     let tabsize_re = Regex::new(r"^--tabsize=(?<num>\d+)$").unwrap();
     let width_re = Regex::new(r"^--width=(?P<long>\d+)$").unwrap();
     while let Some(param) = opts.next() {
@@ -149,6 +158,30 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
         }
         if param == "---presume-output-tty" {
             params.presume_output_tty = true;
+            continue;
+        }
+        if param == "-p" || param == "--show-c-function" {
+            show_c_function = true;
+            push_function_line_pattern(&mut params, C_FUNCTION_PATTERN)?;
+            continue;
+        }
+        let attached_function_line = param.to_str().and_then(|p| {
+            p.strip_prefix("--show-function-line=")
+                .or_else(|| p.strip_prefix("-F").filter(|pattern| !pattern.is_empty()))
+        });
+        if let Some(pattern) = attached_function_line {
+            push_function_line_pattern(&mut params, pattern)?;
+            continue;
+        }
+        if param == "-F" || param == "--show-function-line" {
+            let Some(pattern) = next_param.map(|p| p.to_string_lossy().into_owned()) else {
+                return Err(format!(
+                    "option '{}' requires an argument",
+                    param.to_string_lossy()
+                ));
+            };
+            opts.next();
+            push_function_line_pattern(&mut params, &pattern)?;
             continue;
         }
         if param == "-a" || param == "--text" {
@@ -310,11 +343,22 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
         params.to = to_path.into_os_string();
     }
 
-    params.format = format.unwrap_or(Format::default());
+    params.format = match format {
+        Some(format) => format,
+        None if show_c_function => Format::Context,
+        None => Format::default(),
+    };
     if let Some(context_count) = context {
         params.context_count = context_count;
     }
     Ok(params)
+}
+
+/// Validates and records a `-F` pattern.
+fn push_function_line_pattern(params: &mut Params, pattern: &str) -> Result<(), String> {
+    let bre = Bre::new(pattern).map_err(|error| format!("'{pattern}': {error}"))?;
+    params.function_line_patterns.push(bre);
+    Ok(())
 }
 
 struct DiffStyleMatch {
@@ -1075,5 +1119,42 @@ mod tests {
         for option in ["--colorful", "--color=", "--color=yes"] {
             assert!(parse(&[option]).is_err(), "{option}");
         }
+    }
+
+    #[test]
+    fn function_lines() {
+        let patterns = |patterns: &[&str]| -> Vec<Bre> {
+            patterns
+                .iter()
+                .map(|pattern| Bre::new(pattern).unwrap())
+                .collect()
+        };
+        let parse = |args: &[&str]| {
+            let args = std::iter::once("diff")
+                .chain(args.iter().copied())
+                .chain(["foo", "bar"]);
+            parse_params(args.map(os).peekable())
+        };
+        let params = parse(&["-p"]).unwrap();
+        assert_eq!(params.format, Format::Context);
+        assert_eq!(
+            params.function_line_patterns,
+            patterns(&[C_FUNCTION_PATTERN])
+        );
+
+        let params = parse(&["-u", "-p"]).unwrap();
+        assert_eq!(params.format, Format::Unified);
+
+        let params = parse(&["-F", "^fn", "-Fx", "--show-function-line=^#", "-e"]).unwrap();
+        assert_eq!(params.format, Format::Ed);
+        assert_eq!(params.function_line_patterns, patterns(&["^fn", "x", "^#"]));
+
+        // -F alone selects no output format.
+        assert_eq!(parse(&["-F", "^fn"]).unwrap().format, Format::Normal);
+
+        assert_eq!(
+            parse(&["-F", "oops\\"]),
+            Err("'oops\\': Trailing backslash".to_string())
+        );
     }
 }

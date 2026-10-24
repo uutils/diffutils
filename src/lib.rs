@@ -1,3 +1,4 @@
+pub mod bre;
 pub mod cmp;
 pub mod color;
 pub mod context_diff;
