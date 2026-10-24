@@ -3,7 +3,7 @@
 // For the full copyright and license information, please view the LICENSE-*
 // files that was distributed with this source code.
 
-use crate::params::{parse_params, Format, MissingFile};
+use crate::params::{parse_params, Format, MissingFile, Params};
 use crate::utils::report_failure_to_read_input_file;
 use crate::{context_diff, ed_diff, normal_diff, side_diff, unified_diff};
 use std::env::ArgsOs;
@@ -80,6 +80,22 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
         return ExitCode::from(2);
     }
 
+    if !params.text && (is_binary(&from_content) || is_binary(&to_content)) {
+        if from_content == to_content {
+            maybe_report_identical_files();
+            return ExitCode::SUCCESS;
+        }
+        print_files_differ(
+            if params.brief {
+                "Files"
+            } else {
+                "Binary files"
+            },
+            &params,
+        );
+        return ExitCode::from(1);
+    }
+
     // run diff
     let result: Vec<u8> = match params.format {
         Format::Normal => normal_diff::diff(&from_content, &to_content, &params),
@@ -95,11 +111,7 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
         }
     };
     if params.brief && !result.is_empty() {
-        println!(
-            "Files {} and {} differ",
-            params.from.to_string_lossy(),
-            params.to.to_string_lossy()
-        );
+        print_files_differ("Files", &params);
     } else {
         io::stdout().write_all(&result).unwrap();
     }
@@ -109,4 +121,22 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
     } else {
         ExitCode::from(1)
     }
+}
+
+/// Number of leading bytes inspected when deciding whether an input is binary.
+const BINARY_PROBE_LEN: usize = 16 * 1024;
+
+/// An input is treated as binary when a NUL byte occurs near its start.
+fn is_binary(content: &[u8]) -> bool {
+    content[..content.len().min(BINARY_PROBE_LEN)].contains(&0)
+}
+
+/// Print the one-line summary used instead of the differences, `kind` naming
+/// what was compared.
+fn print_files_differ(kind: &str, params: &Params) {
+    println!(
+        "{kind} {} and {} differ",
+        params.from.to_string_lossy(),
+        params.to.to_string_lossy()
+    );
 }
