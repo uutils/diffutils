@@ -19,10 +19,16 @@ use std::process::{exit, ExitCode};
 //     1 means some differences were found,
 //     and 2 means trouble.
 pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
-    let params = parse_params(opts).unwrap_or_else(|error| {
+    let mut params = parse_params(opts).unwrap_or_else(|error| {
         eprintln!("{error}");
         exit(2);
     });
+    // diff - FILE with a directory on stdin => diff DIRECTORY/FILE FILE
+    if params.from == "-" && params.to != "-" {
+        if let Some(from) = stdin_directory_entry(&params.to) {
+            params.from = from;
+        }
+    }
     // if from and to are the same file, no need to perform any comparison
     let maybe_report_identical_files = || {
         if params.report_identical_files {
@@ -139,4 +145,35 @@ fn print_files_differ(kind: &str, params: &Params) {
         params.from.to_string_lossy(),
         params.to.to_string_lossy()
     );
+}
+
+/// When standard input is a directory, returns the path of the entry in it
+/// that has the same name as `other`, provided `other` is not a directory.
+/// Entries are reached through `/dev/fd/0`, which only names the directory
+/// itself where it links to the open file, as with Linux procfs.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn stdin_directory_entry(other: &OsString) -> Option<OsString> {
+    use std::os::fd::AsFd;
+    use std::path::Path;
+
+    let stdin_is_dir = io::stdin()
+        .as_fd()
+        .try_clone_to_owned()
+        .ok()
+        .and_then(|fd| fs::File::from(fd).metadata().ok())
+        .is_some_and(|metadata| metadata.is_dir());
+    let other = Path::new(other);
+    if !stdin_is_dir || other.is_dir() {
+        return None;
+    }
+    Some(
+        Path::new("/dev/fd/0")
+            .join(other.file_name()?)
+            .into_os_string(),
+    )
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+fn stdin_directory_entry(_other: &OsString) -> Option<OsString> {
+    None
 }
