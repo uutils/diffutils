@@ -79,35 +79,17 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
             }
             continue;
         }
+        // A word of short options taking no argument, such as `-qst`. Other
+        // words are left whole for legacy numeric options and their diagnostics.
         if let Some(short) = param
             .to_str()
             .and_then(|arg| arg.strip_prefix('-'))
-            .filter(|arg| !arg.starts_with('-'))
+            .filter(|short| !short.is_empty() && short.bytes().all(|b| SHORT_OPTIONS.contains(&b)))
         {
-            if short.len() == 1 {
-                if apply_short_option(short.as_bytes()[0], &mut params, &mut format)? {
-                    continue;
-                }
-            } else if short.len() > 1 {
-                // Leave mixed words whole for legacy numeric options and their diagnostics.
-                let all_recognized = short.bytes().all(|option| {
-                    let mut isolated_format = None;
-                    matches!(
-                        apply_short_option(option, &mut Params::default(), &mut isolated_format),
-                        Ok(true)
-                    )
-                });
-                if all_recognized {
-                    let mut clustered_params = params.clone();
-                    let mut clustered_format = format;
-                    for option in short.bytes() {
-                        apply_short_option(option, &mut clustered_params, &mut clustered_format)?;
-                    }
-                    params = clustered_params;
-                    format = clustered_format;
-                    continue;
-                }
+            for option in short.bytes() {
+                apply_short_option(option, &mut params, &mut format)?;
             }
+            continue;
         }
         if param == "--report-identical-files" {
             params.report_identical_files = true;
@@ -282,11 +264,14 @@ fn set_format(format: &mut Option<Format>, requested: Format) -> Result<(), Stri
     Ok(())
 }
 
+/// The short options that take no argument, and can be grouped.
+const SHORT_OPTIONS: &[u8] = b"ceqstuy";
+
 fn apply_short_option(
     option: u8,
     params: &mut Params,
     format: &mut Option<Format>,
-) -> Result<bool, String> {
+) -> Result<(), String> {
     match option {
         b'c' => set_format(format, Format::Context)?,
         b'e' => set_format(format, Format::Ed)?,
@@ -295,9 +280,10 @@ fn apply_short_option(
         b't' => params.expand_tabs = true,
         b'u' => set_format(format, Format::Unified)?,
         b'y' => set_format(format, Format::SideBySide)?,
-        _ => return Ok(false),
+        // Callers only pass bytes of SHORT_OPTIONS.
+        _ => unreachable!("not a short option: {}", char::from(option)),
     }
-    Ok(true)
+    Ok(())
 }
 
 struct DiffStyleMatch {
@@ -803,7 +789,7 @@ mod tests {
         }
     }
     #[test]
-    fn control_partly_recognized_short_option_clusters() {
+    fn partly_recognized_short_option_clusters() {
         for options in [
             vec!["-qg"],
             vec!["-u", "-cX"],
