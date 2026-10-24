@@ -53,12 +53,13 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
             params.from = from;
         }
     }
-    let both_directories = params.from != "-"
-        && params.to != "-"
-        && Path::new(&params.from).is_dir()
-        && Path::new(&params.to).is_dir();
-    let outcome = if both_directories {
-        dir_diff::compare_directories(&params, &option_args)
+    let both_directories = Path::new(&params.from).is_dir() && Path::new(&params.to).is_dir();
+    // Directories, and files whose symbolic links are not followed, are
+    // compared by type before their contents.
+    let compare_types =
+        params.from != "-" && params.to != "-" && (both_directories || params.no_dereference);
+    let outcome = if compare_types {
+        dir_diff::compare(&params, &option_args)
     } else {
         compare_files(&params, None)
     };
