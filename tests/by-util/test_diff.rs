@@ -207,6 +207,44 @@ fn read_from_stdin() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
+fn missing_file_as_empty() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+    let present = tmp_dir.path().join("present");
+    let absent = tmp_dir.path().join("absent");
+    std::fs::write(&present, "kiwi\nmango\n")?;
+
+    for option in ["-N", "--new-file", "--unidirectional-new-file"] {
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff").arg(option).arg(&absent).arg(&present);
+        cmd.assert()
+            .code(predicate::eq(1))
+            .failure()
+            .stdout("0a1,2\n> kiwi\n> mango\n");
+    }
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff").arg("-N").arg(&present).arg(&absent);
+    cmd.assert()
+        .code(predicate::eq(1))
+        .failure()
+        .stdout("1,2d0\n< kiwi\n< mango\n");
+
+    // Only a missing first operand is accepted here.
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff")
+        .arg("--unidirectional-new-file")
+        .arg(&present)
+        .arg(&absent);
+    cmd.assert().code(predicate::eq(2)).failure();
+
+    // Without the option, a missing file is trouble.
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff").arg(&absent).arg(&present);
+    cmd.assert().code(predicate::eq(2)).failure();
+    Ok(())
+}
+
+#[test]
 fn compare_file_to_directory() -> Result<(), Box<dyn std::error::Error>> {
     let tmp_dir = tempdir()?;
 
@@ -286,5 +324,53 @@ fn sdiff_gutter_marker_column() -> Result<(), Box<dyn std::error::Error>> {
     let output = cmd.output().unwrap().stdout;
     assert_eq!(output, b"aa\t\t   <\n\t\t   >\tbb\n");
 
+    Ok(())
+}
+
+#[test]
+fn normal_format_single_line_ranges() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+    let old = tmp_dir.path().join("old");
+    let new = tmp_dir.path().join("new");
+    std::fs::write(&old, "north\neast\nsouth\nwest\n")?;
+    std::fs::write(&new, "north\nsouth\nwest\nup\ndown\n")?;
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff").arg(&old).arg(&new);
+    cmd.assert()
+        .code(predicate::eq(1))
+        .stdout("2d1\n< east\n4a4,5\n> up\n> down\n");
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff").arg("/dev/null").arg(&old);
+    if cfg!(unix) {
+        cmd.assert()
+            .code(predicate::eq(1))
+            .stdout("0a1,4\n> north\n> east\n> south\n> west\n");
+    }
+
+    std::fs::write(&new, "north\neast\nsouth\nwest\nup\n")?;
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff").arg(&old).arg(&new);
+    cmd.assert().code(predicate::eq(1)).stdout("4a5\n> up\n");
+    Ok(())
+}
+
+#[test]
+fn ed_format_single_line_deletions() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+    let old = tmp_dir.path().join("old");
+    let new = tmp_dir.path().join("new");
+    std::fs::write(&old, "red\norange\nyellow\ngreen\nblue\n")?;
+    std::fs::write(&new, "red\norange\nyellow\nblue\n")?;
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff").arg("-e").arg(&old).arg(&new);
+    cmd.assert().code(predicate::eq(1)).stdout("4d\n");
+
+    std::fs::write(&new, "red\nblue\n")?;
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff").arg("-e").arg(&old).arg(&new);
+    cmd.assert().code(predicate::eq(1)).stdout("2,4d\n");
     Ok(())
 }

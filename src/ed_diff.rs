@@ -126,6 +126,7 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Result<Vec<u8>, 
         match (expected_count, actual_count) {
             (0, 0) => unreachable!(),
             (0, _) => writeln!(&mut output, "{}a", line_number_expected - 1).unwrap(),
+            (1, 0) => writeln!(&mut output, "{line_number_expected}d").unwrap(),
             (_, 0) => writeln!(
                 &mut output,
                 "{},{}d",
@@ -178,6 +179,12 @@ mod tests {
         let diff = diff(from, to, &Params::default()).unwrap();
         let expected = ["1c", "b", ".", ""].join("\n");
         assert_eq!(diff, expected.as_bytes());
+    }
+
+    #[test]
+    fn test_single_line_deleted() {
+        let diff = diff(b"a\nb\n", b"a\n", &Params::default()).unwrap();
+        assert_eq!(diff, b"2d\n");
     }
 
     #[test]
