@@ -245,6 +245,42 @@ fn missing_file_as_empty() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
+fn binary_files() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+    let left = tmp_dir.path().join("left.bin");
+    let right = tmp_dir.path().join("right.bin");
+    std::fs::write(&left, b"header\x00\x7fpayload-one\n")?;
+    std::fs::write(&right, b"header\x00\x7fpayload-two\n")?;
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff").arg(&left).arg(&right);
+    cmd.assert()
+        .code(predicate::eq(1))
+        .failure()
+        .stderr(predicate::str::is_empty())
+        .stdout(format!(
+            "Binary files {} and {} differ\n",
+            left.display(),
+            right.display()
+        ));
+
+    // Identical binary inputs are not reported.
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff").arg(&left).arg("-");
+    cmd.write_stdin(b"header\x00\x7fpayload-one\n".to_vec());
+    cmd.assert().code(predicate::eq(0)).success().stdout("");
+
+    // --text forces a line-by-line comparison.
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff").arg("--text").arg(&left).arg(&right);
+    cmd.assert()
+        .code(predicate::eq(1))
+        .failure()
+        .stdout(predicate::str::starts_with("1c1\n"));
+    Ok(())
+}
+
+#[test]
 fn compare_file_to_directory() -> Result<(), Box<dyn std::error::Error>> {
     let tmp_dir = tempdir()?;
 

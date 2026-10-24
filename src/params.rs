@@ -40,6 +40,7 @@ pub struct Params {
     pub tabsize: usize,
     pub width: usize,
     pub missing_file: MissingFile,
+    pub text: bool,
 }
 
 impl Default for Params {
@@ -56,6 +57,7 @@ impl Default for Params {
             tabsize: 8,
             width: 130,
             missing_file: MissingFile::default(),
+            text: false,
         }
     }
 }
@@ -110,6 +112,10 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
             if params.missing_file != MissingFile::Empty {
                 params.missing_file = MissingFile::EmptyIfFirst;
             }
+            continue;
+        }
+        if param == "-a" || param == "--text" {
+            params.text = true;
             continue;
         }
         if param == "-t" || param == "--expand-tabs" {
