@@ -29,73 +29,114 @@ fn no_differences() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+const SIDE_BY_SIDE_CASES: [(&[u8], &[u8], i32); 9] = [
+    (b"alpha\n", b"alpha\n", 0),
+    (b"alpha\n", b"alpha\nbeta\n", 1),
+    (b"alpha\n", b"bravo\n", 1),
+    (b"alpha", b"alpha\n", 1),
+    (b"alpha", b"alpha", 0),
+    (b"\xff\n", b"\xfe\n", 1),
+    (b"", b"alpha\n", 1),
+    (b"alpha\n", b"", 1),
+    (b"", b"", 0),
+];
+
 #[test]
 fn side_by_side_exit_status() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempdir()?;
     let left = dir.path().join("left");
     let right = dir.path().join("right");
-
-    for (left_content, right_content, code) in [
-        (b"alpha\n".as_slice(), b"alpha\n".as_slice(), 0),
-        (b"alpha\n", b"alpha\nbeta\n", 1),
-        (b"alpha\n", b"bravo\n", 1),
-        (b"alpha", b"alpha\n", 1),
-        (b"alpha", b"alpha", 0),
-        (b"\xff\n", b"\xfe\n", 1),
-        (b"", b"alpha\n", 1),
-        (b"alpha\n", b"", 1),
-        (b"", b"", 0),
-    ] {
+    for (left_content, right_content, code) in SIDE_BY_SIDE_CASES {
         std::fs::write(&left, left_content)?;
         std::fs::write(&right, right_content)?;
-        for options in [
-            &["-y"][..],
-            &["-y", "-q"],
-            &["-y", "-s"],
-            &["-y", "--width=40"],
-        ] {
+        for options in [&["-y"][..], &["-y", "--width=40"]] {
             let mut cmd = cargo_bin_cmd!("diffutils");
             cmd.arg("diff").args(options).arg(&left).arg(&right);
-            let assertion = cmd
-                .assert()
+            cmd.assert()
                 .code(predicate::eq(code))
                 .stderr(predicate::str::is_empty());
-            if options == ["-y", "-q"] {
-                let expected = if code == 1 {
-                    format!("Files {} and {} differ\n", left.display(), right.display())
-                } else {
-                    String::new()
-                };
-                assertion.stdout(predicate::eq(expected));
-            }
         }
     }
+    Ok(())
+}
 
-    std::fs::write(&left, b"alpha\n")?;
-    for (right_content, identical) in [(b"alpha\n".as_slice(), true), (b"bravo\n", false)] {
+#[test]
+fn side_by_side_brief() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    let left = dir.path().join("left");
+    let right = dir.path().join("right");
+    for (left_content, right_content, code) in SIDE_BY_SIDE_CASES {
+        std::fs::write(&left, left_content)?;
         std::fs::write(&right, right_content)?;
+        let expected = if code == 1 {
+            format!("Files {} and {} differ\n", left.display(), right.display())
+        } else {
+            String::new()
+        };
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff").arg("-y").arg("-q").arg(&left).arg(&right);
+        cmd.assert()
+            .code(predicate::eq(code))
+            .stdout(predicate::eq(expected))
+            .stderr(predicate::str::is_empty());
+    }
+    Ok(())
+}
+
+#[test]
+fn side_by_side_report_identical_files() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    let left = dir.path().join("left");
+    let right = dir.path().join("right");
+    for (left_content, right_content, code) in SIDE_BY_SIDE_CASES {
+        std::fs::write(&left, left_content)?;
+        std::fs::write(&right, right_content)?;
+        let identical = format!(
+            "Files {} and {} are identical\n",
+            left.display(),
+            right.display()
+        );
         let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.arg("diff").arg("-y").arg("-s").arg(&left).arg(&right);
-        let assertion = cmd.assert();
-        if identical {
-            assertion.stdout(predicate::str::contains(format!(
-                "Files {} and {} are identical\n",
-                left.display(),
-                right.display()
-            )));
+        let assertion = cmd
+            .assert()
+            .code(predicate::eq(code))
+            .stderr(predicate::str::is_empty());
+        if code == 0 {
+            assertion.stdout(predicate::str::ends_with(identical));
         } else {
-            assertion.stdout(predicate::str::contains("are identical").not());
+            assertion.stdout(predicate::function(|stdout: &[u8]| {
+                !stdout
+                    .windows(identical.len())
+                    .any(|window| window == identical.as_bytes())
+            }));
         }
     }
+    Ok(())
+}
 
-    std::fs::remove_file(&right)?;
+#[test]
+fn side_by_side_missing_file() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    let left = dir.path().join("left");
+    let right = dir.path().join("right");
+    std::fs::write(&left, b"alpha\n")?;
+
+    #[cfg(not(windows))]
+    let error_message = "No such file or directory";
+    #[cfg(windows)]
+    let error_message = "The system cannot find the file specified.";
+
     let mut cmd = cargo_bin_cmd!("diffutils");
     cmd.arg("diff").arg("-y").arg(&left).arg(&right);
     cmd.assert()
         .code(predicate::eq(2))
         .failure()
         .stdout(predicate::str::is_empty())
-        .stderr(predicate::str::contains("right"));
+        .stderr(predicate::eq(format!(
+            "diff: {}: {error_message}\n",
+            right.display()
+        )));
     Ok(())
 }
 

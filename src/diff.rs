@@ -70,10 +70,8 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
         return ExitCode::from(2);
     }
 
-    // Side-by-side writes its output directly, so its result cannot indicate differences.
-    let side_by_side_differs = params.format == Format::SideBySide && from_content != to_content;
-
     // run diff
+    let mut side_by_side_differs = false;
     let result: Vec<u8> = match params.format {
         Format::Normal => normal_diff::diff(&from_content, &to_content, &params),
         Format::Unified => unified_diff::diff(&from_content, &to_content, &params),
@@ -82,10 +80,14 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
             eprintln!("{error}");
             exit(2);
         }),
-        Format::SideBySide if params.brief => Vec::new(),
         Format::SideBySide => {
-            let mut output = stdout().lock();
-            side_diff::diff(&from_content, &to_content, &mut output, &params)
+            side_by_side_differs = if params.brief {
+                side_diff::diff(&from_content, &to_content, &mut io::sink(), &params)
+            } else {
+                let mut output = stdout().lock();
+                side_diff::diff(&from_content, &to_content, &mut output, &params)
+            };
+            Vec::new()
         }
     };
     let differs = side_by_side_differs || !result.is_empty();
