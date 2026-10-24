@@ -394,6 +394,35 @@ fn cmp_directory_and_device_operands() -> Result<(), Box<dyn std::error::Error>>
 }
 
 #[test]
+#[cfg(unix)]
+fn cmp_bytes_limit_with_open_pipe() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+    let file = tmp_dir.path().join("file");
+    std::fs::write(&file, "abcde")?;
+
+    let mut child = std::process::Command::new(assert_cmd::cargo::cargo_bin!("diffutils"))
+        .args(["cmp", "-n", "5", "-"])
+        .arg(&file)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .spawn()?;
+    // The write end stays open, so another read would block.
+    let mut stdin = child.stdin.take().unwrap();
+    stdin.write_all(b"abcde")?;
+
+    for _ in 0..500 {
+        if let Some(status) = child.try_wait()? {
+            assert_eq!(status.code(), Some(0));
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    child.kill()?;
+    child.wait()?;
+    panic!("cmp -n 5 kept reading after the limit");
+}
+
+#[test]
 fn cmp_skip_args_parsing() -> Result<(), Box<dyn std::error::Error>> {
     let tmp_dir = tempdir()?;
 

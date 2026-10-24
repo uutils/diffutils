@@ -12,7 +12,7 @@ use std::process::ExitCode;
 use std::{cmp, fs, io};
 
 #[cfg(unix)]
-use std::os::fd::{AsFd, AsRawFd, FromRawFd};
+use std::os::fd::{AsRawFd, FromRawFd};
 
 #[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
@@ -302,36 +302,9 @@ pub enum Cmp {
     Different,
 }
 
-fn is_directory(path: &OsString, params: &Params) -> Result<bool, String> {
-    if path != "-" {
-        return Ok(fs::metadata(path).is_ok_and(|metadata| metadata.is_dir()));
-    }
-    #[cfg(unix)]
-    {
-        io::stdin()
-            .as_fd()
-            .try_clone_to_owned()
-            .and_then(|fd| fs::File::from(fd).metadata())
-            .map(|metadata| metadata.is_dir())
-            .map_err(|e| format_failure_to_read_input_file(&params.executable, path, &e))
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = params;
-        Ok(false)
-    }
-}
-
 pub fn cmp(params: &Params) -> Result<Cmp, String> {
-    // With -n 0 a directory operand must still be read, so that it is reported.
-    let reads_directory = match params.max_bytes {
-        Some(0) => is_directory(&params.from, params)
-            .and_then(|is_dir| Ok(is_dir || is_directory(&params.to, params)?)),
-        _ => Ok(false),
-    };
     let mut from = prepare_reader(&params.from, &params.skip_a, params)?;
     let mut to = prepare_reader(&params.to, &params.skip_b, params)?;
-    let stop_at_limit = !reads_directory?;
 
     let mut offset_width = params.max_bytes.unwrap_or(BytesLimitU64::MAX);
 
@@ -376,7 +349,8 @@ pub fn cmp(params: &Params) -> Result<Cmp, String> {
     let mut stdout = BufWriter::new(io::stdout().lock());
     let mut compare = Cmp::Equal;
     loop {
-        if stop_at_limit
+        // Once the limit is reached, don't wait for more input.
+        if at_byte > 1
             && params
                 .max_bytes
                 .is_some_and(|max_bytes| at_byte > max_bytes)
@@ -392,6 +366,13 @@ pub fn cmp(params: &Params) -> Result<Cmp, String> {
         let to_buf = to
             .fill_buf()
             .map_err(|e| format_failure_to_read_input_file(&params.executable, &params.to, &e))?;
+
+        if params
+            .max_bytes
+            .is_some_and(|max_bytes| at_byte > max_bytes)
+        {
+            break;
+        }
 
         // Check for EOF conditions.
         if from_buf.is_empty() && to_buf.is_empty() {
