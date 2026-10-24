@@ -655,6 +655,118 @@ fn directory_name_matching() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[cfg(unix)]
+#[test]
+fn no_dereference() -> Result<(), Box<dyn std::error::Error>> {
+    use std::os::unix::fs::symlink;
+
+    let tmp_dir = tempdir()?;
+    let dir = tmp_dir.path();
+    std::fs::write(dir.join("plain"), "text\n")?;
+    std::fs::write(dir.join("other"), "text\n")?;
+    symlink("plain", dir.join("to-plain"))?;
+    symlink("plain", dir.join("also-to-plain"))?;
+    symlink("other", dir.join("to-other"))?;
+    let path = |name: &str| dir.join(name).to_str().unwrap().to_string();
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff").arg(path("plain")).arg(path("to-other"));
+    cmd.assert().code(predicate::eq(0)).stdout("");
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff")
+        .arg("--no-dereference")
+        .arg(path("plain"))
+        .arg(path("to-other"));
+    cmd.assert().code(predicate::eq(1)).stdout(format!(
+        "File {} is a regular file while file {} is a symbolic link\n",
+        path("plain"),
+        path("to-other")
+    ));
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff")
+        .arg("--no-dereference")
+        .arg(path("to-plain"))
+        .arg(path("also-to-plain"));
+    cmd.assert().code(predicate::eq(0)).stdout("");
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff")
+        .arg("--no-dereference")
+        .arg(path("to-plain"))
+        .arg(path("to-other"));
+    cmd.assert().code(predicate::eq(1)).stdout(format!(
+        "Symbolic links '{}' -> 'plain' and '{}' -> 'other' differ\n",
+        path("to-plain"),
+        path("to-other")
+    ));
+
+    // In directories, dangling links are entries like any other.
+    std::fs::create_dir(dir.join("left"))?;
+    std::fs::create_dir(dir.join("right"))?;
+    symlink("missing", dir.join("left/dangling"))?;
+    symlink("../plain", dir.join("right/dangling"))?;
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff")
+        .arg("-r")
+        .arg("--no-dereference")
+        .arg(path("left"))
+        .arg(path("right"));
+    cmd.assert().code(predicate::eq(1)).stdout(format!(
+        "Symbolic links '{0}/dangling' -> 'missing' and '{1}/dangling' -> '../plain' differ\n",
+        path("left"),
+        path("right")
+    ));
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff")
+        .arg("-r")
+        .arg(path("left"))
+        .arg(path("right"));
+    cmd.assert()
+        .code(predicate::eq(2))
+        .stderr(predicate::str::contains(
+            "dangling: No such file or directory",
+        ));
+
+    // Links with the same target are identical files.
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff")
+        .arg("-s")
+        .arg("--no-dereference")
+        .arg(path("to-plain"))
+        .arg(path("also-to-plain"));
+    cmd.assert().code(predicate::eq(0)).stdout(format!(
+        "Files {} and {} are identical\n",
+        path("to-plain"),
+        path("also-to-plain")
+    ));
+
+    // A file compared with a directory is looked up in it, and that entry is
+    // not followed either.
+    std::fs::write(dir.join("left/plain"), "text\n")?;
+    symlink("../other", dir.join("left/to-other"))?;
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff")
+        .arg("--no-dereference")
+        .arg(path("plain"))
+        .arg(path("left"));
+    cmd.assert().code(predicate::eq(0)).stdout("");
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff")
+        .arg("--no-dereference")
+        .arg(path("left"))
+        .arg(path("to-other"));
+    cmd.assert().code(predicate::eq(1)).stdout(format!(
+        "Symbolic links '{}/to-other' -> '../other' and '{}' -> 'other' differ\n",
+        path("left"),
+        path("to-other")
+    ));
+    Ok(())
+}
+
 #[test]
 fn compare_file_to_directory() -> Result<(), Box<dyn std::error::Error>> {
     let tmp_dir = tempdir()?;
