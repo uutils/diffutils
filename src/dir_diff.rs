@@ -6,6 +6,7 @@
 //! Comparison of two directories, entry by entry, descending into
 //! subdirectories with `-r`.
 
+use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, Metadata};
@@ -14,7 +15,9 @@ use std::path::{Path, PathBuf};
 
 use crate::diff::{compare_files, Outcome};
 use crate::params::{MissingFile, Params};
-use crate::utils::{quote_file_name, quote_shell_argument, report_failure_to_read_input_file};
+use crate::utils::{
+    fold_file_name_case, quote_file_name, quote_shell_argument, report_failure_to_read_input_file,
+};
 
 /// Compares the directories `params.from` and `params.to`. `option_args` are
 /// the command line options, repeated in the header printed before the
@@ -25,7 +28,14 @@ pub fn compare_directories(params: &Params, option_args: &[OsString]) -> Outcome
         option_args,
         ancestors: Vec::new(),
     };
-    walker.compare_directories(&params.from, &params.to)
+    walker.compare_directories(&params.from, &params.to, Level::Top)
+}
+
+/// Whether directories are the operands of diff, or nested in them.
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum Level {
+    Top,
+    Nested,
 }
 
 struct DirectoryWalker<'a> {
@@ -37,7 +47,7 @@ struct DirectoryWalker<'a> {
 }
 
 impl DirectoryWalker<'_> {
-    fn compare_directories(&mut self, from_dir: &OsStr, to_dir: &OsStr) -> Outcome {
+    fn compare_directories(&mut self, from_dir: &OsStr, to_dir: &OsStr, level: Level) -> Outcome {
         let mut outcome = Outcome::Identical;
         let mut canonical_dirs = Vec::new();
         for dir in [from_dir, to_dir] {
@@ -55,14 +65,20 @@ impl DirectoryWalker<'_> {
             }
             canonical_dirs.push(canonical);
         }
-        let (Some(from_names), Some(to_names)) = (self.list(from_dir), self.list(to_dir)) else {
+        let (Some(mut from_names), Some(mut to_names)) = (self.list(from_dir), self.list(to_dir))
+        else {
             return Outcome::Trouble;
         };
+        if let (Level::Top, Some(start)) = (level, &self.params.starting_file) {
+            let start = self.name_key(start).into_owned();
+            from_names.retain(|name| *self.name_key(name) >= *start);
+            to_names.retain(|name| *self.name_key(name) >= *start);
+        }
         let ancestors_len = self.ancestors.len();
         self.ancestors.extend(canonical_dirs);
 
         let entries = pair_entries(&from_names, &to_names, |from, to| {
-            from.as_encoded_bytes().cmp(to.as_encoded_bytes())
+            self.name_key(from).cmp(&self.name_key(to))
         });
         for entry in entries {
             let entry_outcome = match entry {
@@ -112,8 +128,22 @@ impl DirectoryWalker<'_> {
                 }
             }
         }
-        names.sort_unstable_by(|a, b| a.as_encoded_bytes().cmp(b.as_encoded_bytes()));
+        names.sort_unstable_by(|a, b| {
+            self.name_key(a)
+                .cmp(&self.name_key(b))
+                .then_with(|| a.as_encoded_bytes().cmp(b.as_encoded_bytes()))
+        });
         Some(names)
+    }
+
+    /// Returns what entry names are sorted and matched by: the names
+    /// themselves, or their lowercase form with --ignore-file-name-case.
+    fn name_key<'n>(&self, name: &'n OsStr) -> Cow<'n, [u8]> {
+        if self.params.ignore_file_name_case {
+            fold_file_name_case(name)
+        } else {
+            Cow::Borrowed(name.as_encoded_bytes())
+        }
     }
 
     /// Compares two entries of the compared directories, one of which may be
@@ -129,7 +159,7 @@ impl DirectoryWalker<'_> {
                 if same_file::is_same_file(from, to).unwrap_or(false) {
                     Outcome::Identical
                 } else if self.params.recursive {
-                    self.compare_directories(from, to)
+                    self.compare_directories(from, to, Level::Nested)
                 } else {
                     println!(
                         "Common subdirectories: {} and {}",
@@ -154,7 +184,7 @@ impl DirectoryWalker<'_> {
             // purpose (-N), is compared with an empty directory.
             (Some(metadata), None) | (None, Some(metadata)) if metadata.is_dir() => {
                 if self.params.recursive {
-                    self.compare_directories(from, to)
+                    self.compare_directories(from, to, Level::Nested)
                 } else {
                     println!(
                         "Common subdirectories: {} and {}",
