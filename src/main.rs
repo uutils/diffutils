@@ -16,6 +16,7 @@ mod cmp;
 mod color;
 mod context_diff;
 mod diff;
+mod dir_diff;
 mod ed_diff;
 mod macros;
 mod normal_diff;

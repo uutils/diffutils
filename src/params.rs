@@ -51,6 +51,7 @@ pub struct Params {
     /// Basic regular expressions matching the lines shown after hunk
     /// headers (`-F` and `-p`).
     pub function_line_patterns: Vec<Bre>,
+    pub recursive: bool,
 }
 
 /// The pattern of `-p`, matching the first line of C functions.
@@ -75,14 +76,22 @@ impl Default for Params {
             palette: None,
             presume_output_tty: false,
             function_line_patterns: Vec::new(),
+            recursive: false,
         }
     }
 }
 
-pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Result<Params, String> {
-    // parse CLI
-
-    let Some(executable) = opts.next() else {
+/// Parses the command line, and also returns its arguments other than the
+/// program name and the operands.
+pub fn parse_params<I: Iterator<Item = OsString>>(
+    opts: Peekable<I>,
+) -> Result<(Params, Vec<OsString>), String> {
+    let args: Vec<OsString> = opts.collect();
+    // Each argument comes with its position, to tell the operands apart from
+    // an option argument with the same value.
+    let mut opts = args.iter().cloned().enumerate().peekable();
+    let mut operand_positions = Vec::new();
+    let Some((_, executable)) = opts.next() else {
         return Err("Usage: <exe> <from> <to>".to_string());
     };
     let mut params = Params {
@@ -96,12 +105,13 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
     let mut show_c_function = false;
     let tabsize_re = Regex::new(r"^--tabsize=(?<num>\d+)$").unwrap();
     let width_re = Regex::new(r"^--width=(?P<long>\d+)$").unwrap();
-    while let Some(param) = opts.next() {
-        let next_param = opts.peek();
+    while let Some((position, param)) = opts.next() {
+        let next_param = opts.peek().map(|(_, next_param)| next_param);
         if param == "--" {
             break;
         }
         if param == "-" {
+            operand_positions.push(position);
             if from.is_none() {
                 from = Some(param);
             } else if to.is_none() {
@@ -146,7 +156,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
             continue;
         }
         if param == "--palette" {
-            let Some(palette) = opts.next() else {
+            let Some((_, palette)) = opts.next() else {
                 return Err("option '--palette' requires an argument".to_string());
             };
             params.palette = Some(palette.to_string_lossy().into_owned());
@@ -182,6 +192,10 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
             };
             opts.next();
             push_function_line_pattern(&mut params, &pattern)?;
+            continue;
+        }
+        if param == "-r" || param == "--recursive" {
+            params.recursive = true;
             continue;
         }
         if param == "-a" || param == "--text" {
@@ -298,6 +312,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
         if param.to_string_lossy().starts_with('-') {
             return Err(format!("unrecognized option '{}'", param.to_string_lossy()));
         }
+        operand_positions.push(position);
         if from.is_none() {
             from = Some(param);
         } else if to.is_none() {
@@ -311,7 +326,8 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
     }
     params.from = if let Some(from) = from {
         from
-    } else if let Some(param) = opts.next() {
+    } else if let Some((position, param)) = opts.next() {
+        operand_positions.push(position);
         param
     } else {
         return Err(format!(
@@ -321,7 +337,8 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
     };
     params.to = if let Some(to) = to {
         to
-    } else if let Some(param) = opts.next() {
+    } else if let Some((position, param)) = opts.next() {
+        operand_positions.push(position);
         param
     } else {
         return Err(format!(
@@ -351,7 +368,14 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
     if let Some(context_count) = context {
         params.context_count = context_count;
     }
-    Ok(params)
+    let options = args
+        .into_iter()
+        .enumerate()
+        .skip(1)
+        .filter(|(position, _)| !operand_positions.contains(position))
+        .map(|(_, arg)| arg)
+        .collect();
+    Ok((params, options))
 }
 
 /// Validates and records a `-F` pattern.
@@ -458,6 +482,10 @@ fn match_unified_diff_params(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn parse_params<I: Iterator<Item = OsString>>(opts: Peekable<I>) -> Result<Params, String> {
+        super::parse_params(opts).map(|(params, _)| params)
+    }
     fn os(s: &str) -> OsString {
         OsString::from(s)
     }
@@ -1156,5 +1184,28 @@ mod tests {
             parse(&["-F", "oops\\"]),
             Err("'oops\\': Trailing backslash".to_string())
         );
+    }
+
+    #[test]
+    fn option_arguments() {
+        let options = |args: &[&str]| {
+            let (_, options) =
+                super::parse_params(args.iter().copied().map(os).peekable()).unwrap();
+            options
+        };
+        assert_eq!(
+            options(&["diff", "-u", "old", "-r", "new"]),
+            [os("-u"), os("-r")]
+        );
+        // An option argument equal to an operand stays with its option.
+        assert_eq!(
+            options(&["diff", "-F", "new", "old", "new"]),
+            [os("-F"), os("new")]
+        );
+        assert_eq!(
+            options(&["diff", "-q", "--", "-old", "new"]),
+            [os("-q"), os("--")]
+        );
+        assert_eq!(options(&["diff", "-", "new", "-t"]), [os("-t")]);
     }
 }
