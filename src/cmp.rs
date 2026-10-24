@@ -3,8 +3,8 @@
 // For the full copyright and license information, please view the LICENSE-*
 // files that was distributed with this source code.
 
-use crate::utils::format_failure_to_read_input_file;
-use std::env::{self, ArgsOs};
+use crate::utils::{format_failure_to_read_input_file, is_posix_locale};
+use std::env::ArgsOs;
 use std::ffi::OsString;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::iter::Peekable;
@@ -664,20 +664,6 @@ fn report_eof(
     }
 }
 
-fn is_posix_locale() -> bool {
-    let locale = if let Ok(locale) = env::var("LC_ALL") {
-        locale
-    } else if let Ok(locale) = env::var("LC_MESSAGES") {
-        locale
-    } else if let Ok(locale) = env::var("LANG") {
-        locale
-    } else {
-        "C".to_string()
-    };
-
-    locale == "C" || locale == "POSIX"
-}
-
 #[inline]
 fn report_difference(
     from_byte: u8,
@@ -690,7 +676,7 @@ fn report_difference(
         return;
     }
 
-    let term = if is_posix_locale() && !params.print_bytes {
+    let term = if is_posix_locale("LC_MESSAGES") && !params.print_bytes {
         "char"
     } else {
         "byte"
