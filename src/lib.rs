@@ -1,4 +1,5 @@
 pub mod cmp;
+pub mod color;
 pub mod context_diff;
 pub mod ed_diff;
 pub mod macros;
