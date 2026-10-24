@@ -52,9 +52,29 @@ pub fn do_write_line(
     }
 }
 
+/// How a modification time is rendered in a diff header.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TimestampStyle {
+    /// `2026-03-05 07:08:09.500000000 +0100`
+    Iso,
+    /// `Thu Mar  5 07:08:09 2026`
+    Traditional,
+}
+
+/// Returns whether the locale selected for `category` (e.g. `LC_TIME`) is the
+/// POSIX one, following the `LC_ALL` > category > `LANG` precedence, where an
+/// empty variable counts as unset.
+pub fn is_posix_locale(category: &str) -> bool {
+    let locale = ["LC_ALL", category, "LANG"]
+        .into_iter()
+        .find_map(|name| std::env::var(name).ok().filter(|value| !value.is_empty()))
+        .unwrap_or_else(|| "C".to_string());
+    locale == "C" || locale == "POSIX"
+}
+
 /// Retrieves the modification time of the input file specified by file path
 /// If an error occurs, it returns the current system time
-pub fn get_modification_time(file_path: &str) -> String {
+pub fn get_modification_time(file_path: &str, style: TimestampStyle) -> String {
     use chrono::{DateTime, Local};
     use std::fs;
     use std::time::SystemTime;
@@ -64,11 +84,11 @@ pub fn get_modification_time(file_path: &str) -> String {
         .unwrap_or(SystemTime::now());
 
     let modification_time: DateTime<Local> = modification_time.into();
-    let modification_time: String = modification_time
-        .format("%Y-%m-%d %H:%M:%S%.9f %z")
-        .to_string();
-
-    modification_time
+    let format = match style {
+        TimestampStyle::Iso => "%Y-%m-%d %H:%M:%S%.9f %z",
+        TimestampStyle::Traditional => "%a %b %e %H:%M:%S %Y",
+    };
+    modification_time.format(format).to_string()
 }
 
 pub fn format_failure_to_read_input_file(
@@ -277,7 +297,7 @@ mod tests {
             // verify
             assert_eq!(
                 current,
-                get_modification_time(&temp.path().to_string_lossy())
+                get_modification_time(&temp.path().to_string_lossy(), TimestampStyle::Iso)
             );
         }
 
@@ -292,7 +312,9 @@ mod tests {
             // Because the file is invalid, it will return SystemTime::now()
             // which will be greater than previously saved time
             let current_time: DateTime<Local> = SystemTime::now().into();
-            let m_time: DateTime<Local> = get_modification_time(invalid_file).parse().unwrap();
+            let m_time: DateTime<Local> = get_modification_time(invalid_file, TimestampStyle::Iso)
+                .parse()
+                .unwrap();
 
             assert!(m_time > current_time);
         }

@@ -611,3 +611,45 @@ fn cmp_fast_paths() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
+#[test]
+fn cmp_difference_term_follows_messages_locale() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+    let a_path = tmp_dir.path().join("a");
+    let b_path = tmp_dir.path().join("b");
+    std::fs::write(&a_path, "abc\n")?;
+    std::fs::write(&b_path, "bcd\n")?;
+
+    // LC_ALL overrides LC_MESSAGES, which overrides LANG; empty values are unset.
+    for (variables, term) in [
+        (&[][..], "char"),
+        (
+            &[("LC_ALL", "C"), ("LC_MESSAGES", "en_US.UTF-8")][..],
+            "char",
+        ),
+        (&[("LC_ALL", "en_US.UTF-8"), ("LC_MESSAGES", "C")], "byte"),
+        (&[("LC_MESSAGES", "POSIX"), ("LANG", "en_US.UTF-8")], "char"),
+        (&[("LC_MESSAGES", "en_US.UTF-8"), ("LANG", "C")], "byte"),
+        (&[("LC_ALL", ""), ("LANG", "en_US.UTF-8")], "byte"),
+        (
+            &[("LC_ALL", ""), ("LC_MESSAGES", ""), ("LANG", "C")],
+            "char",
+        ),
+    ] {
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.env_remove("LC_ALL")
+            .env_remove("LC_MESSAGES")
+            .env_remove("LANG")
+            .envs(variables.iter().copied())
+            .arg("cmp")
+            .arg(&a_path)
+            .arg(&b_path);
+        cmd.assert()
+            .code(predicate::eq(1))
+            .failure()
+            .stdout(predicate::str::ends_with(format!(
+                " differ: {term} 1, line 1\n"
+            )));
+    }
+    Ok(())
+}

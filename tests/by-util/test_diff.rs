@@ -418,6 +418,63 @@ fn write_error() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+// TZ is not honored on Windows.
+#[cfg(unix)]
+#[test]
+fn context_timestamp_follows_time_locale() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+    let old = tmp_dir.path().join("old");
+    let new = tmp_dir.path().join("new");
+    std::fs::write(&old, "left\n")?;
+    std::fs::write(&new, "right\n")?;
+    // 2009-02-13 23:31:30.25 UTC
+    let mtime = std::time::UNIX_EPOCH + std::time::Duration::from_millis(1_234_567_890_250);
+    for path in [&old, &new] {
+        File::options()
+            .write(true)
+            .open(path)?
+            .set_modified(mtime)?;
+    }
+
+    let traditional = "Fri Feb 13 23:31:30 2009";
+    let iso = "2009-02-13 23:31:30.250000000 +0000";
+    // LC_ALL overrides LC_TIME, which overrides LANG; empty values are unset.
+    for (variables, timestamp) in [
+        (&[("LC_ALL", "C")][..], traditional),
+        (
+            &[("LC_ALL", "POSIX"), ("LC_TIME", "en_US.UTF-8")],
+            traditional,
+        ),
+        (&[("LC_ALL", "en_US.UTF-8"), ("LC_TIME", "C")], iso),
+        (&[("LC_TIME", "C"), ("LANG", "en_US.UTF-8")], traditional),
+        (&[("LC_TIME", "en_US.UTF-8"), ("LANG", "C")], iso),
+        (
+            &[("LC_ALL", ""), ("LC_TIME", ""), ("LANG", "POSIX")],
+            traditional,
+        ),
+        (&[("LANG", "fr_FR.UTF-8")], iso),
+    ] {
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.env("TZ", "UTC0")
+            .env_remove("LC_ALL")
+            .env_remove("LC_TIME")
+            .env_remove("LANG")
+            .envs(variables.iter().copied())
+            .arg("diff")
+            .arg("-c")
+            .arg(&old)
+            .arg(&new);
+        cmd.assert()
+            .code(predicate::eq(1))
+            .stdout(predicate::str::starts_with(format!(
+                "*** {}\t{timestamp}\n--- {}\t{timestamp}\n",
+                old.display(),
+                new.display()
+            )));
+    }
+    Ok(())
+}
+
 #[test]
 fn compare_file_to_directory() -> Result<(), Box<dyn std::error::Error>> {
     let tmp_dir = tempdir()?;
