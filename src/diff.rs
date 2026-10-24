@@ -3,13 +3,14 @@
 // For the full copyright and license information, please view the LICENSE-*
 // files that was distributed with this source code.
 
-use crate::params::{parse_params, Format, MissingFile};
+use crate::color::{colorize, ColorWhen, Palette, PaletteError};
+use crate::params::{parse_params, Format, MissingFile, Params};
 use crate::utils::report_failure_to_read_input_file;
 use crate::{context_diff, ed_diff, normal_diff, side_diff, unified_diff};
 use std::env::ArgsOs;
 use std::ffi::OsString;
 use std::fs;
-use std::io::{self, stdout, Read, Write};
+use std::io::{self, stdout, IsTerminal, Read, Write};
 use std::iter::Peekable;
 use std::process::{exit, ExitCode};
 
@@ -125,13 +126,58 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
             params.to.to_string_lossy()
         );
     } else {
-        io::stdout().write_all(&result).unwrap();
+        let written = match output_palette(&params) {
+            Some(palette) => stdout().write_all(&colorize(&result, params.format, &palette)),
+            None => stdout().write_all(&result),
+        };
+        if let Err(error) = written.and_then(|()| stdout().flush()) {
+            // A reader that went away, as with `| head`, is not worth a message.
+            if error.kind() != io::ErrorKind::BrokenPipe {
+                report_failure_to_read_input_file(
+                    &params.executable,
+                    &OsString::from("standard output"),
+                    &error,
+                );
+            }
+            return ExitCode::from(2);
+        }
     }
     if result.is_empty() {
         maybe_report_identical_files();
         ExitCode::SUCCESS
     } else {
         ExitCode::from(1)
+    }
+}
+
+/// Returns the palette to colorize the output with, or `None` when the
+/// output is not to be colorized. An invalid `--palette` is reported and
+/// disables colors.
+fn output_palette(params: &Params) -> Option<Palette> {
+    let enabled = match params.color {
+        ColorWhen::Never => false,
+        ColorWhen::Always => true,
+        ColorWhen::Auto => {
+            (params.presume_output_tty || stdout().is_terminal())
+                && std::env::var_os("TERM").is_some_and(|term| term != "dumb")
+        }
+    };
+    if !enabled {
+        return None;
+    }
+    let Some(spec) = &params.palette else {
+        return Some(Palette::default());
+    };
+    let executable = params.executable.to_string_lossy();
+    match Palette::parse(spec) {
+        Ok(palette) => Some(palette),
+        Err(error) => {
+            if let PaletteError::UnrecognizedPrefix(prefix) = error {
+                eprintln!("{executable}: unrecognized prefix: {prefix}");
+            }
+            eprintln!("{executable}: unparsable value for --palette");
+            None
+        }
     }
 }
 
