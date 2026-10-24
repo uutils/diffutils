@@ -1,4 +1,4 @@
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::iter::Peekable;
 use std::path::PathBuf;
 
@@ -28,6 +28,17 @@ pub struct Params {
     pub width: usize,
     pub from_label: Option<OsString>,
     pub to_label: Option<OsString>,
+}
+
+impl Params {
+    /// The names to show for the from-file and the to-file: their labels if
+    /// given, else their paths.
+    pub fn names(&self) -> (&OsString, &OsString) {
+        (
+            self.from_label.as_ref().unwrap_or(&self.from),
+            self.to_label.as_ref().unwrap_or(&self.to),
+        )
+    }
 }
 
 impl Default for Params {
@@ -68,15 +79,19 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
     while let Some(param) = opts.next() {
         // -L LABEL, -LLABEL, --label LABEL or --label=LABEL: the first names
         // the from-file in headers and messages, the second the to-file.
-        let label = match param.to_str() {
-            Some("-L" | "--label") => Some(opts.next().ok_or_else(|| {
+        // The label may be any bytes, so match on those, not on a str.
+        let bytes = param.as_encoded_bytes();
+        let label = if bytes == b"-L" || bytes == b"--label" {
+            Some(opts.next().ok_or_else(|| {
                 format!("option '{}' requires an argument", param.to_string_lossy())
-            })?),
-            Some(p) => p
-                .strip_prefix("--label=")
-                .or_else(|| p.strip_prefix("-L"))
-                .map(OsString::from),
-            None => None,
+            })?)
+        } else {
+            bytes
+                .strip_prefix(b"--label=")
+                .or_else(|| bytes.strip_prefix(b"-L"))
+                // SAFETY: the bytes come from an OsStr and are split right
+                // after an ASCII prefix.
+                .map(|rest| unsafe { OsStr::from_encoded_bytes_unchecked(rest) }.to_os_string())
         };
         if let Some(label) = label {
             if params.from_label.is_none() {
@@ -930,6 +945,29 @@ mod tests {
         )
         .unwrap();
         assert_eq!(params.from, bad);
+    }
+    #[cfg(unix)]
+    #[test]
+    fn labels_non_utf8() {
+        use std::os::unix::ffi::OsStringExt;
+        let bytes = |b: &[u8]| OsString::from_vec(b.to_vec());
+        let params = parse_params(
+            [
+                os("diff"),
+                bytes(b"-L\xffold"),
+                bytes(b"--label=\xfenew"),
+                os("foo"),
+                os("bar"),
+            ]
+            .iter()
+            .cloned()
+            .peekable(),
+        )
+        .unwrap();
+        assert_eq!(params.from_label, Some(bytes(b"\xffold")));
+        assert_eq!(params.to_label, Some(bytes(b"\xfenew")));
+        assert_eq!(params.from, os("foo"));
+        assert_eq!(params.to, os("bar"));
     }
     #[test]
     fn double_dash() {
