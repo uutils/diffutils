@@ -8,7 +8,9 @@ use std::io::Write;
 
 use crate::params::Params;
 use crate::utils::do_write_line;
-use crate::utils::{get_modification_time, is_posix_locale, FunctionLineFinder, TimestampStyle};
+use crate::utils::{
+    get_modification_time, is_posix_locale, write_file_header, FunctionLineFinder, TimestampStyle,
+};
 
 #[derive(Debug, PartialEq)]
 pub enum DiffLine {
@@ -323,14 +325,9 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
     };
     let from_modified_time = get_modification_time(&params.from.to_string_lossy(), style);
     let to_modified_time = get_modification_time(&params.to.to_string_lossy(), style);
-    let mut output = format!(
-        "*** {0}\t{1}\n--- {2}\t{3}\n",
-        params.from.to_string_lossy(),
-        from_modified_time,
-        params.to.to_string_lossy(),
-        to_modified_time
-    )
-    .into_bytes();
+    let mut output = Vec::new();
+    write_file_header(&mut output, "***", &params.from, &from_modified_time);
+    write_file_header(&mut output, "---", &params.to, &to_modified_time);
     let diff_results = make_diff(expected, actual, params.context_count, params.brief);
     if diff_results.is_empty() {
         return Vec::new();

@@ -5,7 +5,11 @@
 
 use crate::bre::Bre;
 use regex::Regex;
-use std::{ffi::OsString, io::Write};
+use std::{
+    borrow::Cow,
+    ffi::{OsStr, OsString},
+    io::Write,
+};
 use unicode_width::UnicodeWidthStr;
 
 /// Replace tabs by spaces in the input line.
@@ -51,6 +55,96 @@ pub fn do_write_line(
     } else {
         output.write_all(line)
     }
+}
+
+/// Quotes a file name for the headers of the diff output: a name containing
+/// spaces, double quotes, backslashes, control characters or non-ASCII bytes
+/// is written between double quotes with C-style escapes, other names are
+/// written as is. On Windows, backslashes separate path components and are
+/// left alone.
+#[must_use]
+pub fn quote_file_name(name: &[u8]) -> Cow<'_, [u8]> {
+    const SPECIAL_BACKSLASH: bool = cfg!(not(windows));
+    let needs_quotes = |byte: u8| {
+        byte <= b' ' || byte == b'"' || (byte == b'\\' && SPECIAL_BACKSLASH) || byte >= 0x80
+    };
+    if !name.iter().copied().any(needs_quotes) {
+        return Cow::Borrowed(name);
+    }
+    let mut quoted = Vec::with_capacity(name.len() + 8);
+    quoted.push(b'"');
+    for &byte in name {
+        let escape = match byte {
+            b'"' => b'"',
+            b'\\' if SPECIAL_BACKSLASH => b'\\',
+            0x07 => b'a',
+            0x08 => b'b',
+            b'\t' => b't',
+            b'\n' => b'n',
+            0x0b => b'v',
+            0x0c => b'f',
+            b'\r' => b'r',
+            b' ' => {
+                quoted.push(b' ');
+                continue;
+            }
+            byte if needs_quotes(byte) => {
+                quoted.extend_from_slice(format!("\\{byte:03o}").as_bytes());
+                continue;
+            }
+            byte => {
+                quoted.push(byte);
+                continue;
+            }
+        };
+        quoted.extend_from_slice(&[b'\\', escape]);
+    }
+    quoted.push(b'"');
+    Cow::Owned(quoted)
+}
+
+/// Appends a file header line of the context or unified formats, such as
+/// `--- name\ttimestamp`, to `output`.
+pub fn write_file_header(output: &mut Vec<u8>, marker: &str, name: &OsStr, timestamp: &str) {
+    output.extend_from_slice(marker.as_bytes());
+    output.push(b' ');
+    output.extend_from_slice(&quote_file_name(name.as_encoded_bytes()));
+    output.push(b'\t');
+    output.extend_from_slice(timestamp.as_bytes());
+    output.push(b'\n');
+}
+
+/// Quotes a command line argument the way a shell would need it, for the
+/// headers that repeat the options of a directory comparison.
+#[must_use]
+pub fn quote_shell_argument(arg: &[u8]) -> Cow<'_, [u8]> {
+    const SPECIAL: &[u8] = b"^*?!=()|&;<>`\\'\"$[";
+    let is_special = |byte: &u8| *byte <= b' ' || *byte == 0x7f || SPECIAL.contains(byte);
+    let special_start = matches!(arg.first(), Some(b'~' | b'#'));
+    if !special_start && !arg.iter().any(is_special) && !arg.is_empty() {
+        return Cow::Borrowed(arg);
+    }
+    let mut quoted = Vec::with_capacity(arg.len() + 2);
+    let only_single_quotes = arg
+        .iter()
+        .filter(|byte| is_special(byte))
+        .all(|&byte| byte == b'\'');
+    if arg.contains(&b'\'') && only_single_quotes {
+        quoted.push(b'"');
+        quoted.extend_from_slice(arg);
+        quoted.push(b'"');
+    } else {
+        quoted.push(b'\'');
+        for &byte in arg {
+            if byte == b'\'' {
+                quoted.extend_from_slice(b"'\\''");
+            } else {
+                quoted.push(byte);
+            }
+        }
+        quoted.push(b'\'');
+    }
+    Cow::Owned(quoted)
 }
 
 /// Finds the lines shown after hunk headers by `-F` and `-p`: the nearest
@@ -306,6 +400,54 @@ mod tests {
                 do_expand_tabs(&[240, 240, 152, 137, 9, 102, 111, 111], 8),
                 &[240, 240, 152, 137, 32, 32, 32, 32, 102, 111, 111]
             );
+        }
+    }
+
+    mod quoting {
+        use super::*;
+        use pretty_assertions::assert_eq;
+
+        fn quoted_name(name: &[u8]) -> String {
+            String::from_utf8(quote_file_name(name).into_owned()).unwrap()
+        }
+
+        fn quoted_arg(arg: &str) -> String {
+            String::from_utf8(quote_shell_argument(arg.as_bytes()).into_owned()).unwrap()
+        }
+
+        #[test]
+        fn file_names() {
+            assert_eq!(quoted_name(b"src/main.rs"), "src/main.rs");
+            assert_eq!(quoted_name(b"why?*$'#~"), "why?*$'#~");
+            assert_eq!(quoted_name(b"two words"), r#""two words""#);
+            assert_eq!(quoted_name(b"say \"hi\""), r#""say \"hi\"""#);
+            if cfg!(windows) {
+                assert_eq!(quoted_name(b"C:\\temp"), r"C:\temp");
+                assert_eq!(quoted_name(b"C:\\my docs"), r#""C:\my docs""#);
+            } else {
+                assert_eq!(quoted_name(b"C:\\temp"), r#""C:\\temp""#);
+            }
+            assert_eq!(
+                quoted_name(b"\x07\x08\t\n\x0b\x0c\r"),
+                r#""\a\b\t\n\v\f\r""#
+            );
+            assert_eq!(quoted_name(b"\x1bx\x7f"), "\"\\033x\x7f\"");
+            assert_eq!(quoted_name("caf\u{e9}".as_bytes()), r#""caf\303\251""#);
+            assert_eq!(quoted_name(b"\xfe"), r#""\376""#);
+        }
+
+        #[test]
+        fn shell_arguments() {
+            assert_eq!(quoted_arg("-u"), "-u");
+            assert_eq!(quoted_arg("a,b:c@d%e+f{g}h]/i.j"), "a,b:c@d%e+f{g}h]/i.j");
+            assert_eq!(quoted_arg("x~#"), "x~#");
+            assert_eq!(quoted_arg("~x"), "'~x'");
+            assert_eq!(quoted_arg("#x"), "'#x'");
+            assert_eq!(quoted_arg("^fn (main|init)"), "'^fn (main|init)'");
+            assert_eq!(quoted_arg("--width=9"), "'--width=9'");
+            assert_eq!(quoted_arg(""), "''");
+            assert_eq!(quoted_arg("don't"), "\"don't\"");
+            assert_eq!(quoted_arg("don't $pay"), "'don'\\''t $pay'");
         }
     }
 
