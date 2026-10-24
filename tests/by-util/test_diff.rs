@@ -308,6 +308,102 @@ fn stdin_is_directory() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
+fn color() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+    let old = tmp_dir.path().join("old");
+    let new = tmp_dir.path().join("new");
+    std::fs::write(&old, "sun\nrain\n")?;
+    std::fs::write(&new, "sun\nsnow\n")?;
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff").arg("--color=always").arg(&old).arg(&new);
+    cmd.assert()
+        .code(predicate::eq(1))
+        .stdout("\x1b[36m2c2\x1b[0m\n\x1b[31m< rain\x1b[0m\n---\n\x1b[32m> snow\x1b[0m\n");
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff")
+        .arg("--color=always")
+        .arg("--palette=de=4:ad=7")
+        .arg(&old)
+        .arg(&new);
+    cmd.assert()
+        .code(predicate::eq(1))
+        .stdout("\x1b[36m2c2\x1b[0m\n\x1b[4m< rain\x1b[0m\n---\n\x1b[7m> snow\x1b[0m\n");
+
+    // Standard output is not a terminal here, and TERM=dumb never gets colors.
+    for args in [&["--color"][..], &["--color=auto", "---presume-output-tty"]] {
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.env("TERM", "dumb")
+            .arg("diff")
+            .args(args)
+            .arg(&old)
+            .arg(&new);
+        cmd.assert()
+            .code(predicate::eq(1))
+            .stdout("2c2\n< rain\n---\n> snow\n");
+    }
+
+    // An invalid palette is reported and disables colors.
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff")
+        .arg("--color=always")
+        .arg("--palette=up=1")
+        .arg(&old)
+        .arg(&new);
+    cmd.assert()
+        .code(predicate::eq(1))
+        .stdout("2c2\n< rain\n---\n> snow\n")
+        .stderr(predicate::str::contains("unrecognized prefix: up"));
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff").arg("--color=sometimes").arg(&old).arg(&new);
+    cmd.assert()
+        .code(predicate::eq(2))
+        .stderr(predicate::str::contains("invalid color 'sometimes'"));
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff").arg("--colour").arg(&old).arg(&new);
+    cmd.assert()
+        .code(predicate::eq(2))
+        .stderr(predicate::str::contains("unrecognized option '--colour'"));
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff")
+        .arg("--palette")
+        .arg("ln=1")
+        .arg("--color=always")
+        .arg(&old)
+        .arg(&new);
+    cmd.assert()
+        .code(predicate::eq(1))
+        .stdout("\x1b[1m2c2\x1b[0m\n\x1b[31m< rain\x1b[0m\n---\n\x1b[32m> snow\x1b[0m\n");
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn write_error() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+    let old = tmp_dir.path().join("old");
+    let new = tmp_dir.path().join("new");
+    std::fs::write(&old, "left\n")?;
+    std::fs::write(&new, "right\n")?;
+
+    let output = std::process::Command::new(assert_cmd::cargo::cargo_bin!("diffutils"))
+        .arg("diff")
+        .arg(&old)
+        .arg(&new)
+        .stdout(File::create("/dev/full")?)
+        .output()?;
+    output
+        .assert()
+        .code(predicate::eq(2))
+        .stderr("diff: standard output: No space left on device\n");
+    Ok(())
+}
+
+#[test]
 fn compare_file_to_directory() -> Result<(), Box<dyn std::error::Error>> {
     let tmp_dir = tempdir()?;
 
