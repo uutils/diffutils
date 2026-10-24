@@ -3,7 +3,7 @@
 // For the full copyright and license information, please view the LICENSE-*
 // files that was distributed with this source code.
 
-use crate::params::{parse_params, Format};
+use crate::params::{parse_params, Format, MissingFile};
 use crate::utils::report_failure_to_read_input_file;
 use crate::{context_diff, ed_diff, normal_diff, side_diff, unified_diff};
 use std::env::ArgsOs;
@@ -52,6 +52,11 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
     let mut io_error = false;
     let from_content = match read_file_contents(&params.from) {
         Ok(from_content) => from_content,
+        Err(e)
+            if e.kind() == io::ErrorKind::NotFound && params.missing_file != MissingFile::Error =>
+        {
+            vec![]
+        }
         Err(e) => {
             report_failure_to_read_input_file(&params.executable, &params.from, &e);
             io_error = true;
@@ -60,6 +65,11 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
     };
     let to_content = match read_file_contents(&params.to) {
         Ok(to_content) => to_content,
+        Err(e)
+            if e.kind() == io::ErrorKind::NotFound && params.missing_file == MissingFile::Empty =>
+        {
+            vec![]
+        }
         Err(e) => {
             report_failure_to_read_input_file(&params.executable, &params.to, &e);
             io_error = true;

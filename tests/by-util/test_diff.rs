@@ -207,6 +207,44 @@ fn read_from_stdin() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
+fn missing_file_as_empty() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+    let present = tmp_dir.path().join("present");
+    let absent = tmp_dir.path().join("absent");
+    std::fs::write(&present, "kiwi\nmango\n")?;
+
+    for option in ["-N", "--new-file", "--unidirectional-new-file"] {
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff").arg(option).arg(&absent).arg(&present);
+        cmd.assert()
+            .code(predicate::eq(1))
+            .failure()
+            .stdout("0a1,2\n> kiwi\n> mango\n");
+    }
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff").arg("-N").arg(&present).arg(&absent);
+    cmd.assert()
+        .code(predicate::eq(1))
+        .failure()
+        .stdout("1,2d0\n< kiwi\n< mango\n");
+
+    // Only a missing first operand is accepted here.
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff")
+        .arg("--unidirectional-new-file")
+        .arg(&present)
+        .arg(&absent);
+    cmd.assert().code(predicate::eq(2)).failure();
+
+    // Without the option, a missing file is trouble.
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff").arg(&absent).arg(&present);
+    cmd.assert().code(predicate::eq(2)).failure();
+    Ok(())
+}
+
+#[test]
 fn compare_file_to_directory() -> Result<(), Box<dyn std::error::Error>> {
     let tmp_dir = tempdir()?;
 
