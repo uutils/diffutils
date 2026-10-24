@@ -10,28 +10,31 @@ use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, Metadata};
-use std::io;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use crate::diff::{compare_files, Outcome};
 use crate::params::{MissingFile, Params};
 use crate::utils::{
     fold_file_name_case, quote_file_name, quote_shell_argument, report_failure_to_read_input_file,
+    single_quote,
 };
 
-/// Compares the directories `params.from` and `params.to`. `option_args` are
-/// the command line options, repeated in the header printed before the
-/// differences of each pair of files.
-pub fn compare_directories(params: &Params, option_args: &[OsString]) -> Outcome {
+/// Compares `params.from` and `params.to` according to their types: the
+/// entries of directories, the targets of symbolic links that are not
+/// followed, or the contents of files. `option_args` are the command line
+/// options, repeated in the header printed before the differences of each
+/// pair of files found in directories.
+pub fn compare(params: &Params, option_args: &[OsString]) -> Outcome {
     let mut walker = DirectoryWalker {
         params,
         option_args,
         ancestors: Vec::new(),
     };
-    walker.compare_directories(&params.from, &params.to, Level::Top)
+    walker.compare_entries(&params.from, &params.to, Level::Top)
 }
 
-/// Whether directories are the operands of diff, or nested in them.
+/// Whether files are the operands of diff, or found in directories.
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum Level {
     Top,
@@ -83,17 +86,17 @@ impl DirectoryWalker<'_> {
         for entry in entries {
             let entry_outcome = match entry {
                 Entry::Both(from, to) => {
-                    self.compare_entries(&join(from_dir, from), &join(to_dir, to))
+                    self.compare_entries(&join(from_dir, from), &join(to_dir, to), Level::Nested)
                 }
                 Entry::FromOnly(name) if self.params.missing_file == MissingFile::Empty => {
-                    self.compare_entries(&join(from_dir, name), &join(to_dir, name))
+                    self.compare_entries(&join(from_dir, name), &join(to_dir, name), Level::Nested)
                 }
                 Entry::FromOnly(name) => report_only_in(from_dir, name),
                 Entry::ToOnly(name) if self.params.missing_file == MissingFile::Error => {
                     report_only_in(to_dir, name)
                 }
                 Entry::ToOnly(name) => {
-                    self.compare_entries(&join(from_dir, name), &join(to_dir, name))
+                    self.compare_entries(&join(from_dir, name), &join(to_dir, name), Level::Nested)
                 }
             };
             outcome = outcome.max(entry_outcome);
@@ -148,7 +151,7 @@ impl DirectoryWalker<'_> {
 
     /// Compares two entries of the compared directories, one of which may be
     /// missing when missing files are treated as empty.
-    fn compare_entries(&mut self, from: &OsStr, to: &OsStr) -> Outcome {
+    fn compare_entries(&mut self, from: &OsStr, to: &OsStr, level: Level) -> Outcome {
         let (Ok(from_metadata), Ok(to_metadata)) = (self.metadata(from), self.metadata(to)) else {
             return Outcome::Trouble;
         };
@@ -158,8 +161,8 @@ impl DirectoryWalker<'_> {
             {
                 if same_file::is_same_file(from, to).unwrap_or(false) {
                     Outcome::Identical
-                } else if self.params.recursive {
-                    self.compare_directories(from, to, Level::Nested)
+                } else if level == Level::Top || self.params.recursive {
+                    self.compare_directories(from, to, level)
                 } else {
                     println!(
                         "Common subdirectories: {} and {}",
@@ -168,6 +171,11 @@ impl DirectoryWalker<'_> {
                     );
                     Outcome::Identical
                 }
+            }
+            (Some(from_metadata), Some(to_metadata))
+                if from_metadata.is_symlink() && to_metadata.is_symlink() =>
+            {
+                self.compare_symbolic_links(from, to)
             }
             (Some(from_metadata), Some(to_metadata))
                 if !(from_metadata.is_file() && to_metadata.is_file()) =>
@@ -194,10 +202,53 @@ impl DirectoryWalker<'_> {
                     Outcome::Identical
                 }
             }
+            // The operands themselves are compared without a header, as when
+            // they are not directories.
+            _ if level == Level::Top => compare_files(self.params, None),
             _ => self.compare_files(from, to),
         }
     }
 
+    /// Compares the targets of two symbolic links.
+    fn compare_symbolic_links(&self, from: &OsStr, to: &OsStr) -> Outcome {
+        let (from_target, to_target) = match (fs::read_link(from), fs::read_link(to)) {
+            (Ok(from_target), Ok(to_target)) => (from_target, to_target),
+            (Err(error), _) => {
+                self.report_error(from, &error);
+                return Outcome::Trouble;
+            }
+            (_, Err(error)) => {
+                self.report_error(to, &error);
+                return Outcome::Trouble;
+            }
+        };
+        if from_target == to_target {
+            if self.params.report_identical_files {
+                println!(
+                    "Files {} and {} are identical",
+                    from.to_string_lossy(),
+                    to.to_string_lossy()
+                );
+            }
+            return Outcome::Identical;
+        }
+        let mut message = b"Symbolic links ".to_vec();
+        for (link, target, separator) in [
+            (from, from_target.as_os_str(), &b" and "[..]),
+            (to, to_target.as_os_str(), b" differ\n"),
+        ] {
+            message.extend(single_quote(link.as_encoded_bytes()));
+            message.extend_from_slice(b" -> ");
+            message.extend(single_quote(target.as_encoded_bytes()));
+            message.extend_from_slice(separator);
+        }
+        if io::stdout().write_all(&message).is_err() {
+            return Outcome::Trouble;
+        }
+        Outcome::Different
+    }
+
+    /// Compares two files found in the compared directories.
     fn compare_files(&self, from: &OsStr, to: &OsStr) -> Outcome {
         let params = Params {
             from: from.to_os_string(),
@@ -220,7 +271,12 @@ impl DirectoryWalker<'_> {
     /// Returns the metadata of `path`, `None` if it is missing on purpose
     /// (-N), or an error after reporting it.
     fn metadata(&self, path: &OsStr) -> Result<Option<Metadata>, ()> {
-        match fs::metadata(path) {
+        let metadata = if self.params.no_dereference {
+            fs::symlink_metadata(path)
+        } else {
+            fs::metadata(path)
+        };
+        match metadata {
             Ok(metadata) => Ok(Some(metadata)),
             Err(error)
                 if error.kind() == io::ErrorKind::NotFound
@@ -305,6 +361,10 @@ fn join(dir: &OsStr, name: &OsStr) -> OsString {
 /// Describes the type of a file, as in "File X is a fifo while ...".
 fn file_kind(metadata: &Metadata) -> &'static str {
     let file_type = metadata.file_type();
+    // Only seen with --no-dereference, as symbolic links are followed otherwise.
+    if file_type.is_symlink() {
+        return "symbolic link";
+    }
     if file_type.is_dir() {
         return "directory";
     }

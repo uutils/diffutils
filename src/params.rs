@@ -58,6 +58,7 @@ pub struct Params {
     /// (`-S`).
     pub starting_file: Option<OsString>,
     pub ignore_file_name_case: bool,
+    pub no_dereference: bool,
 }
 
 /// The pattern of `-p`, matching the first line of C functions.
@@ -85,6 +86,7 @@ impl Default for Params {
             recursive: false,
             starting_file: None,
             ignore_file_name_case: false,
+            no_dereference: false,
         }
     }
 }
@@ -191,6 +193,10 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
         if let Some(argument) = option_argument(&param, "-F", "--show-function-line") {
             let pattern = argument_value(argument, &param, &mut opts)?;
             push_function_line_pattern(&mut params, &pattern.to_string_lossy())?;
+            continue;
+        }
+        if param == "--no-dereference" {
+            params.no_dereference = true;
             continue;
         }
         if param == "--ignore-file-name-case" {
@@ -363,11 +369,20 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
     let mut from_path: PathBuf = PathBuf::from(&params.from);
     let mut to_path: PathBuf = PathBuf::from(&params.to);
 
-    if from_path.is_dir() && to_path.is_file() {
+    // Symbolic links that are not followed are compared like files.
+    let is_file = |path: &Path| {
+        if params.no_dereference {
+            path.symlink_metadata()
+                .is_ok_and(|metadata| !metadata.is_dir())
+        } else {
+            path.is_file()
+        }
+    };
+    if from_path.is_dir() && is_file(&to_path) {
         let name = directory_entry(&from_path, to_path.file_name().unwrap(), &params);
         from_path.push(name);
         params.from = from_path.into_os_string();
-    } else if from_path.is_file() && to_path.is_dir() {
+    } else if is_file(&from_path) && to_path.is_dir() {
         let name = directory_entry(&to_path, from_path.file_name().unwrap(), &params);
         to_path.push(name);
         params.to = to_path.into_os_string();

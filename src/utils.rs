@@ -114,6 +114,22 @@ pub fn write_file_header(output: &mut Vec<u8>, marker: &str, name: &OsStr, times
     output.push(b'\n');
 }
 
+/// Puts `name` between single quotes, writing a quote in it as `'\''`.
+#[must_use]
+pub fn single_quote(name: &[u8]) -> Vec<u8> {
+    let mut quoted = Vec::with_capacity(name.len() + 2);
+    quoted.push(b'\'');
+    for &byte in name {
+        if byte == b'\'' {
+            quoted.extend_from_slice(br"'\''");
+        } else {
+            quoted.push(byte);
+        }
+    }
+    quoted.push(b'\'');
+    quoted
+}
+
 /// Quotes a command line argument the way a shell would need it, for the
 /// headers that repeat the options of a directory comparison.
 #[must_use]
@@ -456,6 +472,13 @@ mod tests {
             assert_eq!(quoted_arg(""), "''");
             assert_eq!(quoted_arg("don't"), "\"don't\"");
             assert_eq!(quoted_arg("don't $pay"), "'don'\\''t $pay'");
+        }
+
+        #[test]
+        fn single_quotes() {
+            assert_eq!(single_quote(b"plain"), b"'plain'");
+            assert_eq!(single_quote(b"it's"), br"'it'\''s'");
+            assert_eq!(single_quote(b""), b"''");
         }
     }
 
