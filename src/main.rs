@@ -12,6 +12,7 @@ use std::{
 };
 
 mod cmp;
+mod color;
 mod context_diff;
 mod diff;
 mod ed_diff;
