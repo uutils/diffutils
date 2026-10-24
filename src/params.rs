@@ -4,6 +4,8 @@ use std::path::PathBuf;
 
 use regex::Regex;
 
+use crate::color::ColorWhen;
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum Format {
     #[default]
@@ -41,6 +43,10 @@ pub struct Params {
     pub width: usize,
     pub missing_file: MissingFile,
     pub text: bool,
+    pub color: ColorWhen,
+    /// The raw `--palette` value, validated when colors are enabled.
+    pub palette: Option<String>,
+    pub presume_output_tty: bool,
 }
 
 impl Default for Params {
@@ -58,6 +64,9 @@ impl Default for Params {
             width: 130,
             missing_file: MissingFile::default(),
             text: false,
+            color: ColorWhen::default(),
+            palette: None,
+            presume_output_tty: false,
         }
     }
 }
@@ -112,6 +121,34 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
             if params.missing_file != MissingFile::Empty {
                 params.missing_file = MissingFile::EmptyIfFirst;
             }
+            continue;
+        }
+        if param == "--color" {
+            params.color = ColorWhen::Auto;
+            continue;
+        }
+        if let Some(when) = param.to_str().and_then(|p| p.strip_prefix("--color=")) {
+            params.color = match when {
+                "auto" => ColorWhen::Auto,
+                "always" => ColorWhen::Always,
+                "never" => ColorWhen::Never,
+                _ => return Err(format!("invalid color '{when}'")),
+            };
+            continue;
+        }
+        if param == "--palette" {
+            let Some(palette) = opts.next() else {
+                return Err("option '--palette' requires an argument".to_string());
+            };
+            params.palette = Some(palette.to_string_lossy().into_owned());
+            continue;
+        }
+        if let Some(palette) = param.to_str().and_then(|p| p.strip_prefix("--palette=")) {
+            params.palette = Some(palette.to_string());
+            continue;
+        }
+        if param == "---presume-output-tty" {
+            params.presume_output_tty = true;
             continue;
         }
         if param == "-a" || param == "--text" {
@@ -1015,6 +1052,28 @@ mod tests {
                     .peekable()
             )
             .is_err());
+        }
+    }
+
+    #[test]
+    fn color_options() {
+        let parse = |args: &[&str]| {
+            let args = std::iter::once("diff")
+                .chain(args.iter().copied())
+                .chain(["foo", "bar"]);
+            parse_params(args.map(os).peekable())
+        };
+        assert_eq!(parse(&["--color"]).unwrap().color, ColorWhen::Auto);
+        assert_eq!(parse(&["--color=never"]).unwrap().color, ColorWhen::Never);
+        let params = parse(&["--palette", "ad=35", "--color=always"]).unwrap();
+        assert_eq!(params.color, ColorWhen::Always);
+        assert_eq!(params.palette.as_deref(), Some("ad=35"));
+        assert_eq!(
+            parse(&["--palette=hd=4"]).unwrap().palette.as_deref(),
+            Some("hd=4")
+        );
+        for option in ["--colorful", "--color=", "--color=yes"] {
+            assert!(parse(&[option]).is_err(), "{option}");
         }
     }
 }
