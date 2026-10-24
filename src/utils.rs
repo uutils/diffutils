@@ -3,6 +3,7 @@
 // For the full copyright and license information, please view the LICENSE-*
 // files that was distributed with this source code.
 
+use crate::bre::Bre;
 use regex::Regex;
 use std::{ffi::OsString, io::Write};
 use unicode_width::UnicodeWidthStr;
@@ -49,6 +50,56 @@ pub fn do_write_line(
         output.write_all(do_expand_tabs(line, tabsize).as_slice())
     } else {
         output.write_all(line)
+    }
+}
+
+/// Finds the lines shown after hunk headers by `-F` and `-p`: the nearest
+/// line of the old file preceding a hunk that matches one of the patterns.
+pub struct FunctionLineFinder<'a> {
+    lines: Vec<&'a [u8]>,
+    patterns: &'a [Bre],
+    /// Index of the first line not examined yet.
+    next_line: usize,
+    last_match: Option<&'a [u8]>,
+}
+
+impl<'a> FunctionLineFinder<'a> {
+    /// Maximum number of characters of a function line that are shown.
+    const MAX_WIDTH: usize = 40;
+
+    /// Returns `None` when there are no patterns, so no function lines.
+    pub fn new(old_text: &'a [u8], patterns: &'a [Bre]) -> Option<Self> {
+        if patterns.is_empty() {
+            return None;
+        }
+        Some(Self {
+            lines: old_text.split(|&byte| byte == b'\n').collect(),
+            patterns,
+            next_line: 0,
+            last_match: None,
+        })
+    }
+
+    /// Returns the text to show after the header of a hunk starting at
+    /// `first_line` (1-based) of the old file, if any. Hunks must be queried
+    /// in increasing order.
+    pub fn find(&mut self, first_line: usize) -> Option<Vec<u8>> {
+        let end = first_line.saturating_sub(1).min(self.lines.len());
+        for line in &self.lines[self.next_line.min(end)..end] {
+            if self.patterns.iter().any(|pattern| pattern.is_match(line)) {
+                self.last_match = Some(line);
+            }
+        }
+        self.next_line = self.next_line.max(end);
+        let line = self.last_match?.trim_ascii_start();
+        let end = match std::str::from_utf8(line) {
+            Ok(text) => text
+                .char_indices()
+                .nth(Self::MAX_WIDTH)
+                .map_or(line.len(), |(end, _)| end),
+            Err(_) => line.len().min(Self::MAX_WIDTH),
+        };
+        Some(line[..end].trim_ascii_end().to_vec())
     }
 }
 
