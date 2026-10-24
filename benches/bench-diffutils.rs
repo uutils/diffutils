@@ -9,8 +9,13 @@
 //! Set the TEMP_DIR const to keep the files. df_to_ files have small changes in them, search for '#'. \
 //! File generation up to 1 GB is really fast, Benchmarking above 100 MB takes very long.
 
+// clippy analyzes wrongly
+// This only is an issue when running "cargo clippy --workspace --all-targets --all-features".
+// The code is not used in the workspace, only in the bench itself, so unclear why a dead code warning appears.
+#![allow(dead_code)]
+
 /// Generate test files with these sizes in KB.
-const FILE_SIZE_KILO_BYTES: [u64; 4] = [100, 1 * MB, 10 * MB, 25 * MB];
+const FILE_SIZE_KILO_BYTES: [u64; 4] = [100, MB, 10 * MB, 25 * MB];
 // const FILE_SIZE_KILO_BYTES: [u64; 3] = [100, 1 * MB, 5 * MB];
 // Empty String to use TempDir (files will be removed after test) or specify dir to keep generated files
 const TEMP_DIR: &str = "";
@@ -38,7 +43,7 @@ mod diffutils_cmp {
         bencher
             // .with_inputs(|| prepare::cmp_params_identical_testfiles(lines))
             .with_inputs(|| params.clone())
-            .bench_refs(|params| black_box(cmp::cmp(&params).unwrap()));
+            .bench_refs(|params| black_box(cmp::cmp(params).unwrap()));
     }
 
     // bench the actual compare; cmp exits on first difference
@@ -52,7 +57,7 @@ mod diffutils_cmp {
         bencher
             // .with_inputs(|| prepare::cmp_params_identical_testfiles(lines))
             .with_inputs(|| params.clone())
-            .bench_refs(|params| black_box(cmp::cmp(&params).unwrap()));
+            .bench_refs(|params| black_box(cmp::cmp(params).unwrap()));
     }
 
     // bench original GNU cmp
@@ -138,7 +143,7 @@ mod parser {
     #[divan::bench]
     fn cmp_parser(bencher: Bencher) {
         let cmd = "cmd file_1.txt file_2.txt -bl n10M --ignore-initial=100KiB:1MiB";
-        let args = str_to_options(&cmd).into_iter().peekable();
+        let args = str_to_options(cmd).into_iter().peekable();
         bencher
             .with_inputs(|| args.clone())
             .bench_values(|data| black_box(cmp::parse_params(data)));
@@ -156,7 +161,7 @@ mod parser {
     #[divan::bench]
     fn diff_parser(bencher: Bencher) {
         let cmd = "diff file_1.txt file_2.txt -s --brief --expand-tabs --width=100";
-        let args = str_to_options(&cmd).into_iter().peekable();
+        let args = str_to_options(cmd).into_iter().peekable();
         bencher
             .with_inputs(|| args.clone())
             .bench_values(|data| black_box(params::parse_params(data)));
@@ -247,9 +252,8 @@ mod prepare {
     pub fn str_to_options(opt: &str) -> Vec<OsString> {
         let s: Vec<OsString> = opt
             .split(" ")
-            .into_iter()
             .filter(|s| !s.is_empty())
-            .map(|s| OsString::from(s))
+            .map(OsString::from)
             .collect();
 
         s
@@ -294,6 +298,7 @@ mod prepare {
         let file_to = File::create(to_name)?;
         // for int division, lines will be smaller than requested bytes
         let n_lines = bytes / LINE_LENGTH as u64;
+        #[allow(clippy::manual_checked_ops)]
         let change_every_n_lines = if num_differences == 0 {
             0
         } else {
@@ -337,7 +342,7 @@ mod prepare {
         }
 
         // create last line
-        let missing = (bytes - n_lines as u64 * LINE_LENGTH as u64) as usize;
+        let missing = (bytes - n_lines * LINE_LENGTH as u64) as usize;
         if missing > 0 {
             for word_idx in 0..10 {
                 let start = word_idx * 6; // Each word + space block is 6 bytes
