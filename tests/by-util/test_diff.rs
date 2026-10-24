@@ -590,3 +590,52 @@ fn ed_format_single_line_deletions() -> Result<(), Box<dyn std::error::Error>> {
     cmd.assert().code(predicate::eq(1)).stdout("2,4d\n");
     Ok(())
 }
+
+#[test]
+fn function_lines() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+    let old = tmp_dir.path().join("old.c");
+    let new = tmp_dir.path().join("new.c");
+    std::fs::write(
+        &old,
+        "int zero;\nstatic int twice(int n)\n{\n  int r;\n  r = n * 2;\n  return r;\n}\n",
+    )?;
+    std::fs::write(
+        &new,
+        "int zero;\nstatic int twice(int n)\n{\n  int r;\n  r = n + n;\n  return r;\n}\n",
+    )?;
+
+    // -p defaults to the context format and shows the enclosing C function.
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff").arg("-p").arg("-C1").arg(&old).arg(&new);
+    cmd.assert()
+        .code(predicate::eq(1))
+        .stdout(predicate::str::contains(
+            "\n*************** static int twice(int n)\n*** 4,6 ****\n",
+        ));
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff")
+        .arg("-U0")
+        .arg("-F")
+        .arg("^int")
+        .arg(&old)
+        .arg(&new);
+    cmd.assert()
+        .code(predicate::eq(1))
+        .stdout(predicate::str::ends_with(
+            "@@ -5 +5 @@ int zero;\n-  r = n * 2;\n+  r = n + n;\n",
+        ));
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff")
+        .arg("-u")
+        .arg("-F")
+        .arg("\\(")
+        .arg(&old)
+        .arg(&new);
+    cmd.assert()
+        .code(predicate::eq(2))
+        .stderr("'\\(': Unmatched ( or \\(\n");
+    Ok(())
+}
