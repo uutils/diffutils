@@ -288,3 +288,51 @@ fn sdiff_gutter_marker_column() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
+#[test]
+fn normal_format_single_line_ranges() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+    let old = tmp_dir.path().join("old");
+    let new = tmp_dir.path().join("new");
+    std::fs::write(&old, "north\neast\nsouth\nwest\n")?;
+    std::fs::write(&new, "north\nsouth\nwest\nup\ndown\n")?;
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff").arg(&old).arg(&new);
+    cmd.assert()
+        .code(predicate::eq(1))
+        .stdout("2d1\n< east\n4a4,5\n> up\n> down\n");
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff").arg("/dev/null").arg(&old);
+    if cfg!(unix) {
+        cmd.assert()
+            .code(predicate::eq(1))
+            .stdout("0a1,4\n> north\n> east\n> south\n> west\n");
+    }
+
+    std::fs::write(&new, "north\neast\nsouth\nwest\nup\n")?;
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff").arg(&old).arg(&new);
+    cmd.assert().code(predicate::eq(1)).stdout("4a5\n> up\n");
+    Ok(())
+}
+
+#[test]
+fn ed_format_single_line_deletions() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+    let old = tmp_dir.path().join("old");
+    let new = tmp_dir.path().join("new");
+    std::fs::write(&old, "red\norange\nyellow\ngreen\nblue\n")?;
+    std::fs::write(&new, "red\norange\nyellow\nblue\n")?;
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff").arg("-e").arg(&old).arg(&new);
+    cmd.assert().code(predicate::eq(1)).stdout("4d\n");
+
+    std::fs::write(&new, "red\nblue\n")?;
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff").arg("-e").arg(&old).arg(&new);
+    cmd.assert().code(predicate::eq(1)).stdout("2,4d\n");
+    Ok(())
+}
