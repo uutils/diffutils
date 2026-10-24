@@ -8,7 +8,7 @@ use std::io::Write;
 
 use crate::params::Params;
 use crate::utils::do_write_line;
-use crate::utils::{get_modification_time, TimestampStyle};
+use crate::utils::{get_modification_time, FunctionLineFinder, TimestampStyle};
 
 #[derive(Debug, PartialEq)]
 pub enum DiffLine {
@@ -260,7 +260,11 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
     if params.brief {
         return output;
     }
+    let mut function_lines = FunctionLineFinder::new(expected, &params.function_line_patterns);
     for result in diff_results {
+        let function_line = function_lines
+            .as_mut()
+            .and_then(|finder| finder.find(result.line_number_expected as usize));
         let mut line_number_expected = result.line_number_expected;
         let mut line_number_actual = result.line_number_actual;
         let mut expected_count = 0;
@@ -372,11 +376,16 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
         } else {
             format!(",{actual_count}")
         };
-        writeln!(
+        write!(
             output,
             "@@ -{line_number_expected}{exp_ct} +{line_number_actual}{act_ct} @@"
         )
         .expect("write to Vec is infallible");
+        if let Some(function_line) = function_line {
+            output.push(b' ');
+            output.extend_from_slice(&function_line);
+        }
+        output.push(b'\n');
         for line in result.lines {
             match line {
                 DiffLine::Expected(e) => {
@@ -1029,5 +1038,58 @@ mod tests {
         .join("\n");
         let output = diff(from.as_bytes(), to.as_bytes(), &params);
         assert_diff_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_function_lines() {
+        use crate::assert_diff_eq;
+
+        let from = [
+            "section Apples",
+            "  red",
+            "  green",
+            "    section Pears with a heading longer than forty characters",
+            "  ripe",
+            "  hard",
+            "  sweet",
+            "  sour",
+            "",
+        ]
+        .join("\n");
+        let to = from.replace("red", "crimson").replace("sour", "tart");
+        let params = Params {
+            from: "old".into(),
+            to: "new".into(),
+            context_count: 0,
+            function_line_patterns: vec![
+                crate::bre::Bre::new(r"^ *section \(Apples\|Pears\)").unwrap()
+            ],
+            ..Default::default()
+        };
+        // The heading is found before the hunk, trimmed and cut at 40
+        // characters, and the closest heading wins.
+        let expected = [
+            "--- old\tTIMESTAMP",
+            "+++ new\tTIMESTAMP",
+            "@@ -2 +2 @@ section Apples",
+            "-  red",
+            "+  crimson",
+            "@@ -8 +8 @@ section Pears with a heading longer than",
+            "-  sour",
+            "+  tart",
+            "",
+        ]
+        .join("\n");
+        let output = diff(from.as_bytes(), to.as_bytes(), &params);
+        assert_diff_eq!(output, expected);
+
+        // Nothing is shown when no line precedes the hunk.
+        let params = Params {
+            context_count: 1,
+            ..params
+        };
+        let output = diff(from.as_bytes(), to.as_bytes(), &params);
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.contains("\n@@ -1,3 +1,3 @@\n"));
     }
 }

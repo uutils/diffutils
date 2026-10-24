@@ -8,7 +8,7 @@ use std::io::Write;
 
 use crate::params::Params;
 use crate::utils::do_write_line;
-use crate::utils::{get_modification_time, is_posix_locale, TimestampStyle};
+use crate::utils::{get_modification_time, is_posix_locale, FunctionLineFinder, TimestampStyle};
 
 #[derive(Debug, PartialEq)]
 pub enum DiffLine {
@@ -338,7 +338,11 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
     if params.brief {
         return output;
     }
+    let mut function_lines = FunctionLineFinder::new(expected, &params.function_line_patterns);
     for result in diff_results {
+        let function_line = function_lines
+            .as_mut()
+            .and_then(|finder| finder.find(result.line_number_expected));
         let mut line_number_expected = result.line_number_expected;
         let mut line_number_actual = result.line_number_actual;
         let mut expected_count = result.expected.len();
@@ -363,11 +367,13 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
         } else {
             format!("{line_number_actual},")
         };
-        writeln!(
-            output,
-            "***************\n*** {exp_start}{end_line_number_expected} ****"
-        )
-        .expect("write to Vec is infallible");
+        output.extend_from_slice(b"***************");
+        if let Some(function_line) = function_line {
+            output.push(b' ');
+            output.extend_from_slice(&function_line);
+        }
+        writeln!(output, "\n*** {exp_start}{end_line_number_expected} ****")
+            .expect("write to Vec is infallible");
         if !result.expected_all_context {
             for line in result.expected {
                 match line {
@@ -995,6 +1001,41 @@ mod tests {
             "  bread",
             "! honey",
             "  apples",
+            "",
+        ]
+        .join("\n");
+        let output = diff(from.as_bytes(), to.as_bytes(), &params);
+        assert_diff_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_function_lines() {
+        use crate::assert_diff_eq;
+
+        let from = [
+            "(defun area",
+            "  (* w h))",
+            "(defun volume",
+            "  (* w h d))",
+            "",
+        ]
+        .join("\n");
+        let to = from.replace("d))", "depth))");
+        let params = Params {
+            from: "old".into(),
+            to: "new".into(),
+            context_count: 0,
+            function_line_patterns: vec![crate::bre::Bre::new("^(").unwrap()],
+            ..Default::default()
+        };
+        let expected = [
+            "*** old\tTIMESTAMP",
+            "--- new\tTIMESTAMP",
+            "*************** (defun volume",
+            "*** 4 ****",
+            "!   (* w h d))",
+            "--- 4 ----",
+            "!   (* w h depth))",
             "",
         ]
         .join("\n");
