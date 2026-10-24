@@ -6,31 +6,69 @@
 use crate::color::{colorize, ColorWhen, Palette, PaletteError};
 use crate::params::{parse_params, Format, MissingFile, Params};
 use crate::utils::report_failure_to_read_input_file;
-use crate::{context_diff, ed_diff, normal_diff, side_diff, unified_diff};
+use crate::{context_diff, dir_diff, ed_diff, normal_diff, side_diff, unified_diff};
 use std::env::ArgsOs;
 use std::ffi::OsString;
 use std::fs;
 use std::io::{self, stdout, IsTerminal, Read, Write};
 use std::iter::Peekable;
-use std::process::{exit, ExitCode};
+use std::path::Path;
+use std::process::ExitCode;
+
+/// The result of a comparison, from best to worst, so that the outcome of
+/// several comparisons is their maximum.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum Outcome {
+    Identical,
+    Different,
+    Trouble,
+}
 
 // Exit codes are documented at
 // https://www.gnu.org/software/diffutils/manual/html_node/Invoking-diff.html.
 //     An exit status of 0 means no differences were found,
 //     1 means some differences were found,
 //     and 2 means trouble.
+impl From<Outcome> for ExitCode {
+    fn from(outcome: Outcome) -> Self {
+        match outcome {
+            Outcome::Identical => Self::SUCCESS,
+            Outcome::Different => Self::from(1),
+            Outcome::Trouble => Self::from(2),
+        }
+    }
+}
+
 pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
-    let mut params = parse_params(opts).unwrap_or_else(|error| {
-        eprintln!("{error}");
-        exit(2);
-    });
+    let (mut params, option_args) = match parse_params(opts) {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            eprintln!("{error}");
+            return ExitCode::from(2);
+        }
+    };
     // diff - FILE with a directory on stdin => diff DIRECTORY/FILE FILE
     if params.from == "-" && params.to != "-" {
         if let Some(from) = stdin_directory_entry(&params.to) {
             params.from = from;
         }
     }
-    // if from and to are the same file, no need to perform any comparison
+    let both_directories = params.from != "-"
+        && params.to != "-"
+        && Path::new(&params.from).is_dir()
+        && Path::new(&params.to).is_dir();
+    let outcome = if both_directories {
+        dir_diff::compare_directories(&params, &option_args)
+    } else {
+        compare_files(&params, None)
+    };
+    outcome.into()
+}
+
+/// Compares the files `params.from` and `params.to`, printing their
+/// differences. When the files differ, `header` is printed first unless only
+/// a brief report is requested.
+pub fn compare_files(params: &Params, header: Option<&[u8]>) -> Outcome {
     let maybe_report_identical_files = || {
         if params.report_identical_files {
             println!(
@@ -40,11 +78,12 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
             );
         }
     };
+    // if from and to are the same file, no need to perform any comparison
     if params.from == "-" && params.to == "-"
         || same_file::is_same_file(&params.from, &params.to).unwrap_or(false)
     {
         maybe_report_identical_files();
-        return ExitCode::SUCCESS;
+        return Outcome::Identical;
     }
 
     // read files
@@ -84,13 +123,13 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
         }
     };
     if io_error {
-        return ExitCode::from(2);
+        return Outcome::Trouble;
     }
 
     if !params.text && (is_binary(&from_content) || is_binary(&to_content)) {
         if from_content == to_content {
             maybe_report_identical_files();
-            return ExitCode::SUCCESS;
+            return Outcome::Identical;
         }
         print_files_differ(
             if params.brief {
@@ -98,33 +137,56 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
             } else {
                 "Binary files"
             },
-            &params,
+            params,
         );
-        return ExitCode::from(1);
+        return Outcome::Different;
     }
 
     // run diff
     let result: Vec<u8> = match params.format {
-        Format::Normal => normal_diff::diff(&from_content, &to_content, &params),
-        Format::Unified => unified_diff::diff(&from_content, &to_content, &params),
-        Format::Context => context_diff::diff(&from_content, &to_content, &params),
-        Format::Ed => ed_diff::diff(&from_content, &to_content, &params).unwrap_or_else(|error| {
-            eprintln!("{error}");
-            exit(2);
-        }),
-        Format::SideBySide => {
-            let mut output = stdout().lock();
-            side_diff::diff(&from_content, &to_content, &mut output, &params)
-        }
+        Format::Normal => normal_diff::diff(&from_content, &to_content, params),
+        Format::Unified => unified_diff::diff(&from_content, &to_content, params),
+        Format::Context => context_diff::diff(&from_content, &to_content, params),
+        Format::Ed => match ed_diff::diff(&from_content, &to_content, params) {
+            Ok(result) => result,
+            Err(error) => {
+                eprintln!("{error}");
+                return Outcome::Trouble;
+            }
+        },
+        // Side by side output is streamed, unless a header may have to come
+        // first.
+        Format::SideBySide => match header {
+            None => side_diff::diff(&from_content, &to_content, &mut stdout().lock(), params),
+            Some(header) => {
+                let mut output = Vec::new();
+                let result = side_diff::diff(&from_content, &to_content, &mut output, params);
+                if !result.is_empty() {
+                    output.splice(0..0, header.iter().copied());
+                }
+                if stdout().write_all(&output).is_err() {
+                    return Outcome::Trouble;
+                }
+                result
+            }
+        },
     };
     if params.brief && !result.is_empty() {
-        print_files_differ("Files", &params);
-    } else {
-        let written = match output_palette(&params) {
-            Some(palette) => stdout().write_all(&colorize(&result, params.format, &palette)),
-            None => stdout().write_all(&result),
+        print_files_differ("Files", params);
+    } else if params.format != Format::SideBySide {
+        let header = if result.is_empty() {
+            &[][..]
+        } else {
+            header.unwrap_or_default()
         };
-        if let Err(error) = written.and_then(|()| stdout().flush()) {
+        let colored =
+            output_palette(params).map(|palette| colorize(&result, params.format, &palette));
+        let mut stdout = stdout().lock();
+        let written = stdout
+            .write_all(header)
+            .and_then(|()| stdout.write_all(colored.as_deref().unwrap_or(&result)))
+            .and_then(|()| stdout.flush());
+        if let Err(error) = written {
             // A reader that went away, as with `| head`, is not worth a message.
             if error.kind() != io::ErrorKind::BrokenPipe {
                 report_failure_to_read_input_file(
@@ -133,14 +195,14 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
                     &error,
                 );
             }
-            return ExitCode::from(2);
+            return Outcome::Trouble;
         }
     }
     if result.is_empty() {
         maybe_report_identical_files();
-        ExitCode::SUCCESS
+        Outcome::Identical
     } else {
-        ExitCode::from(1)
+        Outcome::Different
     }
 }
 
@@ -200,7 +262,6 @@ fn print_files_differ(kind: &str, params: &Params) {
 #[cfg(any(target_os = "linux", target_os = "android"))]
 fn stdin_directory_entry(other: &OsString) -> Option<OsString> {
     use std::os::fd::AsFd;
-    use std::path::Path;
 
     let stdin_is_dir = io::stdin()
         .as_fd()
