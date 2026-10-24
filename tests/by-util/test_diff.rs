@@ -461,6 +461,131 @@ fn context_timestamp_follows_time_locale() -> Result<(), Box<dyn std::error::Err
 }
 
 #[test]
+fn compare_directories() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+    let left = tmp_dir.path().join("left");
+    let right = tmp_dir.path().join("right");
+    for dir in [&left, &right] {
+        std::fs::create_dir_all(dir.join("nested/inner"))?;
+        std::fs::write(dir.join("equal"), "same\n")?;
+    }
+    std::fs::write(left.join("changed"), "old\n")?;
+    std::fs::write(right.join("changed"), "new\n")?;
+    std::fs::write(left.join("nested/inner/deep"), "one\n")?;
+    std::fs::write(right.join("nested/inner/deep"), "two\n")?;
+    std::fs::write(left.join("gone"), "bye\n")?;
+    std::fs::write(right.join("added"), "hi\n")?;
+    std::fs::write(left.join("kind"), "file\n")?;
+    std::fs::create_dir(right.join("kind"))?;
+    let left = left.to_str().unwrap();
+    let right = right.to_str().unwrap();
+    // Entry names are joined to the directories with the native separator.
+    let s = std::path::MAIN_SEPARATOR;
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff").arg(left).arg(right);
+    cmd.assert().code(predicate::eq(1)).stdout(format!(
+        "Only in {right}: added\n\
+         diff {left}{s}changed {right}{s}changed\n1c1\n< old\n---\n> new\n\
+         Only in {left}: gone\n\
+         File {left}{s}kind is a regular file while file {right}{s}kind is a directory\n\
+         Common subdirectories: {left}{s}nested and {right}{s}nested\n"
+    ));
+
+    // Options are repeated as given in the headers, and trailing slashes
+    // do not end up in the compared paths.
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff")
+        .arg("-r")
+        .arg("-q")
+        .arg(format!("{left}/"))
+        .arg(right);
+    cmd.assert().code(predicate::eq(1)).stdout(format!(
+        "Only in {right}: added\n\
+         Files {left}{s}changed and {right}{s}changed differ\n\
+         Only in {left}/: gone\n\
+         File {left}{s}kind is a regular file while file {right}{s}kind is a directory\n\
+         Files {left}{s}nested{s}inner{s}deep and {right}{s}nested{s}inner{s}deep differ\n"
+    ));
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff")
+        .arg("-N")
+        .arg("-r")
+        .arg("-e")
+        .arg(left)
+        .arg(right);
+    cmd.assert().code(predicate::eq(1)).stdout(format!(
+        "diff -N -r -e {left}{s}added {right}{s}added\n0a\nhi\n.\n\
+         diff -N -r -e {left}{s}changed {right}{s}changed\n1c\nnew\n.\n\
+         diff -N -r -e {left}{s}gone {right}{s}gone\n1d\n\
+         File {left}{s}kind is a regular file while file {right}{s}kind is a directory\n\
+         diff -N -r -e {left}{s}nested{s}inner{s}deep {right}{s}nested{s}inner{s}deep\n1c\ntwo\n.\n"
+    ));
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff").arg("-r").arg("-s").arg(left).arg(left);
+    cmd.assert().code(predicate::eq(0));
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+fn compare_directories_special_entries() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+    for dir in ["one", "two"] {
+        std::fs::create_dir_all(tmp_dir.path().join(dir).join("tools/bin"))?;
+        // Links to the same directory are not compared.
+        std::os::unix::fs::symlink("..", tmp_dir.path().join(dir).join("parent"))?;
+        let status = std::process::Command::new("mkfifo")
+            .arg(tmp_dir.path().join(dir).join("queue"))
+            .status()?;
+        assert!(status.success());
+    }
+    std::fs::write(tmp_dir.path().join("one/tools/bin/run"), "go\n")?;
+    std::fs::remove_dir_all(tmp_dir.path().join("two/tools"))?;
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.current_dir(tmp_dir.path())
+        .arg("diff")
+        .arg("-N")
+        .arg("one")
+        .arg("two");
+    cmd.assert().code(predicate::eq(1)).stdout(
+        "File one/queue is a fifo while file two/queue is a fifo\n\
+         Common subdirectories: one/tools and two/tools\n",
+    );
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.current_dir(tmp_dir.path())
+        .arg("diff")
+        .arg("-r")
+        .arg("-N")
+        .arg("one")
+        .arg("two");
+    cmd.assert().code(predicate::eq(1)).stdout(
+        "File one/queue is a fifo while file two/queue is a fifo\n\
+         diff -r -N one/tools/bin/run two/tools/bin/run\n1d0\n< go\n",
+    );
+
+    // A link back to a directory being compared is reported.
+    std::os::unix::fs::symlink("..", tmp_dir.path().join("one/tools/again"))?;
+    std::fs::create_dir(tmp_dir.path().join("two/tools"))?;
+    std::os::unix::fs::symlink("..", tmp_dir.path().join("two/tools/again"))?;
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.current_dir(tmp_dir.path())
+        .arg("diff")
+        .arg("-r")
+        .arg("one")
+        .arg("two");
+    cmd.assert()
+        .code(predicate::eq(2))
+        .stdout(predicate::str::contains("Only in one/tools: bin\n"))
+        .stderr("diff: one/tools/again: recursive directory loop\n");
+    Ok(())
+}
+
+#[test]
 fn compare_file_to_directory() -> Result<(), Box<dyn std::error::Error>> {
     let tmp_dir = tempdir()?;
 
