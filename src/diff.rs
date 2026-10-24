@@ -4,7 +4,7 @@
 // files that was distributed with this source code.
 
 use crate::params::{parse_params, Format};
-use crate::utils::report_failure_to_read_input_file;
+use crate::utils::{exit_on_broken_pipe_or_panic, report_failure_to_read_input_file};
 use crate::{context_diff, ed_diff, normal_diff, side_diff, unified_diff};
 use std::env::ArgsOs;
 use std::ffi::OsString;
@@ -90,8 +90,8 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
             params.from.to_string_lossy(),
             params.to.to_string_lossy()
         );
-    } else {
-        io::stdout().write_all(&result).unwrap();
+    } else if let Err(e) = io::stdout().write_all(&result) {
+        exit_on_broken_pipe_or_panic(e);
     }
     if result.is_empty() {
         maybe_report_identical_files();
