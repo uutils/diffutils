@@ -14,6 +14,19 @@ pub enum Format {
     SideBySide,
 }
 
+/// How to handle an operand that does not exist (`-N` and
+/// `--unidirectional-new-file`).
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum MissingFile {
+    /// A missing operand is an error.
+    #[default]
+    Error,
+    /// A missing operand is treated as an empty file.
+    Empty,
+    /// Only a missing first operand is treated as an empty file.
+    EmptyIfFirst,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Params {
     pub executable: OsString,
@@ -26,6 +39,7 @@ pub struct Params {
     pub expand_tabs: bool,
     pub tabsize: usize,
     pub width: usize,
+    pub missing_file: MissingFile,
 }
 
 impl Default for Params {
@@ -41,6 +55,7 @@ impl Default for Params {
             expand_tabs: false,
             tabsize: 8,
             width: 130,
+            missing_file: MissingFile::default(),
         }
     }
 }
@@ -85,6 +100,16 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
         }
         if param == "-q" || param == "--brief" {
             params.brief = true;
+            continue;
+        }
+        if param == "-N" || param == "--new-file" {
+            params.missing_file = MissingFile::Empty;
+            continue;
+        }
+        if param == "--unidirectional-new-file" {
+            if params.missing_file != MissingFile::Empty {
+                params.missing_file = MissingFile::EmptyIfFirst;
+            }
             continue;
         }
         if param == "-t" || param == "--expand-tabs" {
