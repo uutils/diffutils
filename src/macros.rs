@@ -1,5 +1,5 @@
 // asserts equality of the actual diff and expected diff
-// considering datetime varitations
+// considering datetime varitations (ISO and traditional formats)
 //
 // It replaces the modification time in the actual diff
 // with placeholder "TIMESTAMP" and then asserts the equality
@@ -17,7 +17,11 @@ macro_rules! assert_diff_eq {
         use std::str;
 
         let diff = str::from_utf8(&$actual).unwrap();
-        let re = Regex::new(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+ [+-]\d{4}").unwrap();
+        let re = Regex::new(concat!(
+            r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+ [+-]\d{4}",
+            r"|[A-Z][a-z]{2} [A-Z][a-z]{2} [ \d]\d \d{2}:\d{2}:\d{2} \d{4}"
+        ))
+        .unwrap();
         let actual = re.replacen(diff, 2, "TIMESTAMP");
 
         assert_eq!(actual, $expected);
