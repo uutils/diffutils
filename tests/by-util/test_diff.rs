@@ -317,3 +317,22 @@ fn normal_format_single_line_ranges() -> Result<(), Box<dyn std::error::Error>> 
     cmd.assert().code(predicate::eq(1)).stdout("4a5\n> up\n");
     Ok(())
 }
+
+#[test]
+fn ed_format_single_line_deletions() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+    let old = tmp_dir.path().join("old");
+    let new = tmp_dir.path().join("new");
+    std::fs::write(&old, "red\norange\nyellow\ngreen\nblue\n")?;
+    std::fs::write(&new, "red\norange\nyellow\nblue\n")?;
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff").arg("-e").arg(&old).arg(&new);
+    cmd.assert().code(predicate::eq(1)).stdout("4d\n");
+
+    std::fs::write(&new, "red\nblue\n")?;
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff").arg("-e").arg(&old).arg(&new);
+    cmd.assert().code(predicate::eq(1)).stdout("2,4d\n");
+    Ok(())
+}

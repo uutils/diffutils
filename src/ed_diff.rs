@@ -123,24 +123,21 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Result<Vec<u8>, 
         let _line_number_actual: isize = result.line_number_actual as isize + lines_offset;
         let expected_count: isize = result.expected.len() as isize;
         let actual_count: isize = result.actual.len() as isize;
-        match (expected_count, actual_count) {
-            (0, 0) => unreachable!(),
-            (0, _) => writeln!(&mut output, "{}a", line_number_expected - 1).unwrap(),
-            (_, 0) => writeln!(
-                &mut output,
-                "{},{}d",
-                line_number_expected,
-                expected_count + line_number_expected - 1
-            )
-            .unwrap(),
-            (1, _) => writeln!(&mut output, "{line_number_expected}c").unwrap(),
-            _ => writeln!(
-                &mut output,
-                "{},{}c",
-                line_number_expected,
-                expected_count + line_number_expected - 1
-            )
-            .unwrap(),
+        if expected_count == 0 {
+            writeln!(&mut output, "{}a", line_number_expected - 1).unwrap();
+        } else {
+            let command = if actual_count == 0 { 'd' } else { 'c' };
+            if expected_count > 1 {
+                write!(
+                    &mut output,
+                    "{line_number_expected},{}",
+                    expected_count + line_number_expected - 1
+                )
+                .unwrap();
+            } else {
+                write!(&mut output, "{line_number_expected}").unwrap();
+            }
+            writeln!(&mut output, "{command}").unwrap();
         }
         lines_offset += actual_count - expected_count;
         if actual_count != 0 {
@@ -178,6 +175,47 @@ mod tests {
         let diff = diff(from, to, &Params::default()).unwrap();
         let expected = ["1c", "b", ".", ""].join("\n");
         assert_eq!(diff, expected.as_bytes());
+    }
+
+    #[test]
+    fn test_single_line_delete() {
+        let params = Params::default();
+        assert_eq!(
+            diff(
+                b"owl
+", b"", &params
+            )
+            .unwrap(),
+            b"1d
+"
+        );
+        assert_eq!(
+            diff(
+                b"owl
+emu
+",
+                b"owl
+",
+                &params
+            )
+            .unwrap(),
+            b"2d
+"
+        );
+        assert_eq!(
+            diff(
+                b"owl
+emu
+yak
+",
+                b"yak
+",
+                &params
+            )
+            .unwrap(),
+            b"1,2d
+"
+        );
     }
 
     #[test]
