@@ -116,6 +116,15 @@ fn make_diff(expected: &[u8], actual: &[u8], stop_early: bool) -> Vec<Mismatch> 
     results
 }
 
+/// Writes a line range as `start,end`, or just `start` when it spans at most one line.
+fn write_range(output: &mut Vec<u8>, start: usize, count: usize) {
+    if count > 1 {
+        write!(output, "{start},{}", start + count - 1).unwrap();
+    } else {
+        write!(output, "{start}").unwrap();
+    }
+}
+
 #[must_use]
 pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
     // See https://www.gnu.org/software/diffutils/manual/html_node/Detailed-Normal.html
@@ -131,62 +140,21 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
         let line_number_actual = result.line_number_actual;
         let expected_count = result.expected.len();
         let actual_count = result.actual.len();
-        match (expected_count, actual_count) {
-            (0, 0) => unreachable!(),
-            (0, _) => writeln!(
-                // 'a' stands for "Add lines"
-                &mut output,
-                "{}a{},{}",
-                line_number_expected - 1,
-                line_number_actual,
-                line_number_actual + actual_count - 1
-            )
-            .unwrap(),
-            (_, 0) => writeln!(
-                // 'd' stands for "Delete lines"
-                &mut output,
-                "{},{}d{}",
-                line_number_expected,
-                expected_count + line_number_expected - 1,
-                line_number_actual - 1
-            )
-            .unwrap(),
-            (1, 1) => writeln!(
-                // 'c' stands for "Change lines"
-                // exactly one line replaced by one line
-                &mut output,
-                "{line_number_expected}c{line_number_actual}"
-            )
-            .unwrap(),
-            (1, _) => writeln!(
-                // one line replaced by multiple lines
-                &mut output,
-                "{}c{},{}",
-                line_number_expected,
-                line_number_actual,
-                actual_count + line_number_actual - 1
-            )
-            .unwrap(),
-            (_, 1) => writeln!(
-                // multiple lines replaced by one line
-                &mut output,
-                "{},{}c{}",
-                line_number_expected,
-                expected_count + line_number_expected - 1,
-                line_number_actual
-            )
-            .unwrap(),
-            _ => writeln!(
-                // general case: multiple lines replaced by multiple lines
-                &mut output,
-                "{},{}c{},{}",
-                line_number_expected,
-                expected_count + line_number_expected - 1,
-                line_number_actual,
-                actual_count + line_number_actual - 1
-            )
-            .unwrap(),
-        }
+        // 'a' stands for "Add lines", 'd' for "Delete lines", 'c' for "Change lines"
+        let (command, expected_start) = match (expected_count, actual_count) {
+            (0, _) => ('a', line_number_expected - 1),
+            (_, 0) => ('d', line_number_expected),
+            _ => ('c', line_number_expected),
+        };
+        let actual_start = if actual_count == 0 {
+            line_number_actual - 1
+        } else {
+            line_number_actual
+        };
+        write_range(&mut output, expected_start, expected_count);
+        write!(&mut output, "{command}").unwrap();
+        write_range(&mut output, actual_start, actual_count);
+        writeln!(&mut output).unwrap();
         for expected in &result.expected {
             write!(&mut output, "< ").unwrap();
             do_write_line(&mut output, expected, params.expand_tabs, params.tabsize).unwrap();
@@ -226,6 +194,18 @@ mod tests {
         let diff = diff(&a, &b, &Params::default());
         let expected = b"1c1\n< a\n---\n> b\n".to_vec();
         assert_eq!(diff, expected);
+    }
+
+    #[test]
+    fn test_single_line_ranges() {
+        let params = Params::default();
+        assert_eq!(diff(b"", b"pear\n", &params), b"0a1\n> pear\n");
+        assert_eq!(diff(b"plum\n", b"", &params), b"1d0\n< plum\n");
+        assert_eq!(diff(b"fig\nlime\n", b"fig\n", &params), b"2d1\n< lime\n");
+        assert_eq!(
+            diff(b"fig\n", b"fig\nlime\nsloe\n", &params),
+            b"1a2,3\n> lime\n> sloe\n"
+        );
     }
 
     #[test]
