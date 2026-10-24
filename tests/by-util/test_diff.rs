@@ -797,3 +797,56 @@ fn function_lines() -> Result<(), Box<dyn std::error::Error>> {
         .stderr("'\\(': Unmatched ( or \\(\n");
     Ok(())
 }
+
+#[cfg(unix)]
+#[test]
+fn quoted_file_names() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+    let dir = tmp_dir.path().to_str().unwrap();
+    std::fs::write(tmp_dir.path().join("my notes"), "draft\n")?;
+    std::fs::write(tmp_dir.path().join("final\tv2"), "done\n")?;
+    std::fs::write(tmp_dir.path().join("plain$name"), "done\n")?;
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.env("TZ", "UTC0")
+        .arg("diff")
+        .arg("-u")
+        .arg(format!("{dir}/my notes"))
+        .arg(format!("{dir}/final\tv2"));
+    cmd.assert()
+        .code(predicate::eq(1))
+        .stdout(predicate::str::is_match(format!(
+            "^--- \"{dir}/my notes\"\t[^\n]*\n\\+\\+\\+ \"{dir}/final\\\\tv2\"\t"
+        ))?);
+
+    // Names without special characters are left alone.
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff")
+        .arg("-c")
+        .arg(format!("{dir}/my notes"))
+        .arg(format!("{dir}/plain$name"));
+    cmd.assert()
+        .code(predicate::eq(1))
+        .stdout(predicate::str::contains(format!(
+            "\n--- {dir}/plain$name\t"
+        )));
+
+    // The diff -r header quotes the options for the shell and the names as
+    // in the other headers.
+    for (side, content) in [("one", "a\n"), ("two", "b\n")] {
+        std::fs::create_dir(tmp_dir.path().join(side))?;
+        std::fs::write(tmp_dir.path().join(side).join("my file"), content)?;
+    }
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.current_dir(&tmp_dir)
+        .arg("diff")
+        .arg("-r")
+        .arg("-F")
+        .arg("my func")
+        .arg("one")
+        .arg("two");
+    cmd.assert()
+        .code(predicate::eq(1))
+        .stdout("diff -r -F 'my func' \"one/my file\" \"two/my file\"\n1c1\n< a\n---\n> b\n");
+    Ok(())
+}
