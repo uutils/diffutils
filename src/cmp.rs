@@ -321,7 +321,10 @@ pub fn cmp(params: &Params) -> Result<Cmp, String> {
             return Ok(Cmp::Different);
         }
 
-        let smaller = cmp::min(a_size, b_size) as BytesLimitU64;
+        // The offsets count from the end of the skipped bytes.
+        let a_left = a_size.saturating_sub(params.skip_a.unwrap_or(0));
+        let b_left = b_size.saturating_sub(params.skip_b.unwrap_or(0));
+        let smaller = cmp::min(a_left, b_left) as BytesLimitU64;
         offset_width = cmp::min(smaller, offset_width);
     }
 
