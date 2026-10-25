@@ -57,7 +57,7 @@ cd "$tempdir" || die "Cannot enter temporary directory $tempdir"
 
 # Fetch the upstream test suite
 echo "Fetching upstream test suite"
-curl -fsSL --retry 5 https://ftpmirror.gnu.org/diffutils/diffutils-${gnu_version}.tar.xz -o gnu-diffutils.tar.xz || die "Failed to fetch test suite"
+curl -fsSL https://github.com/uutils/thirdparty-artifacts/releases/download/diffutils-${gnu_version}/diffutils-${gnu_version}.tar.xz -o gnu-diffutils.tar.xz || die "Failed to fetch test suite"
 echo ${gnu_tarball_blake2b}  gnu-diffutils.tar.xz \
  | b2sum --check || die "Failed to verify checksum of tarball of GNU diffutils"
 mkdir -p diffutils
