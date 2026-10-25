@@ -6,6 +6,7 @@
 //! Comparison of two directories, entry by entry, descending into
 //! subdirectories with `-r`.
 
+use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, Metadata};
@@ -14,7 +15,9 @@ use std::path::{Path, PathBuf};
 
 use crate::diff::{compare_files, Outcome};
 use crate::params::{MissingFile, Params};
-use crate::utils::{quote_file_name, quote_shell_argument, report_failure_to_read_input_file};
+use crate::utils::{
+    fold_file_name_case, quote_file_name, quote_shell_argument, report_failure_to_read_input_file,
+};
 
 /// Compares the directories `params.from` and `params.to`. `option_args` are
 /// the command line options, repeated in the header printed before the
@@ -59,14 +62,21 @@ impl DirectoryWalker<'_> {
             }
             canonical_dirs.push(canonical);
         }
-        let (Some(from_names), Some(to_names)) = (self.list(from_dir), self.list(to_dir)) else {
+        let (Some(mut from_names), Some(mut to_names)) = (self.list(from_dir), self.list(to_dir))
+        else {
             return Outcome::Trouble;
         };
+        // -S only applies to the operands, not to their subdirectories.
+        if let (true, Some(start)) = (self.ancestors.is_empty(), &self.params.starting_file) {
+            let start = self.name_key(start).into_owned();
+            from_names.retain(|name| *self.name_key(name) >= *start);
+            to_names.retain(|name| *self.name_key(name) >= *start);
+        }
         let ancestors_len = self.ancestors.len();
         self.ancestors.extend(canonical_dirs);
 
         let entries = pair_entries(&from_names, &to_names, |from, to| {
-            from.as_encoded_bytes().cmp(to.as_encoded_bytes())
+            self.name_key(from).cmp(&self.name_key(to))
         });
         for entry in entries {
             let entry_outcome = match entry {
@@ -117,7 +127,21 @@ impl DirectoryWalker<'_> {
             }
         }
         names.sort_unstable_by(|a, b| a.as_encoded_bytes().cmp(b.as_encoded_bytes()));
+        if self.params.ignore_file_name_case {
+            // A stable sort, so names equal ignoring case stay in byte order.
+            names.sort_by_cached_key(|name| fold_file_name_case(name));
+        }
         Some(names)
+    }
+
+    /// Returns what entry names are sorted and matched by: the names
+    /// themselves, or their lowercase form with --ignore-file-name-case.
+    fn name_key<'n>(&self, name: &'n OsStr) -> Cow<'n, [u8]> {
+        if self.params.ignore_file_name_case {
+            Cow::Owned(fold_file_name_case(name))
+        } else {
+            Cow::Borrowed(name.as_encoded_bytes())
+        }
     }
 
     /// Compares two entries of the compared directories, one of which may be
