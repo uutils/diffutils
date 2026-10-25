@@ -158,6 +158,28 @@ fn labels_replace_file_names() -> Result<(), Box<dyn std::error::Error>> {
         .code(predicate::eq(2))
         .failure()
         .stderr(predicate::str::contains("too many file label options"));
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff")
+        .arg(file1.path())
+        .arg(file2.path())
+        .arg("-L");
+    cmd.assert()
+        .code(predicate::eq(2))
+        .failure()
+        .stderr(predicate::str::contains("option '-L' requires an argument"));
+
+    let mut same = NamedTempFile::new()?;
+    same.write_all("foo\n".as_bytes())?;
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff")
+        .args(["-s", "-L", "old", "-L", "new"])
+        .arg(file1.path())
+        .arg(same.path());
+    cmd.assert()
+        .code(predicate::eq(0))
+        .success()
+        .stdout(predicate::eq("Files old and new are identical\n"));
     Ok(())
 }
 
