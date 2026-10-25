@@ -147,6 +147,14 @@ pub fn quote_shell_argument(arg: &[u8]) -> Cow<'_, [u8]> {
     Cow::Owned(quoted)
 }
 
+/// Returns `name` in lowercase, to match file names ignoring case.
+pub fn fold_file_name_case(name: &OsStr) -> Vec<u8> {
+    match name.to_str() {
+        Some(name) => name.to_lowercase().into_bytes(),
+        None => name.as_encoded_bytes().to_ascii_lowercase(),
+    }
+}
+
 /// Finds the lines shown after hunk headers by `-F` and `-p`: the nearest
 /// line of the old file preceding a hunk that matches one of the patterns.
 pub struct FunctionLineFinder<'a> {
