@@ -453,6 +453,34 @@ fn cmp_skip() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
+fn cmp_print_bytes_high_byte() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+
+    let a_path = tmp_dir.path().join("a");
+    let mut a = File::create(&a_path).unwrap();
+    a.write_all(b"a").unwrap();
+
+    let b_path = tmp_dir.path().join("b");
+    let mut b = File::create(&b_path).unwrap();
+    b.write_all(&[0xC3]).unwrap();
+
+    // GNU cmp does not pad the printed bytes, whatever the second byte is.
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("cmp");
+    cmd.arg("-b");
+    cmd.arg(&a_path).arg(&b_path);
+    cmd.assert()
+        .code(predicate::eq(1))
+        .failure()
+        .stderr(predicate::str::is_empty())
+        .stdout(predicate::str::ends_with(
+            " differ: byte 1, line 1 is 141 a 303 M-C\n",
+        ));
+
+    Ok(())
+}
+
+#[test]
 fn cmp_binary() -> Result<(), Box<dyn std::error::Error>> {
     let tmp_dir = tempdir()?;
 

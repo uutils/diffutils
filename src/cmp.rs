@@ -703,9 +703,8 @@ fn report_difference(
         at_line
     );
     if params.print_bytes {
-        let char_width = if to_byte >= 0x7F { 2 } else { 1 };
         print!(
-            " is {:>3o} {:char_width$} {:>3o} {:char_width$}",
+            " is {:>3o} {} {:>3o} {}",
             from_byte,
             format_visible_byte(from_byte),
             to_byte,
