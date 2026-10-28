@@ -26,10 +26,11 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
     // if from and to are the same file, no need to perform any comparison
     let maybe_report_identical_files = || {
         if params.report_identical_files {
+            let (from, to) = params.names();
             println!(
                 "Files {} and {} are identical",
-                params.from.to_string_lossy(),
-                params.to.to_string_lossy(),
+                from.to_string_lossy(),
+                to.to_string_lossy(),
             );
         }
     };
@@ -85,10 +86,11 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
         }
     };
     if params.brief && !result.is_empty() {
+        let (from, to) = params.names();
         println!(
             "Files {} and {} differ",
-            params.from.to_string_lossy(),
-            params.to.to_string_lossy()
+            from.to_string_lossy(),
+            to.to_string_lossy()
         );
     } else {
         io::stdout().write_all(&result).unwrap();

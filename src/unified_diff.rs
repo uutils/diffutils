@@ -8,7 +8,7 @@ use std::io::Write;
 
 use crate::params::Params;
 use crate::utils::do_write_line;
-use crate::utils::get_modification_time;
+use crate::utils::header_name;
 
 #[derive(Debug, PartialEq)]
 pub enum DiffLine {
@@ -242,14 +242,10 @@ fn make_diff(
 
 #[must_use]
 pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
-    let from_modified_time = get_modification_time(&params.from.to_string_lossy());
-    let to_modified_time = get_modification_time(&params.to.to_string_lossy());
     let mut output = format!(
-        "--- {0}\t{1}\n+++ {2}\t{3}\n",
-        params.from.to_string_lossy(),
-        from_modified_time,
-        params.to.to_string_lossy(),
-        to_modified_time
+        "--- {}\n+++ {}\n",
+        header_name(&params.from, params.from_label.as_ref()),
+        header_name(&params.to, params.to_label.as_ref())
     )
     .into_bytes();
     let diff_results = make_diff(expected, actual, params.context_count, params.brief);

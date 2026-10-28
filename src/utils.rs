@@ -71,6 +71,19 @@ pub fn get_modification_time(file_path: &str) -> String {
     modification_time
 }
 
+/// The file name and modification time of a context or unified diff header,
+/// or just the label when one was given.
+pub fn header_name(path: &OsString, label: Option<&OsString>) -> String {
+    match label {
+        Some(label) => label.to_string_lossy().into_owned(),
+        None => format!(
+            "{}\t{}",
+            path.to_string_lossy(),
+            get_modification_time(&path.to_string_lossy())
+        ),
+    }
+}
+
 pub fn format_failure_to_read_input_file(
     executable: &OsString,
     filepath: &OsString,
