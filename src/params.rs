@@ -1,11 +1,12 @@
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::iter::Peekable;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use regex::Regex;
 
 use crate::bre::Bre;
 use crate::color::ColorWhen;
+use crate::utils::fold_file_name_case;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum Format {
@@ -52,6 +53,10 @@ pub struct Params {
     /// headers (`-F` and `-p`).
     pub function_line_patterns: Vec<Bre>,
     pub recursive: bool,
+    /// The name from which to start comparing the top-level directories
+    /// (`-S`).
+    pub starting_file: Option<OsString>,
+    pub ignore_file_name_case: bool,
 }
 
 /// The pattern of `-p`, matching the first line of C functions.
@@ -77,6 +82,8 @@ impl Default for Params {
             presume_output_tty: false,
             function_line_patterns: Vec::new(),
             recursive: false,
+            starting_file: None,
+            ignore_file_name_case: false,
         }
     }
 }
@@ -175,23 +182,21 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
             push_function_line_pattern(&mut params, C_FUNCTION_PATTERN)?;
             continue;
         }
-        let attached_function_line = param.to_str().and_then(|p| {
-            p.strip_prefix("--show-function-line=")
-                .or_else(|| p.strip_prefix("-F").filter(|pattern| !pattern.is_empty()))
-        });
-        if let Some(pattern) = attached_function_line {
-            push_function_line_pattern(&mut params, pattern)?;
+        if let Some(argument) = option_argument(&param, "-F", "--show-function-line") {
+            let pattern = argument_value(argument, &param, &mut opts)?;
+            push_function_line_pattern(&mut params, &pattern.to_string_lossy())?;
             continue;
         }
-        if param == "-F" || param == "--show-function-line" {
-            let Some(pattern) = next_param.map(|p| p.to_string_lossy().into_owned()) else {
-                return Err(format!(
-                    "option '{}' requires an argument",
-                    param.to_string_lossy()
-                ));
-            };
-            opts.next();
-            push_function_line_pattern(&mut params, &pattern)?;
+        if param == "--ignore-file-name-case" {
+            params.ignore_file_name_case = true;
+            continue;
+        }
+        if param == "--no-ignore-file-name-case" {
+            params.ignore_file_name_case = false;
+            continue;
+        }
+        if let Some(argument) = option_argument(&param, "-S", "--starting-file") {
+            params.starting_file = Some(argument_value(argument, &param, &mut opts)?);
             continue;
         }
         if param == "-r" || param == "--recursive" {
@@ -353,10 +358,12 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
     let mut to_path: PathBuf = PathBuf::from(&params.to);
 
     if from_path.is_dir() && to_path.is_file() {
-        from_path.push(to_path.file_name().unwrap());
+        let name = directory_entry(&from_path, to_path.file_name().unwrap(), &params);
+        from_path.push(name);
         params.from = from_path.into_os_string();
     } else if from_path.is_file() && to_path.is_dir() {
-        to_path.push(from_path.file_name().unwrap());
+        let name = directory_entry(&to_path, from_path.file_name().unwrap(), &params);
+        to_path.push(name);
         params.to = to_path.into_os_string();
     }
 
@@ -376,6 +383,61 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
         .map(|(_, arg)| arg)
         .collect();
     Ok((params, options))
+}
+
+/// Returns the name of the entry of `dir` to compare with a file named
+/// `name`: `name` itself, or with --ignore-file-name-case, an entry whose name
+/// differs only by case when `name` does not exist.
+fn directory_entry(dir: &Path, name: &OsStr, params: &Params) -> OsString {
+    if params.ignore_file_name_case && !dir.join(name).exists() {
+        let wanted = fold_file_name_case(name);
+        let entries = std::fs::read_dir(dir).into_iter().flatten().flatten();
+        if let Some(entry) = entries
+            .map(|entry| entry.file_name())
+            .find(|entry| fold_file_name_case(entry) == wanted)
+        {
+            return entry;
+        }
+    }
+    name.to_os_string()
+}
+
+/// How the argument of an option is given.
+enum OptionArgument<'a> {
+    /// In the same command line argument, as in `-Fx` or `--show-function-line=x`.
+    Attached(&'a str),
+    /// As the next command line argument.
+    Separate,
+}
+
+/// Returns how the argument of the option named `short` (like `-F`) or
+/// `long` is given, if `param` is that option.
+fn option_argument<'a>(param: &'a OsStr, short: &str, long: &str) -> Option<OptionArgument<'a>> {
+    if param == short || param == long {
+        return Some(OptionArgument::Separate);
+    }
+    let param = param.to_str()?;
+    param
+        .strip_prefix(long)
+        .and_then(|rest| rest.strip_prefix('='))
+        .or_else(|| param.strip_prefix(short).filter(|value| !value.is_empty()))
+        .map(OptionArgument::Attached)
+}
+
+/// Returns the value of the argument of the option `param`, taking the next
+/// command line argument when it is not attached.
+fn argument_value(
+    argument: OptionArgument,
+    param: &OsStr,
+    opts: &mut impl Iterator<Item = (usize, OsString)>,
+) -> Result<OsString, String> {
+    match argument {
+        OptionArgument::Attached(value) => Ok(value.into()),
+        OptionArgument::Separate => opts
+            .next()
+            .map(|(_, value)| value)
+            .ok_or_else(|| format!("option '{}' requires an argument", param.to_string_lossy())),
+    }
 }
 
 /// Validates and records a `-F` pattern.
@@ -1207,5 +1269,52 @@ mod tests {
             [os("-q"), os("--")]
         );
         assert_eq!(options(&["diff", "-", "new", "-t"]), [os("-t")]);
+    }
+
+    #[test]
+    fn starting_file() {
+        for args in [
+            &["-S", "mid"][..],
+            &["-Smid"],
+            &["--starting-file=mid"],
+            &["--starting-file", "mid"],
+        ] {
+            let args = std::iter::once("diff")
+                .chain(args.iter().copied())
+                .chain(["foo", "bar"]);
+            let params = parse_params(args.map(os).peekable()).unwrap();
+            assert_eq!(params.starting_file, Some(os("mid")));
+            assert_eq!(params.from, os("foo"));
+        }
+        assert!(parse_params(
+            [os("diff"), os("foo"), os("bar"), os("-S")]
+                .into_iter()
+                .peekable()
+        )
+        .is_err());
+    }
+    #[test]
+    fn ignore_file_name_case() {
+        // The last of --ignore-file-name-case and --no-ignore-file-name-case
+        // wins.
+        for (args, expected) in [
+            (&[][..], false),
+            (&["--ignore-file-name-case"], true),
+            (&["--no-ignore-file-name-case"], false),
+            (
+                &["--ignore-file-name-case", "--no-ignore-file-name-case"],
+                false,
+            ),
+            (
+                &["--no-ignore-file-name-case", "--ignore-file-name-case"],
+                true,
+            ),
+        ] {
+            let args = std::iter::once("diff")
+                .chain(args.iter().copied())
+                .chain(["foo", "bar"]);
+            let params = parse_params(args.map(os).peekable()).unwrap();
+            assert_eq!(params.ignore_file_name_case, expected);
+        }
     }
 }

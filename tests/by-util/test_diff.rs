@@ -619,6 +619,76 @@ fn compare_directories_special_entries() -> Result<(), Box<dyn std::error::Error
 }
 
 #[test]
+fn directory_name_matching() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+    let left = tmp_dir.path().join("left");
+    let right = tmp_dir.path().join("right");
+    std::fs::create_dir_all(left.join("lib"))?;
+    std::fs::create_dir_all(right.join("lib"))?;
+    for name in ["Readme", "notes", "lib/early"] {
+        std::fs::write(left.join(name), "v1\n")?;
+    }
+    for name in ["readme", "Notes", "Todo", "lib/EARLY"] {
+        std::fs::write(right.join(name), "v1\n")?;
+    }
+    // Names differing only by case can only coexist on case-sensitive file
+    // systems; there, they pair in byte order.
+    std::fs::write(left.join("README"), "v1\n")?;
+    let case_sensitive = std::fs::read_dir(&left)?.count() == 4;
+    let unpaired_readme = if case_sensitive {
+        format!("Only in {}: Readme\n", left.display())
+    } else {
+        String::new()
+    };
+    let left = left.to_str().unwrap();
+    let right = right.to_str().unwrap();
+    let s = std::path::MAIN_SEPARATOR;
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff")
+        .arg("-r")
+        .arg("--ignore-file-name-case")
+        .arg(left)
+        .arg(right);
+    cmd.assert()
+        .code(predicate::eq(1))
+        .stdout(format!("{unpaired_readme}Only in {right}: Todo\n"));
+
+    // -S only skips names at the top level.
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff")
+        .arg("-r")
+        .arg("-S")
+        .arg("l")
+        .arg(left)
+        .arg(right);
+    cmd.assert().code(predicate::eq(1)).stdout(format!(
+        "Only in {right}{s}lib: EARLY\nOnly in {left}{s}lib: early\n\
+         Only in {left}: notes\nOnly in {right}: readme\n"
+    ));
+
+    // The starting name is matched regardless of case too.
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff")
+        .arg("--starting-file=NOTES")
+        .arg("--ignore-file-name-case")
+        .arg(left)
+        .arg(right);
+    cmd.assert()
+        .code(predicate::eq(1))
+        .stdout(format!("{unpaired_readme}Only in {right}: Todo\n"));
+
+    // A file compared with a directory finds its counterpart regardless of case.
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff")
+        .arg("--ignore-file-name-case")
+        .arg(format!("{left}{s}notes"))
+        .arg(right);
+    cmd.assert().code(predicate::eq(0)).stdout("");
+    Ok(())
+}
+
+#[test]
 fn compare_file_to_directory() -> Result<(), Box<dyn std::error::Error>> {
     let tmp_dir = tempdir()?;
 
