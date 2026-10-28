@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 
 use crate::diff::{compare_files, Outcome};
 use crate::params::{MissingFile, Params};
-use crate::utils::report_failure_to_read_input_file;
+use crate::utils::{quote_file_name, quote_shell_argument, report_failure_to_read_input_file};
 
 /// Compares the directories `params.from` and `params.to`. `option_args` are
 /// the command line options, repeated in the header printed before the
@@ -177,14 +177,13 @@ impl DirectoryWalker<'_> {
             ..self.params.clone()
         };
         let mut header = b"diff".to_vec();
-        for arg in self
-            .option_args
-            .iter()
-            .map(OsString::as_os_str)
-            .chain([from, to])
-        {
+        for arg in self.option_args {
             header.push(b' ');
-            header.extend_from_slice(arg.as_encoded_bytes());
+            header.extend_from_slice(&quote_shell_argument(arg.as_encoded_bytes()));
+        }
+        for path in [from, to] {
+            header.push(b' ');
+            header.extend_from_slice(&quote_file_name(path.as_encoded_bytes()));
         }
         header.push(b'\n');
         compare_files(&params, Some(&header))
