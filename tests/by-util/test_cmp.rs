@@ -31,6 +31,30 @@ fn cmp_verbose_zero_length_metadata() -> Result<(), Box<dyn std::error::Error>> 
     Ok(())
 }
 
+// The offset column is as wide as the bytes left after the skips, as in GNU
+// cmp: 9 bytes are compared here, so the offsets take one column.
+#[test]
+fn cmp_verbose_offset_width_after_skip() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+    let a_path = tmp_dir.path().join("a");
+    let b_path = tmp_dir.path().join("b");
+    File::create(&a_path)?.write_all(b"0123456789abcdefghijklmnopqrstuvwxyz")?;
+    File::create(&b_path)?.write_all(b"0123456789abcdefghijklmnopqrstuvwxyz")?;
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.env("LC_ALL", "C");
+    cmd.arg("cmp")
+        .arg("-l")
+        .arg("--ignore-initial=27:26")
+        .arg(&a_path)
+        .arg(&b_path);
+    cmd.assert()
+        .code(predicate::eq(1))
+        .stdout(predicate::str::starts_with("1 162 161\n2 163 162\n"))
+        .stderr(predicate::str::ends_with(" after byte 9\n"));
+    Ok(())
+}
+
 #[test]
 fn cmp_incompatible_params() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = cargo_bin_cmd!("diffutils");
