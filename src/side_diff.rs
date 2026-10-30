@@ -1253,6 +1253,14 @@ mod tests {
         }
 
         #[test]
+        fn test_max_tab_size() {
+            // `tab_size + GUTTER_WIDTH_MIN` must not overflow `isize`.
+            let config = create_config(130, crate::params::MAX_TABSIZE, false);
+            assert_eq!(config.sdiff_half_width, 0);
+            assert_eq!(config.sdiff_column_two_offset, 130);
+        }
+
+        #[test]
         fn test_tab_size_larger_than_width() {
             let config = create_config(5, 10, false);
             assert_eq!(config.sdiff_half_width, 0);

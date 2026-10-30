@@ -246,41 +246,16 @@ mod tests {
             );
         }
 
-        /// A writer that fails once it has been given `limit` bytes.
-        struct LimitedWriter {
-            written: Vec<u8>,
-            limit: usize,
-        }
-
-        impl Write for LimitedWriter {
-            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-                let n = buf.len().min(self.limit - self.written.len());
-                if n == 0 {
-                    return Err(std::io::ErrorKind::WriteZero.into());
-                }
-                self.written.extend_from_slice(&buf[..n]);
-                Ok(n)
-            }
-
-            fn flush(&mut self) -> std::io::Result<()> {
-                Ok(())
-            }
-        }
-
         #[test]
         fn huge_tabsize() {
-            // The spaces are streamed to the writer, so a huge tab size
-            // neither overflows nor needs a huge buffer up front.
-            for tabsize in [usize::MAX / 2, usize::MAX] {
-                let mut output = LimitedWriter {
-                    written: Vec::new(),
-                    limit: 1000,
-                };
-                assert!(do_expand_tabs(&mut output, b"a\tb\tc", tabsize).is_err());
-                let mut expected = b"a".to_vec();
-                expected.resize(1000, b' ');
-                assert_eq!(output.written, expected);
-            }
+            // The spaces are streamed to the writer, so the largest accepted
+            // tab size neither overflows nor needs a huge buffer up front.
+            let mut buf = [0u8; 1000];
+            let mut output = &mut buf[..];
+            assert!(do_expand_tabs(&mut output, b"a\tb\tc", crate::params::MAX_TABSIZE).is_err());
+            let mut expected = b"a".to_vec();
+            expected.resize(1000, b' ');
+            assert_eq!(buf[..], expected[..]);
         }
     }
 

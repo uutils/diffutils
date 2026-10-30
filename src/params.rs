@@ -4,8 +4,11 @@ use std::path::PathBuf;
 
 use regex::Regex;
 
-/// Largest value accepted for `--tabsize`, matching GNU diff.
-const MAX_TABSIZE: usize = isize::MAX as usize - 3;
+/// Largest value accepted for `--tabsize`.
+/// Side-by-side mode computes `tabsize + GUTTER_WIDTH_MIN` (3) as an
+/// `isize` in `side_diff::Config::new`, so anything larger would overflow.
+/// GNU diff accepts the same maximum.
+pub(crate) const MAX_TABSIZE: usize = isize::MAX as usize - 3;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum Format {
