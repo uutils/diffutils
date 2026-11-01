@@ -71,6 +71,7 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
     }
 
     // run diff
+    let mut side_by_side_differs = false;
     let result: Vec<u8> = match params.format {
         Format::Normal => normal_diff::diff(&from_content, &to_content, &params),
         Format::Unified => unified_diff::diff(&from_content, &to_content, &params),
@@ -80,11 +81,17 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
             exit(2);
         }),
         Format::SideBySide => {
-            let mut output = stdout().lock();
-            side_diff::diff(&from_content, &to_content, &mut output, &params)
+            side_by_side_differs = if params.brief {
+                side_diff::diff(&from_content, &to_content, &mut io::sink(), &params)
+            } else {
+                let mut output = stdout().lock();
+                side_diff::diff(&from_content, &to_content, &mut output, &params)
+            };
+            Vec::new()
         }
     };
-    if params.brief && !result.is_empty() {
+    let differs = side_by_side_differs || !result.is_empty();
+    if params.brief && differs {
         println!(
             "Files {} and {} differ",
             params.from.to_string_lossy(),
@@ -93,7 +100,7 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
     } else {
         io::stdout().write_all(&result).unwrap();
     }
-    if result.is_empty() {
+    if !differs {
         maybe_report_identical_files();
         ExitCode::SUCCESS
     } else {
