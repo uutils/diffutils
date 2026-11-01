@@ -1,0 +1,9 @@
+# this list is unique to diffutils
+Gunter Schmidt
+    Gunter
+    Schmidt
+Sylvestre Ledru
+    Sylvestre
+    Ledru
+
+axodotdev
