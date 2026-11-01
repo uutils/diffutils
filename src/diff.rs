@@ -91,7 +91,7 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
             params.to.to_string_lossy()
         );
     } else {
-        io::stdout().write_all(&result).unwrap();
+        let _ = io::stdout().write_all(&result);
     }
     if result.is_empty() {
         maybe_report_identical_files();
