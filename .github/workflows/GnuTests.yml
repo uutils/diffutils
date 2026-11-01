@@ -105,7 +105,7 @@ jobs:
           persist-credentials: false
 
       - name: Retrieve reference artifacts
-        uses: dawidd6/action-download-artifact@v27
+        uses: dawidd6/action-download-artifact@v28
         continue-on-error: true
         with:
           workflow: GnuTests.yml
