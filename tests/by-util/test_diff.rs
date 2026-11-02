@@ -897,13 +897,12 @@ fn normal_format_single_line_ranges() -> Result<(), Box<dyn std::error::Error>> 
         .code(predicate::eq(1))
         .stdout("2d1\n< east\n4a4,5\n> up\n> down\n");
 
+    let empty = tmp_dir.path().join("empty");
+    std::fs::write(&empty, "")?;
+    std::fs::write(&new, "north\n")?;
     let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff").arg("/dev/null").arg(&old);
-    if cfg!(unix) {
-        cmd.assert()
-            .code(predicate::eq(1))
-            .stdout("0a1,4\n> north\n> east\n> south\n> west\n");
-    }
+    cmd.arg("diff").arg(&empty).arg(&new);
+    cmd.assert().code(predicate::eq(1)).stdout("0a1\n> north\n");
 
     std::fs::write(&new, "north\neast\nsouth\nwest\nup\n")?;
     let mut cmd = cargo_bin_cmd!("diffutils");
