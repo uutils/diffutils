@@ -145,15 +145,24 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Result<Vec<u8>, 
         }
         lines_offset += actual_count - expected_count;
         if actual_count != 0 {
+            // A "." line is written as "..", then fixed with s/.//. Input mode
+            // is only reopened with "a" if more lines follow.
+            let mut after_dot = false;
             for actual in &result.actual {
-                if actual == b"." {
-                    writeln!(&mut output, "..\n.\ns/.//\na").unwrap();
+                if after_dot {
+                    writeln!(&mut output, "a").unwrap();
+                }
+                after_dot = actual == b".";
+                if after_dot {
+                    writeln!(&mut output, "..\n.\ns/.//").unwrap();
                 } else {
                     do_write_line(&mut output, actual, params.expand_tabs, params.tabsize).unwrap();
                     writeln!(&mut output).unwrap();
                 }
             }
-            writeln!(&mut output, ".").unwrap();
+            if !after_dot {
+                writeln!(&mut output, ".").unwrap();
+            }
         }
     }
     Ok(output)
@@ -185,6 +194,40 @@ mod tests {
     fn test_single_line_deleted() {
         let diff = diff(b"a\nb\n", b"a\n", &Params::default()).unwrap();
         assert_eq!(diff, b"2d\n");
+    }
+
+    #[test]
+    fn test_dot_line() {
+        let target = "target/ed-diff/";
+        let _ = std::fs::create_dir(target);
+        for (i, (from, to, expected)) in [
+            ("a\n", "a\n.\n", "1a\n..\n.\ns/.//\n"),
+            ("a\n", ".\n", "1c\n..\n.\ns/.//\n"),
+            ("a\n", "x\n.\ny\n", "1c\nx\n..\n.\ns/.//\na\ny\n.\n"),
+            ("a\n", "a\n.\n.\n", "1a\n..\n.\ns/.//\na\n..\n.\ns/.//\n"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let diff = diff(from.as_bytes(), to.as_bytes(), &Params::default()).unwrap();
+            assert_eq!(diff, expected.as_bytes());
+            // Apply the script with ed and check that it turns `from` into `to`.
+            let file = format!("{target}/dot{i}");
+            let script = diff_w(from.as_bytes(), to.as_bytes(), &file).unwrap();
+            std::fs::write(format!("{target}/dot{i}.ed"), script).unwrap();
+            std::fs::write(&file, from).unwrap();
+            #[cfg(not(windows))] // there's no ed on windows
+            {
+                let output = ED_CMD
+                    .new()
+                    .arg(&file)
+                    .stdin(std::fs::File::open(format!("{target}/dot{i}.ed")).unwrap())
+                    .output()
+                    .unwrap();
+                assert!(output.status.success(), "{output:?}");
+                assert_eq!(std::fs::read(&file).unwrap(), to.as_bytes());
+            }
+        }
     }
 
     #[test]
