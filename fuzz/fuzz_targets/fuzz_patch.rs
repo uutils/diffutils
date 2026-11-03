@@ -9,6 +9,11 @@ use std::process::Command;
 
 fuzz_target!(|x: (Vec<u8>, Vec<u8>, u8)| {
     let (from, to, context) = x;
+    // GNU patch refuses patch files that contain NUL bytes ("patch line N
+    // contains NUL byte"), so such inputs cannot round-trip through it.
+    if from.contains(&0) || to.contains(&0) {
+        return;
+    }
     /*if let Ok(s) = String::from_utf8(from.clone()) {
         if !s.is_ascii() { return }
         if s.find(|x| x < ' ' && x != '\n').is_some() { return }
