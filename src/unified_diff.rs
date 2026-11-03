@@ -246,8 +246,20 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
         get_modification_time(&params.from.to_string_lossy(), TimestampStyle::Iso);
     let to_modified_time = get_modification_time(&params.to.to_string_lossy(), TimestampStyle::Iso);
     let mut output = Vec::new();
-    write_file_header(&mut output, "---", &params.from, &from_modified_time);
-    write_file_header(&mut output, "+++", &params.to, &to_modified_time);
+    write_file_header(
+        &mut output,
+        "---",
+        &params.from,
+        params.from_label.as_deref(),
+        &from_modified_time,
+    );
+    write_file_header(
+        &mut output,
+        "+++",
+        &params.to,
+        params.to_label.as_deref(),
+        &to_modified_time,
+    );
     let diff_results = make_diff(expected, actual, params.context_count, params.brief);
     if diff_results.is_empty() {
         return Vec::new();
