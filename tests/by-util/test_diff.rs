@@ -932,6 +932,38 @@ fn ed_format_single_line_deletions() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
+fn ed_format_writes_hunks_last_to_first() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+    let old = tmp_dir.path().join("old");
+    let new = tmp_dir.path().join("new");
+
+    // GNU diff starts from the end of the file, so every command uses the
+    // line numbers of the original file.
+    std::fs::write(&old, "a\nb\nc\nd\ne\n")?;
+    std::fs::write(&new, "b\nd\n")?;
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff").arg("-e").arg(&old).arg(&new);
+    cmd.assert().code(predicate::eq(1)).stdout("5d\n3d\n1d\n");
+
+    std::fs::write(&old, "a\nb\n")?;
+    std::fs::write(&new, "X\na\nb\nY\n")?;
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff").arg("-e").arg(&old).arg(&new);
+    cmd.assert()
+        .code(predicate::eq(1))
+        .stdout("2a\nY\n.\n0a\nX\n.\n");
+
+    std::fs::write(&old, "a\nb\nc\nd\n")?;
+    std::fs::write(&new, "a\nX\nY\nc\n")?;
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff").arg("-e").arg(&old).arg(&new);
+    cmd.assert()
+        .code(predicate::eq(1))
+        .stdout("4d\n2c\nX\nY\n.\n");
+    Ok(())
+}
+
+#[test]
 fn function_lines() -> Result<(), Box<dyn std::error::Error>> {
     let tmp_dir = tempdir()?;
     let old = tmp_dir.path().join("old.c");
