@@ -117,12 +117,13 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Result<Vec<u8>, 
         write!(&mut output, "\0").unwrap();
         return Ok(output);
     }
-    let mut lines_offset = 0;
-    for result in diff_results {
-        let line_number_expected: isize = result.line_number_expected as isize + lines_offset;
-        let _line_number_actual: isize = result.line_number_actual as isize + lines_offset;
-        let expected_count: isize = result.expected.len() as isize;
-        let actual_count: isize = result.actual.len() as isize;
+    // Like GNU diff, write the hunks last to first. Each command then refers
+    // to the original line numbers, since editing later lines first leaves
+    // the earlier ones where they were.
+    for result in diff_results.iter().rev() {
+        let line_number_expected = result.line_number_expected;
+        let expected_count = result.expected.len();
+        let actual_count = result.actual.len();
         match (expected_count, actual_count) {
             (0, 0) => unreachable!(),
             (0, _) => writeln!(&mut output, "{}a", line_number_expected - 1).unwrap(),
@@ -143,7 +144,6 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Result<Vec<u8>, 
             )
             .unwrap(),
         }
-        lines_offset += actual_count - expected_count;
         if actual_count != 0 {
             for actual in &result.actual {
                 if actual == b"." {
