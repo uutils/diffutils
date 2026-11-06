@@ -301,9 +301,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
             }) => {
                 if is_match {
                     format = Some(Format::Context);
-                    if context_count.is_some() {
-                        context = context_count;
-                    }
+                    context = Some(largest_context(context, context_count));
                     if next_param_consumed {
                         opts.next();
                     }
@@ -320,9 +318,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
             }) => {
                 if is_match {
                     format = Some(Format::Unified);
-                    if context_count.is_some() {
-                        context = context_count;
-                    }
+                    context = Some(largest_context(context, context_count));
                     if next_param_consumed {
                         opts.next();
                     }
@@ -472,6 +468,13 @@ fn push_function_line_pattern(params: &mut Params, pattern: &str) -> Result<(), 
     let bre = Bre::new(pattern).map_err(|error| format!("'{pattern}': {error}"))?;
     params.function_line_patterns.push(bre);
     Ok(())
+}
+
+/// GNU diff uses the largest context length given, and a bare -c or -u
+/// counts as a request for 3 lines.
+fn largest_context(current: Option<usize>, given: Option<usize>) -> usize {
+    let given = given.unwrap_or(3);
+    current.map_or(given, |current| current.max(given))
 }
 
 struct DiffStyleMatch {
@@ -1360,6 +1363,30 @@ mod tests {
                 .chain(["foo", "bar"]);
             let params = parse_params(args.map(os).peekable()).unwrap();
             assert_eq!(params.ignore_file_name_case, expected);
+        }
+    }
+
+    #[test]
+    fn largest_context_count_wins() {
+        for (args, expected) in [
+            (vec!["-U1", "-u"], 3),
+            (vec!["-u", "-U1"], 3),
+            (vec!["-U0", "-u"], 3),
+            (vec!["-U5", "-u"], 5),
+            (vec!["-U1", "-U2"], 2),
+            (vec!["-U2", "-U1"], 2),
+            (vec!["-C1", "-c"], 3),
+            (vec!["-c", "-C1"], 3),
+            (vec!["-C", "7", "-C2"], 7),
+            (vec!["--unified=1", "--unified"], 3),
+            (vec!["-U1"], 1),
+            (vec!["-C0"], 0),
+        ] {
+            let mut params = vec!["diff"];
+            params.extend(&args);
+            params.extend(["foo", "bar"]);
+            let parsed = parse_params(params.iter().map(|x| os(x)).peekable()).unwrap();
+            assert_eq!(parsed.context_count, expected, "{args:?}");
         }
     }
 }
