@@ -11,12 +11,6 @@ use std::iter::Peekable;
 use std::process::ExitCode;
 use std::{cmp, fs, io};
 
-#[cfg(unix)]
-use std::os::fd::{AsRawFd, FromRawFd};
-
-#[cfg(unix)]
-use std::os::unix::fs::MetadataExt;
-
 #[cfg(target_os = "windows")]
 use std::os::windows::fs::MetadataExt;
 
@@ -43,8 +37,26 @@ fn usage_string(executable: &str) -> String {
     format!("Usage: {executable} <from> <to>")
 }
 
-#[cfg(unix)]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 fn is_stdout_dev_null() -> bool {
+    // as_fd().try_clone_to_owned() needs additional overhead of fcntl
+    use rustix::fs;
+    let stdout = io::stdout();
+    let Ok(stat) = fs::fstat(stdout) else {
+        return false;
+    };
+    let dev = stat.st_rdev;
+
+    let is_char_device = fs::FileType::from_raw_mode(stat.st_mode).is_char_device();
+    // /dev/null's major/minor is frozen on Linux. So we don't need to open new `/dev/null` and compare
+    is_char_device && fs::major(dev) == 1 && fs::minor(dev) == 3
+}
+
+#[cfg(unix)]
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+fn is_stdout_dev_null() -> bool {
+    use std::os::fd::{AsRawFd, FromRawFd};
+    use std::os::unix::fs::MetadataExt;
     let Ok(dev_null) = fs::metadata("/dev/null") else {
         return false;
     };
