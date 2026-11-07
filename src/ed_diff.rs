@@ -145,15 +145,26 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Result<Vec<u8>, 
             .unwrap(),
         }
         if actual_count != 0 {
+            // A line holding just "." would end the text, so like GNU diff it
+            // is written as "..", the text is ended, and s/.// fixes it up.
+            // Text mode is only entered again if more lines follow.
+            let mut in_text = true;
             for actual in &result.actual {
+                if !in_text {
+                    writeln!(&mut output, "a").unwrap();
+                    in_text = true;
+                }
                 if actual == b"." {
-                    writeln!(&mut output, "..\n.\ns/.//\na").unwrap();
+                    writeln!(&mut output, "..\n.\ns/.//").unwrap();
+                    in_text = false;
                 } else {
                     do_write_line(&mut output, actual, params.expand_tabs, params.tabsize).unwrap();
                     writeln!(&mut output).unwrap();
                 }
             }
-            writeln!(&mut output, ".").unwrap();
+            if in_text {
+                writeln!(&mut output, ".").unwrap();
+            }
         }
     }
     Ok(output)

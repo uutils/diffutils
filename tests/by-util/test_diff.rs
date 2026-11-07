@@ -964,6 +964,28 @@ fn ed_format_writes_hunks_last_to_first() -> Result<(), Box<dyn std::error::Erro
 }
 
 #[test]
+fn ed_format_dot_line_ends_text_once() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+    let old = tmp_dir.path().join("old");
+    let new = tmp_dir.path().join("new");
+    std::fs::write(&old, "a\nb\n")?;
+
+    // A "." line is written as "..", then s/.// fixes it. Like GNU diff, no
+    // empty "a" command follows when it is the last line of the hunk.
+    for (contents, expected) in [
+        ("a\nb\n.\n", "2a\n..\n.\ns/.//\n"),
+        (".\n.\nb\n", "1c\n..\n.\ns/.//\na\n..\n.\ns/.//\n"),
+        ("a\n.\nc\n", "2c\n..\n.\ns/.//\na\nc\n.\n"),
+    ] {
+        std::fs::write(&new, contents)?;
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff").arg("-e").arg(&old).arg(&new);
+        cmd.assert().code(predicate::eq(1)).stdout(expected);
+    }
+    Ok(())
+}
+
+#[test]
 fn function_lines() -> Result<(), Box<dyn std::error::Error>> {
     let tmp_dir = tempdir()?;
     let old = tmp_dir.path().join("old.c");
