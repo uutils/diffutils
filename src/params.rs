@@ -1365,28 +1365,4 @@ mod tests {
             assert_eq!(params.ignore_file_name_case, expected);
         }
     }
-
-    #[test]
-    fn largest_context_count_wins() {
-        for (args, expected) in [
-            (vec!["-U1", "-u"], 3),
-            (vec!["-u", "-U1"], 3),
-            (vec!["-U0", "-u"], 3),
-            (vec!["-U5", "-u"], 5),
-            (vec!["-U1", "-U2"], 2),
-            (vec!["-U2", "-U1"], 2),
-            (vec!["-C1", "-c"], 3),
-            (vec!["-c", "-C1"], 3),
-            (vec!["-C", "7", "-C2"], 7),
-            (vec!["--unified=1", "--unified"], 3),
-            (vec!["-U1"], 1),
-            (vec!["-C0"], 0),
-        ] {
-            let mut params = vec!["diff"];
-            params.extend(&args);
-            params.extend(["foo", "bar"]);
-            let parsed = parse_params(params.iter().map(|x| os(x)).peekable()).unwrap();
-            assert_eq!(parsed.context_count, expected, "{args:?}");
-        }
-    }
 }

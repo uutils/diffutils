@@ -1115,6 +1115,47 @@ fn ed_format_dot_line_ends_text_once() -> Result<(), Box<dyn std::error::Error>>
 }
 
 #[test]
+fn largest_context_length_wins() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+    let old = tmp_dir.path().join("old");
+    let new = tmp_dir.path().join("new");
+
+    // The case from issue #340, GNU diff merges both changes into one hunk.
+    std::fs::write(&old, "a\nb\nc\nd\ne\nf\ng\nh\n")?;
+    std::fs::write(&new, "a\nB\nc\nd\ne\nf\nG\nh\n")?;
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff").arg("-U1").arg("-u").arg(&old).arg(&new);
+    cmd.assert()
+        .code(predicate::eq(1))
+        .stdout(predicate::str::contains("\n@@ -1,8 +1,8 @@\n"));
+
+    // With one changed line in the middle, the hunk header shows how many
+    // lines of context were used.
+    let lines: String = (1..=20).map(|i| format!("{i}\n")).collect();
+    std::fs::write(&old, &lines)?;
+    std::fs::write(&new, lines.replace("\n10\n", "\nX\n"))?;
+    for (args, header) in [
+        (vec!["-U1", "-u"], "\n@@ -7,7 +7,7 @@\n"),
+        (vec!["-u", "-U1"], "\n@@ -7,7 +7,7 @@\n"),
+        (vec!["-U5", "-u"], "\n@@ -5,11 +5,11 @@\n"),
+        (vec!["-U2", "-U1"], "\n@@ -8,5 +8,5 @@\n"),
+        (vec!["--unified=1", "--unified"], "\n@@ -7,7 +7,7 @@\n"),
+        (vec!["-5u"], "\n@@ -5,11 +5,11 @@\n"),
+        (vec!["-C1", "-c"], "\n*** 7,13 ****\n"),
+        (vec!["--context=1", "--context"], "\n*** 7,13 ****\n"),
+        (vec!["--context", "--context=1"], "\n*** 7,13 ****\n"),
+        (vec!["-5c"], "\n*** 5,15 ****\n"),
+    ] {
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff").args(&args).arg(&old).arg(&new);
+        cmd.assert()
+            .code(predicate::eq(1))
+            .stdout(predicate::str::contains(header));
+    }
+    Ok(())
+}
+
+#[test]
 fn function_lines() -> Result<(), Box<dyn std::error::Error>> {
     let tmp_dir = tempdir()?;
     let old = tmp_dir.path().join("old.c");
