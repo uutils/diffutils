@@ -1085,3 +1085,22 @@ fn quoted_file_names() -> Result<(), Box<dyn std::error::Error>> {
         .stdout("diff -r -F 'my func' \"one/my file\" \"two/my file\"\n1c1\n< a\n---\n> b\n");
     Ok(())
 }
+
+#[test]
+fn extra_operand_after_double_dash() -> Result<(), Box<dyn std::error::Error>> {
+    let mut old = NamedTempFile::new()?;
+    old.write_all(b"a\nb\n")?;
+    let mut new = NamedTempFile::new()?;
+    new.write_all(b"a\nc\n")?;
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff")
+        .arg("--")
+        .arg(old.path())
+        .arg(new.path())
+        .arg("extra");
+    cmd.assert()
+        .code(predicate::eq(2))
+        .stdout(predicate::str::is_empty())
+        .stderr(predicate::str::contains("extra operand 'extra'"));
+    Ok(())
+}
