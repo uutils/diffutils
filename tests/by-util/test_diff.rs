@@ -1104,3 +1104,18 @@ fn extra_operand_after_double_dash() -> Result<(), Box<dyn std::error::Error>> {
         .stderr(predicate::str::contains("extra operand 'extra'"));
     Ok(())
 }
+
+#[test]
+fn extra_operand_without_double_dash() -> Result<(), Box<dyn std::error::Error>> {
+    let mut old = NamedTempFile::new()?;
+    old.write_all(b"a\nb\n")?;
+    let mut new = NamedTempFile::new()?;
+    new.write_all(b"a\nc\n")?;
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff").arg(old.path()).arg(new.path()).arg("extra");
+    cmd.assert()
+        .code(predicate::eq(2))
+        .stdout(predicate::str::is_empty())
+        .stderr("diff: extra operand 'extra'\ndiff: Try 'diff --help' for more information.\n");
+    Ok(())
+}
