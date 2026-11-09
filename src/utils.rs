@@ -242,9 +242,7 @@ pub fn is_posix_locale(category: &str) -> bool {
 }
 
 /// Retrieves the modification time of the input file specified by file path.
-/// A file that does not exist (treated as empty with `-N`) is dated at the
-/// Unix Epoch, as GNU diff does, so that `patch` knows to create or delete
-/// it. If any other error occurs, it returns the current system time.
+/// A missing file (-N) is dated at the Epoch, other errors at now.
 pub fn get_modification_time(file_path: &str, style: TimestampStyle) -> String {
     use chrono::{DateTime, Local};
     use std::fs;
