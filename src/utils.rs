@@ -242,25 +242,20 @@ pub fn is_posix_locale(category: &str) -> bool {
 }
 
 /// Retrieves the modification time of the input file specified by file path
-/// Missing files treated as empty use the Unix Epoch; other errors use the current system time.
-pub fn get_modification_time(
-    file_path: &str,
-    style: TimestampStyle,
-    missing_as_empty: bool,
-) -> String {
+/// A file that was `missing` and compared as empty is dated at the Unix Epoch.
+/// If an error occurs, it returns the current system time
+pub fn get_modification_time(file_path: &str, style: TimestampStyle, missing: bool) -> String {
     use chrono::{DateTime, Local};
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    let modification_time: SystemTime = fs::metadata(file_path)
-        .and_then(|m| m.modified())
-        .unwrap_or_else(|error| {
-            if missing_as_empty && error.kind() == std::io::ErrorKind::NotFound {
-                UNIX_EPOCH
-            } else {
-                SystemTime::now()
-            }
-        });
+    let modification_time: SystemTime = if missing {
+        UNIX_EPOCH
+    } else {
+        fs::metadata(file_path)
+            .and_then(|m| m.modified())
+            .unwrap_or(SystemTime::now())
+    };
 
     let modification_time: DateTime<Local> = modification_time.into();
     let format = match style {

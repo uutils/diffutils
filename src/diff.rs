@@ -97,11 +97,14 @@ pub fn compare_files(params: &Params, header: Option<&[u8]>) -> Outcome {
         }
     }
     let mut io_error = false;
+    let mut from_missing = false;
+    let mut to_missing = false;
     let from_content = match read_file_contents(&params.from) {
         Ok(from_content) => from_content,
         Err(e)
             if e.kind() == io::ErrorKind::NotFound && params.missing_file != MissingFile::Error =>
         {
+            from_missing = true;
             vec![]
         }
         Err(e) => {
@@ -115,6 +118,7 @@ pub fn compare_files(params: &Params, header: Option<&[u8]>) -> Outcome {
         Err(e)
             if e.kind() == io::ErrorKind::NotFound && params.missing_file == MissingFile::Empty =>
         {
+            to_missing = true;
             vec![]
         }
         Err(e) => {
@@ -142,6 +146,12 @@ pub fn compare_files(params: &Params, header: Option<&[u8]>) -> Outcome {
         );
         return Outcome::Different;
     }
+
+    let params = &Params {
+        from_missing,
+        to_missing,
+        ..params.clone()
+    };
 
     // run diff
     let result: Vec<u8> = match params.format {

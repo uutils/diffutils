@@ -338,6 +338,33 @@ fn missing_file_header_timestamp() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
+fn missing_file_as_empty_keeps_stdin_timestamp() -> Result<(), Box<dyn std::error::Error>> {
+    let mut file = NamedTempFile::new()?;
+    file.write_all(b"file\n")?;
+
+    let stdin = std::ffi::OsStr::new("-");
+    let file = file.path().as_os_str();
+    for format in ["-u", "-c"] {
+        for (from, to) in [(stdin, file), (file, stdin)] {
+            let mut cmd = cargo_bin_cmd!("diffutils");
+            cmd.env("TZ", "UTC0")
+                .env("LC_ALL", "C")
+                .arg("diff")
+                .arg(format)
+                .arg("-N")
+                .arg(from)
+                .arg(to)
+                .write_stdin("stdin\n");
+            cmd.assert()
+                .code(predicate::eq(1))
+                .stderr(predicate::str::is_empty())
+                .stdout(predicate::str::contains("1970").not());
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn binary_files() -> Result<(), Box<dyn std::error::Error>> {
     let tmp_dir = tempdir()?;
     let left = tmp_dir.path().join("left.bin");
