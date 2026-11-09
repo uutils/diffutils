@@ -6,7 +6,7 @@
 use std::collections::VecDeque;
 use std::io::Write;
 
-use crate::params::Params;
+use crate::params::{MissingFile, Params};
 use crate::utils::do_write_line;
 use crate::utils::{get_modification_time, write_file_header, FunctionLineFinder, TimestampStyle};
 
@@ -242,9 +242,16 @@ fn make_diff(
 
 #[must_use]
 pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
-    let from_modified_time =
-        get_modification_time(&params.from.to_string_lossy(), TimestampStyle::Iso);
-    let to_modified_time = get_modification_time(&params.to.to_string_lossy(), TimestampStyle::Iso);
+    let from_modified_time = get_modification_time(
+        &params.from.to_string_lossy(),
+        TimestampStyle::Iso,
+        params.missing_file != MissingFile::Error,
+    );
+    let to_modified_time = get_modification_time(
+        &params.to.to_string_lossy(),
+        TimestampStyle::Iso,
+        params.missing_file == MissingFile::Empty,
+    );
     let mut output = Vec::new();
     write_file_header(&mut output, "---", &params.from, &from_modified_time);
     write_file_header(&mut output, "+++", &params.to, &to_modified_time);

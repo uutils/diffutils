@@ -246,6 +246,97 @@ fn missing_file_as_empty() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+// TZ is not honored on Windows.
+#[cfg(unix)]
+#[test]
+fn missing_file_header_timestamp() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+    let left = tmp_dir.path().join("left");
+    let right = tmp_dir.path().join("right");
+    std::fs::create_dir(&left)?;
+    std::fs::create_dir_all(right.join("nested"))?;
+    let absent = left.join("nested/file");
+    let present = right.join("nested/file");
+    std::fs::write(&present, "kiwi\n")?;
+    let mtime = std::time::UNIX_EPOCH + std::time::Duration::from_millis(1_234_567_890_250);
+    File::options()
+        .write(true)
+        .open(&present)?
+        .set_modified(mtime)?;
+
+    for (format, locale, markers, epoch, timestamp) in [
+        (
+            "-u",
+            "C",
+            ["---", "+++"],
+            "1970-01-01 00:00:00.000000000 +0000",
+            "2009-02-13 23:31:30.250000000 +0000",
+        ),
+        (
+            "-c",
+            "en_US.UTF-8",
+            ["***", "---"],
+            "1970-01-01 00:00:00.000000000 +0000",
+            "2009-02-13 23:31:30.250000000 +0000",
+        ),
+        (
+            "-c",
+            "C",
+            ["***", "---"],
+            "Thu Jan  1 00:00:00 1970",
+            "Fri Feb 13 23:31:30 2009",
+        ),
+    ] {
+        for option in ["-N", "--new-file", "--unidirectional-new-file"] {
+            for reverse in [false, true] {
+                if reverse && option == "--unidirectional-new-file" {
+                    continue;
+                }
+                let headers = if reverse {
+                    format!(
+                        "{} {}\t{timestamp}\n{} {}\t{epoch}\n",
+                        markers[0],
+                        present.display(),
+                        markers[1],
+                        absent.display()
+                    )
+                } else {
+                    format!(
+                        "{} {}\t{epoch}\n{} {}\t{timestamp}\n",
+                        markers[0],
+                        absent.display(),
+                        markers[1],
+                        present.display()
+                    )
+                };
+                for recursive in [false, true] {
+                    let (from, to) = if recursive {
+                        (&left, &right)
+                    } else {
+                        (&absent, &present)
+                    };
+                    let mut cmd = cargo_bin_cmd!("diffutils");
+                    cmd.env("TZ", "UTC0")
+                        .env("LC_ALL", locale)
+                        .arg("diff")
+                        .arg(format)
+                        .arg(option);
+                    if recursive {
+                        cmd.arg("-r");
+                    }
+                    cmd.arg(if reverse { to } else { from })
+                        .arg(if reverse { from } else { to });
+                    cmd.assert()
+                        .code(predicate::eq(1))
+                        .stderr(predicate::str::is_empty())
+                        .stdout(predicate::str::contains(&headers));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 #[test]
 fn binary_files() -> Result<(), Box<dyn std::error::Error>> {
     let tmp_dir = tempdir()?;
