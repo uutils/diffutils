@@ -241,16 +241,21 @@ pub fn is_posix_locale(category: &str) -> bool {
     locale == "C" || locale == "POSIX"
 }
 
-/// Retrieves the modification time of the input file specified by file path
-/// If an error occurs, it returns the current system time
+/// Retrieves the modification time of the input file specified by file path.
+/// A file that does not exist (treated as empty with `-N`) is dated at the
+/// Unix Epoch, as GNU diff does, so that `patch` knows to create or delete
+/// it. If any other error occurs, it returns the current system time.
 pub fn get_modification_time(file_path: &str, style: TimestampStyle) -> String {
     use chrono::{DateTime, Local};
     use std::fs;
+    use std::io::ErrorKind;
     use std::time::SystemTime;
 
-    let modification_time: SystemTime = fs::metadata(file_path)
-        .and_then(|m| m.modified())
-        .unwrap_or(SystemTime::now());
+    let modification_time: SystemTime = match fs::metadata(file_path).and_then(|m| m.modified()) {
+        Ok(time) => time,
+        Err(e) if e.kind() == ErrorKind::NotFound && file_path != "-" => SystemTime::UNIX_EPOCH,
+        Err(_) => SystemTime::now(),
+    };
 
     let modification_time: DateTime<Local> = modification_time.into();
     let format = match style {
@@ -526,17 +531,30 @@ mod tests {
         }
 
         #[test]
-        fn invalid_file() {
+        fn missing_file() {
             use chrono::{DateTime, Local};
             use std::time::SystemTime;
 
-            let invalid_file = "target/utils/invalid-file";
+            let missing_file = "target/utils/missing-file";
+
+            // A missing file is dated at the Unix Epoch, like GNU diff does
+            let m_time: DateTime<Local> = get_modification_time(missing_file, TimestampStyle::Iso)
+                .parse()
+                .unwrap();
+
+            assert_eq!(m_time, DateTime::<Local>::from(SystemTime::UNIX_EPOCH));
+        }
+
+        #[test]
+        fn stdin() {
+            use chrono::{DateTime, Local};
+            use std::time::SystemTime;
 
             // store current time before calling `get_modification_time`
-            // Because the file is invalid, it will return SystemTime::now()
+            // Standard input has no path to stat, so it is dated "now",
             // which will be greater than previously saved time
             let current_time: DateTime<Local> = SystemTime::now().into();
-            let m_time: DateTime<Local> = get_modification_time(invalid_file, TimestampStyle::Iso)
+            let m_time: DateTime<Local> = get_modification_time("-", TimestampStyle::Iso)
                 .parse()
                 .unwrap();
 
