@@ -90,8 +90,12 @@ impl Default for Params {
     }
 }
 
-fn extra_operand(param: &OsStr) -> String {
-    format!("extra operand '{}'", param.to_string_lossy())
+fn extra_operand(executable: &OsStr, param: &OsStr) -> String {
+    let exe = executable.to_string_lossy();
+    format!(
+        "{exe}: extra operand '{}'\n{exe}: Try '{exe} --help' for more information.",
+        param.to_string_lossy()
+    )
 }
 
 /// Parses the command line, and also returns its arguments other than the
@@ -130,7 +134,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
             } else if to.is_none() {
                 to = Some(param);
             } else {
-                return Err(extra_operand(&param));
+                return Err(extra_operand(&params.executable, &param));
             }
             continue;
         }
@@ -330,7 +334,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
         } else if to.is_none() {
             to = Some(param);
         } else {
-            return Err(extra_operand(&param));
+            return Err(extra_operand(&params.executable, &param));
         }
     }
     params.from = if let Some(from) = from {
@@ -357,7 +361,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
     };
     // Operands after `--` are not checked by the option loop above.
     if let Some((_, param)) = opts.next() {
-        return Err(extra_operand(&param));
+        return Err(extra_operand(&params.executable, &param));
     }
 
     // diff DIRECTORY FILE => diff DIRECTORY/FILE FILE
@@ -1172,7 +1176,10 @@ mod tests {
         ] {
             assert_eq!(
                 parse_params(args.iter().map(|x| os(x)).peekable()).err(),
-                Some("extra operand '".to_string() + args[args.len() - 1] + "'"),
+                Some(format!(
+                    "diff: extra operand '{0}'\ndiff: Try 'diff --help' for more information.",
+                    args[args.len() - 1]
+                )),
                 "{args:?}"
             );
         }
