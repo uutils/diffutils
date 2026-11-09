@@ -247,6 +247,29 @@ fn missing_file_as_empty() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
+fn new_file_both_missing_is_an_error() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+    let missing1 = tmp_dir.path().join("missing1");
+    let missing2 = tmp_dir.path().join("missing2");
+
+    for option in ["-N", "--new-file", "--unidirectional-new-file"] {
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff").arg(option).arg(&missing1).arg(&missing2);
+        cmd.assert()
+            .code(predicate::eq(2))
+            .failure()
+            .stdout(predicate::str::is_empty())
+            .stderr(predicate::str::contains(
+                "missing1: No such file or directory",
+            ))
+            .stderr(predicate::str::contains(
+                "missing2: No such file or directory",
+            ));
+    }
+    Ok(())
+}
+
+#[test]
 fn binary_files() -> Result<(), Box<dyn std::error::Error>> {
     let tmp_dir = tempdir()?;
     let left = tmp_dir.path().join("left.bin");

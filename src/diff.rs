@@ -97,10 +97,20 @@ pub fn compare_files(params: &Params, header: Option<&[u8]>) -> Outcome {
         }
     }
     let mut io_error = false;
-    let from_content = match read_file_contents(&params.from) {
+    let from_result = read_file_contents(&params.from);
+    let to_result = read_file_contents(&params.to);
+    // Like GNU diff, -N and --unidirectional-new-file only treat a missing
+    // operand as empty when the other one exists, so two missing files are
+    // still reported as errors.
+    let is_missing =
+        |r: &io::Result<Vec<u8>>| matches!(r, Err(e) if e.kind() == io::ErrorKind::NotFound);
+    let both_missing = is_missing(&from_result) && is_missing(&to_result);
+    let from_content = match from_result {
         Ok(from_content) => from_content,
         Err(e)
-            if e.kind() == io::ErrorKind::NotFound && params.missing_file != MissingFile::Error =>
+            if e.kind() == io::ErrorKind::NotFound
+                && params.missing_file != MissingFile::Error
+                && !both_missing =>
         {
             vec![]
         }
@@ -110,10 +120,12 @@ pub fn compare_files(params: &Params, header: Option<&[u8]>) -> Outcome {
             vec![]
         }
     };
-    let to_content = match read_file_contents(&params.to) {
+    let to_content = match to_result {
         Ok(to_content) => to_content,
         Err(e)
-            if e.kind() == io::ErrorKind::NotFound && params.missing_file == MissingFile::Empty =>
+            if e.kind() == io::ErrorKind::NotFound
+                && params.missing_file == MissingFile::Empty
+                && !both_missing =>
         {
             vec![]
         }
