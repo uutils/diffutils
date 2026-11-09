@@ -90,6 +90,10 @@ impl Default for Params {
     }
 }
 
+fn extra_operand(param: &OsStr) -> String {
+    format!("extra operand '{}'", param.to_string_lossy())
+}
+
 /// Parses the command line, and also returns its arguments other than the
 /// program name and the operands.
 pub fn parse_params<I: Iterator<Item = OsString>>(
@@ -126,10 +130,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
             } else if to.is_none() {
                 to = Some(param);
             } else {
-                return Err(format!(
-                    "Usage: {} <from> <to>",
-                    params.executable.to_string_lossy()
-                ));
+                return Err(extra_operand(&param));
             }
             continue;
         }
@@ -329,10 +330,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
         } else if to.is_none() {
             to = Some(param);
         } else {
-            return Err(format!(
-                "Usage: {} <from> <to>",
-                params.executable.to_string_lossy()
-            ));
+            return Err(extra_operand(&param));
         }
     }
     params.from = if let Some(from) = from {
@@ -357,6 +355,10 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
             params.executable.to_string_lossy()
         ));
     };
+    // Operands after `--` are not checked by the option loop above.
+    if let Some((_, param)) = opts.next() {
+        return Err(extra_operand(&param));
+    }
 
     // diff DIRECTORY FILE => diff DIRECTORY/FILE FILE
     // diff FILE DIRECTORY => diff FILE DIRECTORY/FILE
@@ -1159,6 +1161,21 @@ mod tests {
                 .peekable()
         )
         .is_err());
+    }
+    #[test]
+    fn extra_operand_is_an_error() {
+        for args in [
+            &["diff", "foo", "bar", "baz"][..],
+            &["diff", "-", "-", "-"],
+            &["diff", "--", "foo", "bar", "baz"],
+            &["diff", "foo", "--", "bar", "baz"],
+        ] {
+            assert_eq!(
+                parse_params(args.iter().map(|x| os(x)).peekable()).err(),
+                Some("extra operand '".to_string() + args[args.len() - 1] + "'"),
+                "{args:?}"
+            );
+        }
     }
     #[test]
     fn missing_arguments() {
