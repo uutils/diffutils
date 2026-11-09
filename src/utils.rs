@@ -242,15 +242,25 @@ pub fn is_posix_locale(category: &str) -> bool {
 }
 
 /// Retrieves the modification time of the input file specified by file path
-/// If an error occurs, it returns the current system time
-pub fn get_modification_time(file_path: &str, style: TimestampStyle) -> String {
+/// Missing files treated as empty use the Unix Epoch; other errors use the current system time.
+pub fn get_modification_time(
+    file_path: &str,
+    style: TimestampStyle,
+    missing_as_empty: bool,
+) -> String {
     use chrono::{DateTime, Local};
     use std::fs;
-    use std::time::SystemTime;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     let modification_time: SystemTime = fs::metadata(file_path)
         .and_then(|m| m.modified())
-        .unwrap_or(SystemTime::now());
+        .unwrap_or_else(|error| {
+            if missing_as_empty && error.kind() == std::io::ErrorKind::NotFound {
+                UNIX_EPOCH
+            } else {
+                SystemTime::now()
+            }
+        });
 
     let modification_time: DateTime<Local> = modification_time.into();
     let format = match style {
@@ -521,7 +531,7 @@ mod tests {
             // verify
             assert_eq!(
                 current,
-                get_modification_time(&temp.path().to_string_lossy(), TimestampStyle::Iso)
+                get_modification_time(&temp.path().to_string_lossy(), TimestampStyle::Iso, false)
             );
         }
 
@@ -536,9 +546,10 @@ mod tests {
             // Because the file is invalid, it will return SystemTime::now()
             // which will be greater than previously saved time
             let current_time: DateTime<Local> = SystemTime::now().into();
-            let m_time: DateTime<Local> = get_modification_time(invalid_file, TimestampStyle::Iso)
-                .parse()
-                .unwrap();
+            let m_time: DateTime<Local> =
+                get_modification_time(invalid_file, TimestampStyle::Iso, false)
+                    .parse()
+                    .unwrap();
 
             assert!(m_time > current_time);
         }
