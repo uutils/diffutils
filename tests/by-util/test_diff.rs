@@ -246,6 +246,62 @@ fn missing_file_as_empty() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+// TZ is not honored on Windows.
+#[cfg(unix)]
+#[test]
+fn new_file_missing_side_dated_at_epoch() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+    let a = tmp_dir.path().join("a");
+    let b = tmp_dir.path().join("b");
+    std::fs::create_dir(&a)?;
+    std::fs::create_dir(&b)?;
+    let old = a.join("only");
+    std::fs::write(&old, "x\n")?;
+    let missing = b.join("only");
+
+    // GNU dates the missing side at the Epoch, which tells patch to remove it.
+    for (option, locale, epoch) in [
+        ("-u", "en_US.UTF-8", "1970-01-01 00:00:00.000000000 +0000"),
+        ("-c", "en_US.UTF-8", "1970-01-01 00:00:00.000000000 +0000"),
+        ("-c", "C", "Thu Jan  1 00:00:00 1970"),
+    ] {
+        for (from, to) in [(&old, &missing), (&missing, &old)] {
+            let mut cmd = cargo_bin_cmd!("diffutils");
+            cmd.env("TZ", "UTC0")
+                .env("LC_ALL", locale)
+                .arg("diff")
+                .arg("-N")
+                .arg(option)
+                .arg(from)
+                .arg(to);
+            cmd.assert()
+                .code(predicate::eq(1))
+                .stdout(predicate::str::contains(format!(
+                    " {}\t{epoch}\n",
+                    missing.display()
+                )));
+        }
+    }
+
+    // The same goes for files that only exist on one side of a directory diff.
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.env("TZ", "UTC0")
+        .env("LC_ALL", "C")
+        .arg("diff")
+        .arg("-r")
+        .arg("-N")
+        .arg("-u")
+        .arg(&a)
+        .arg(&b);
+    cmd.assert()
+        .code(predicate::eq(1))
+        .stdout(predicate::str::contains(format!(
+            "+++ {}\t1970-01-01 00:00:00.000000000 +0000\n",
+            missing.display()
+        )));
+    Ok(())
+}
+
 #[test]
 fn binary_files() -> Result<(), Box<dyn std::error::Error>> {
     let tmp_dir = tempdir()?;
