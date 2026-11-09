@@ -58,6 +58,10 @@ pub struct Params {
     pub starting_file: Option<OsString>,
     pub ignore_file_name_case: bool,
     pub no_dereference: bool,
+    /// Set when `from` did not exist and was compared as an empty file.
+    pub from_missing: bool,
+    /// Set when `to` did not exist and was compared as an empty file.
+    pub to_missing: bool,
 }
 
 /// The pattern of `-p`, matching the first line of C functions.
@@ -86,6 +90,8 @@ impl Default for Params {
             starting_file: None,
             ignore_file_name_case: false,
             no_dereference: false,
+            from_missing: false,
+            to_missing: false,
         }
     }
 }
