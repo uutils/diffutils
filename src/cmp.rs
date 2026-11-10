@@ -17,9 +17,6 @@ use std::os::fd::{AsRawFd, FromRawFd};
 #[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
 
-#[cfg(target_os = "windows")]
-use std::os::windows::fs::MetadataExt;
-
 /// for --bytes, so really large number limits can be expressed, like 1Y.
 pub type BytesLimitU64 = u64;
 // ignore initial is currently limited to u64, as take(skip) is used.
@@ -307,13 +304,7 @@ fn regular_file_size(path: &OsString) -> Option<u64> {
         return None;
     }
 
-    #[cfg(not(target_os = "windows"))]
-    let size = meta.len();
-
-    #[cfg(target_os = "windows")]
-    let size = meta.file_size();
-
-    Some(size)
+    Some(meta.len())
 }
 
 #[derive(Debug)]
