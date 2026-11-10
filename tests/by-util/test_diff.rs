@@ -5,264 +5,169 @@
 
 use diffutilslib::assert_diff_eq;
 
-#[cfg(any(target_os = "linux", target_os = "android"))]
-use assert_cmd::assert::OutputAssertExt;
-use assert_cmd::cargo::cargo_bin_cmd;
-use predicates::prelude::*;
 use std::fs::File;
-use std::io::Write;
-use tempfile::{tempdir, NamedTempFile};
+use uutests::at_and_ts;
 
 #[test]
-fn no_differences() -> Result<(), Box<dyn std::error::Error>> {
-    let file = NamedTempFile::new()?;
+fn no_differences() {
+    let (at, ts) = at_and_ts!();
+    at.touch("file");
     for option in ["", "-u", "-c", "-e"] {
-        let mut cmd = cargo_bin_cmd!("diffutils");
-        cmd.arg("diff");
+        let mut cmd = ts.ucmd();
         if !option.is_empty() {
             cmd.arg(option);
         }
-        cmd.arg(file.path()).arg(file.path());
-        cmd.assert()
-            .code(predicate::eq(0))
-            .success()
-            .stdout(predicate::str::is_empty());
+        cmd.args(&["file", "file"]).succeeds().no_stdout();
     }
-    Ok(())
 }
 
 #[test]
-fn no_differences_report_identical_files() -> Result<(), Box<dyn std::error::Error>> {
-    // same file
-    let mut file1 = NamedTempFile::new()?;
-    file1.write_all("foo\n".as_bytes())?;
+fn no_differences_report_identical_files() {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", "foo\n");
+    at.write("file2", "foo\n");
+    // the same file, then two files with the same content
+    for second in ["file1", "file2"] {
+        for option in ["", "-u", "-c", "-e"] {
+            let mut cmd = ts.ucmd();
+            if !option.is_empty() {
+                cmd.arg(option);
+            }
+            cmd.args(&["-s", "file1", second])
+                .succeeds()
+                .stdout_is(format!("Files file1 and {second} are identical\n"));
+        }
+    }
+}
+
+#[test]
+fn differences() {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", "foo\n");
+    at.write("file2", "bar\n");
     for option in ["", "-u", "-c", "-e"] {
-        let mut cmd = cargo_bin_cmd!("diffutils");
-        cmd.arg("diff");
+        let mut cmd = ts.ucmd();
         if !option.is_empty() {
             cmd.arg(option);
         }
-        cmd.arg("-s").arg(file1.path()).arg(file1.path());
-        cmd.assert()
-            .code(predicate::eq(0))
-            .success()
-            .stdout(predicate::eq(format!(
-                "Files {} and {} are identical\n",
-                file1.path().to_string_lossy(),
-                file1.path().to_string_lossy(),
-            )));
+        cmd.args(&["file1", "file2"])
+            .fails_with_code(1)
+            .stdout_check(|s| !s.is_empty());
     }
-    // two files with the same content
-    let mut file2 = NamedTempFile::new()?;
-    file2.write_all("foo\n".as_bytes())?;
+}
+
+#[test]
+fn differences_brief() {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", "foo\n");
+    at.write("file2", "bar\n");
     for option in ["", "-u", "-c", "-e"] {
-        let mut cmd = cargo_bin_cmd!("diffutils");
-        cmd.arg("diff");
+        let mut cmd = ts.ucmd();
         if !option.is_empty() {
             cmd.arg(option);
         }
-        cmd.arg("-s").arg(file1.path()).arg(file2.path());
-        cmd.assert()
-            .code(predicate::eq(0))
-            .success()
-            .stdout(predicate::eq(format!(
-                "Files {} and {} are identical\n",
-                file1.path().to_string_lossy(),
-                file2.path().to_string_lossy(),
-            )));
+        cmd.args(&["-q", "file1", "file2"])
+            .fails_with_code(1)
+            .stdout_is("Files file1 and file2 differ\n");
     }
-    Ok(())
 }
 
 #[test]
-fn differences() -> Result<(), Box<dyn std::error::Error>> {
-    let mut file1 = NamedTempFile::new()?;
-    file1.write_all("foo\n".as_bytes())?;
-    let mut file2 = NamedTempFile::new()?;
-    file2.write_all("bar\n".as_bytes())?;
-    for option in ["", "-u", "-c", "-e"] {
-        let mut cmd = cargo_bin_cmd!("diffutils");
-        cmd.arg("diff");
-        if !option.is_empty() {
-            cmd.arg(option);
-        }
-        cmd.arg(file1.path()).arg(file2.path());
-        cmd.assert()
-            .code(predicate::eq(1))
-            .failure()
-            .stdout(predicate::str::is_empty().not());
-    }
-    Ok(())
+fn missing_newline() {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", "foo");
+    at.write("file2", "bar");
+    ts.ucmd()
+        .args(&["-e", "file1", "file2"])
+        .fails_with_code(2)
+        .stderr_str_check(|s| s.starts_with("No newline at end of file"));
 }
 
 #[test]
-fn differences_brief() -> Result<(), Box<dyn std::error::Error>> {
-    let mut file1 = NamedTempFile::new()?;
-    file1.write_all("foo\n".as_bytes())?;
-    let mut file2 = NamedTempFile::new()?;
-    file2.write_all("bar\n".as_bytes())?;
-    for option in ["", "-u", "-c", "-e"] {
-        let mut cmd = cargo_bin_cmd!("diffutils");
-        cmd.arg("diff");
-        if !option.is_empty() {
-            cmd.arg(option);
-        }
-        cmd.arg("-q").arg(file1.path()).arg(file2.path());
-        cmd.assert()
-            .code(predicate::eq(1))
-            .failure()
-            .stdout(predicate::eq(format!(
-                "Files {} and {} differ\n",
-                file1.path().to_string_lossy(),
-                file2.path().to_string_lossy()
-            )));
-    }
-    Ok(())
-}
+fn read_from_stdin() {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", "foo\n");
+    at.write("file2", "bar\n");
 
-#[test]
-fn missing_newline() -> Result<(), Box<dyn std::error::Error>> {
-    let mut file1 = NamedTempFile::new()?;
-    file1.write_all("foo".as_bytes())?;
-    let mut file2 = NamedTempFile::new()?;
-    file2.write_all("bar".as_bytes())?;
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff");
-    cmd.arg("-e").arg(file1.path()).arg(file2.path());
-    cmd.assert()
-        .code(predicate::eq(2))
-        .failure()
-        .stderr(predicate::str::starts_with("No newline at end of file"));
-    Ok(())
-}
-
-#[test]
-fn read_from_stdin() -> Result<(), Box<dyn std::error::Error>> {
-    let mut file1 = NamedTempFile::new()?;
-    file1.write_all("foo\n".as_bytes())?;
-    let mut file2 = NamedTempFile::new()?;
-    file2.write_all("bar\n".as_bytes())?;
-
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff");
-    cmd.arg("-u")
-        .arg(file1.path())
-        .arg("-")
-        .write_stdin("bar\n");
-    cmd.assert().code(predicate::eq(1)).failure();
-
-    let output = cmd.output().unwrap().stdout;
+    let result = ts
+        .ucmd()
+        .args(&["-u", "file1", "-"])
+        .pipe_in("bar\n")
+        .fails_with_code(1);
     assert_diff_eq!(
-        output,
-        format!(
-            "--- {}\tTIMESTAMP\n+++ -\tTIMESTAMP\n@@ -1 +1 @@\n-foo\n+bar\n",
-            file1.path().to_string_lossy()
-        )
+        result.stdout(),
+        "--- file1\tTIMESTAMP\n+++ -\tTIMESTAMP\n@@ -1 +1 @@\n-foo\n+bar\n"
     );
 
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff");
-    cmd.arg("-u")
-        .arg("-")
-        .arg(file2.path())
-        .write_stdin("foo\n");
-    cmd.assert().code(predicate::eq(1)).failure();
-
-    let output = cmd.output().unwrap().stdout;
+    let result = ts
+        .ucmd()
+        .args(&["-u", "-", "file2"])
+        .pipe_in("foo\n")
+        .fails_with_code(1);
     assert_diff_eq!(
-        output,
-        format!(
-            "--- -\tTIMESTAMP\n+++ {}\tTIMESTAMP\n@@ -1 +1 @@\n-foo\n+bar\n",
-            file2.path().to_string_lossy()
-        )
+        result.stdout(),
+        "--- -\tTIMESTAMP\n+++ file2\tTIMESTAMP\n@@ -1 +1 @@\n-foo\n+bar\n"
     );
 
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff");
-    cmd.arg("-u").arg("-").arg("-");
-    cmd.assert()
-        .code(predicate::eq(0))
-        .success()
-        .stdout(predicate::str::is_empty());
+    ts.ucmd().args(&["-u", "-", "-"]).succeeds().no_stdout();
 
     #[cfg(unix)]
     {
-        let mut cmd = cargo_bin_cmd!("diffutils");
-        cmd.arg("diff");
-        cmd.arg("-u")
-            .arg(file1.path())
-            .arg("/dev/stdin")
-            .write_stdin("bar\n");
-        cmd.assert().code(predicate::eq(1)).failure();
-
-        let output = cmd.output().unwrap().stdout;
+        let result = ts
+            .ucmd()
+            .args(&["-u", "file1", "/dev/stdin"])
+            .pipe_in("bar\n")
+            .fails_with_code(1);
         assert_diff_eq!(
-            output,
-            format!(
-                "--- {}\tTIMESTAMP\n+++ /dev/stdin\tTIMESTAMP\n@@ -1 +1 @@\n-foo\n+bar\n",
-                file1.path().to_string_lossy()
-            )
+            result.stdout(),
+            "--- file1\tTIMESTAMP\n+++ /dev/stdin\tTIMESTAMP\n@@ -1 +1 @@\n-foo\n+bar\n"
         );
     }
-
-    Ok(())
 }
 
 #[test]
-fn missing_file_as_empty() -> Result<(), Box<dyn std::error::Error>> {
-    let tmp_dir = tempdir()?;
-    let present = tmp_dir.path().join("present");
-    let absent = tmp_dir.path().join("absent");
-    std::fs::write(&present, "kiwi\nmango\n")?;
+fn missing_file_as_empty() {
+    let (at, ts) = at_and_ts!();
+    at.write("present", "kiwi\nmango\n");
 
     for option in ["-N", "--new-file", "--unidirectional-new-file"] {
-        let mut cmd = cargo_bin_cmd!("diffutils");
-        cmd.arg("diff").arg(option).arg(&absent).arg(&present);
-        cmd.assert()
-            .code(predicate::eq(1))
-            .failure()
-            .stdout("0a1,2\n> kiwi\n> mango\n");
+        ts.ucmd()
+            .args(&[option, "absent", "present"])
+            .fails_with_code(1)
+            .stdout_is("0a1,2\n> kiwi\n> mango\n");
     }
 
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff").arg("-N").arg(&present).arg(&absent);
-    cmd.assert()
-        .code(predicate::eq(1))
-        .failure()
-        .stdout("1,2d0\n< kiwi\n< mango\n");
+    ts.ucmd()
+        .args(&["-N", "present", "absent"])
+        .fails_with_code(1)
+        .stdout_is("1,2d0\n< kiwi\n< mango\n");
 
     // Only a missing first operand is accepted here.
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff")
-        .arg("--unidirectional-new-file")
-        .arg(&present)
-        .arg(&absent);
-    cmd.assert().code(predicate::eq(2)).failure();
+    ts.ucmd()
+        .args(&["--unidirectional-new-file", "present", "absent"])
+        .fails_with_code(2);
 
     // Without the option, a missing file is trouble.
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff").arg(&absent).arg(&present);
-    cmd.assert().code(predicate::eq(2)).failure();
-    Ok(())
+    ts.ucmd().args(&["absent", "present"]).fails_with_code(2);
 }
 
 // TZ is not honored on Windows.
 #[cfg(unix)]
 #[test]
-fn missing_file_header_timestamp() -> Result<(), Box<dyn std::error::Error>> {
-    let tmp_dir = tempdir()?;
-    let left = tmp_dir.path().join("left");
-    let right = tmp_dir.path().join("right");
-    std::fs::create_dir(&left)?;
-    std::fs::create_dir_all(right.join("nested"))?;
-    let absent = left.join("nested/file");
-    let present = right.join("nested/file");
-    std::fs::write(&present, "kiwi\n")?;
+fn missing_file_header_timestamp() {
+    let (at, ts) = at_and_ts!();
+    at.mkdir("left");
+    at.mkdir_all("right/nested");
+    at.write("right/nested/file", "kiwi\n");
     let mtime = std::time::UNIX_EPOCH + std::time::Duration::from_millis(1_234_567_890_250);
     File::options()
         .write(true)
-        .open(&present)?
-        .set_modified(mtime)?;
+        .open(at.plus("right/nested/file"))
+        .unwrap()
+        .set_modified(mtime)
+        .unwrap();
+    let absent = "left/nested/file";
+    let present = "right/nested/file";
 
     for (format, locale, markers, epoch, timestamp) in [
         (
@@ -294,276 +199,192 @@ fn missing_file_header_timestamp() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 let headers = if reverse {
                     format!(
-                        "{} {}\t{timestamp}\n{} {}\t{epoch}\n",
-                        markers[0],
-                        present.display(),
-                        markers[1],
-                        absent.display()
+                        "{} {present}\t{timestamp}\n{} {absent}\t{epoch}\n",
+                        markers[0], markers[1]
                     )
                 } else {
                     format!(
-                        "{} {}\t{epoch}\n{} {}\t{timestamp}\n",
-                        markers[0],
-                        absent.display(),
-                        markers[1],
-                        present.display()
+                        "{} {absent}\t{epoch}\n{} {present}\t{timestamp}\n",
+                        markers[0], markers[1]
                     )
                 };
                 for recursive in [false, true] {
                     let (from, to) = if recursive {
-                        (&left, &right)
+                        ("left", "right")
                     } else {
-                        (&absent, &present)
+                        (absent, present)
                     };
-                    let mut cmd = cargo_bin_cmd!("diffutils");
+                    let mut cmd = ts.ucmd();
                     cmd.env("TZ", "UTC0")
                         .env("LC_ALL", locale)
-                        .arg("diff")
                         .arg(format)
                         .arg(option);
                     if recursive {
                         cmd.arg("-r");
                     }
                     cmd.arg(if reverse { to } else { from })
-                        .arg(if reverse { from } else { to });
-                    cmd.assert()
-                        .code(predicate::eq(1))
-                        .stderr(predicate::str::is_empty())
-                        .stdout(predicate::str::contains(&headers));
+                        .arg(if reverse { from } else { to })
+                        .fails_with_code(1)
+                        .no_stderr()
+                        .stdout_contains(&headers);
                 }
             }
         }
     }
-    Ok(())
 }
 
 #[test]
-fn missing_file_as_empty_keeps_stdin_timestamp() -> Result<(), Box<dyn std::error::Error>> {
-    let mut file = NamedTempFile::new()?;
-    file.write_all(b"file\n")?;
+fn missing_file_as_empty_keeps_stdin_timestamp() {
+    let (at, ts) = at_and_ts!();
+    at.write("file", "file\n");
 
-    let stdin = std::ffi::OsStr::new("-");
-    let file = file.path().as_os_str();
     for format in ["-u", "-c"] {
-        for (from, to) in [(stdin, file), (file, stdin)] {
-            let mut cmd = cargo_bin_cmd!("diffutils");
-            cmd.env("TZ", "UTC0")
-                .env("LC_ALL", "C")
-                .arg("diff")
-                .arg(format)
-                .arg("-N")
-                .arg(from)
-                .arg(to)
-                .write_stdin("stdin\n");
-            cmd.assert()
-                .code(predicate::eq(1))
-                .stderr(predicate::str::is_empty())
-                .stdout(predicate::str::contains("1970").not());
+        for (from, to) in [("-", "file"), ("file", "-")] {
+            ts.ucmd()
+                .args(&[format, "-N", from, to])
+                .pipe_in("stdin\n")
+                .fails_with_code(1)
+                .no_stderr()
+                .stdout_does_not_contain("1970");
         }
     }
-    Ok(())
 }
 
 #[test]
-fn binary_files() -> Result<(), Box<dyn std::error::Error>> {
-    let tmp_dir = tempdir()?;
-    let left = tmp_dir.path().join("left.bin");
-    let right = tmp_dir.path().join("right.bin");
-    std::fs::write(&left, b"header\x00\x7fpayload-one\n")?;
-    std::fs::write(&right, b"header\x00\x7fpayload-two\n")?;
+fn binary_files() {
+    let (at, ts) = at_and_ts!();
+    at.write_bytes("left.bin", b"header\x00\x7fpayload-one\n");
+    at.write_bytes("right.bin", b"header\x00\x7fpayload-two\n");
 
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff").arg(&left).arg(&right);
-    cmd.assert()
-        .code(predicate::eq(1))
-        .failure()
-        .stderr(predicate::str::is_empty())
-        .stdout(format!(
-            "Binary files {} and {} differ\n",
-            left.display(),
-            right.display()
-        ));
+    ts.ucmd()
+        .args(&["left.bin", "right.bin"])
+        .fails_with_code(1)
+        .stdout_only("Binary files left.bin and right.bin differ\n");
 
     // Identical binary inputs are not reported.
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff").arg(&left).arg("-");
-    cmd.write_stdin(b"header\x00\x7fpayload-one\n".to_vec());
-    cmd.assert().code(predicate::eq(0)).success().stdout("");
+    ts.ucmd()
+        .args(&["left.bin", "-"])
+        .pipe_in(b"header\x00\x7fpayload-one\n".to_vec())
+        .succeeds()
+        .no_stdout();
 
     // -q keeps its usual wording.
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff").arg("-q").arg(&left).arg(&right);
-    cmd.assert()
-        .code(predicate::eq(1))
-        .failure()
-        .stderr(predicate::str::is_empty())
-        .stdout(format!(
-            "Files {} and {} differ\n",
-            left.display(),
-            right.display()
-        ));
+    ts.ucmd()
+        .args(&["-q", "left.bin", "right.bin"])
+        .fails_with_code(1)
+        .stdout_only("Files left.bin and right.bin differ\n");
 
     // -a and --text force a line-by-line comparison.
     for option in ["-a", "--text"] {
-        let mut cmd = cargo_bin_cmd!("diffutils");
-        cmd.arg("diff").arg(option).arg(&left).arg(&right);
-        cmd.assert()
-            .code(predicate::eq(1))
-            .failure()
-            .stdout(predicate::str::starts_with("1c1\n"));
+        ts.ucmd()
+            .args(&[option, "left.bin", "right.bin"])
+            .fails_with_code(1)
+            .stdout_str_check(|s| s.starts_with("1c1\n"));
     }
-    Ok(())
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
 #[test]
-fn stdin_is_directory() -> Result<(), Box<dyn std::error::Error>> {
-    let tmp_dir = tempdir()?;
-    let dir = tmp_dir.path().join("dir");
-    std::fs::create_dir(&dir)?;
-    std::fs::write(dir.join("notes"), "alpha\n")?;
-    let notes = tmp_dir.path().join("notes");
-    std::fs::write(&notes, "beta\n")?;
+fn stdin_is_directory() {
+    let (at, ts) = at_and_ts!();
+    at.mkdir("dir");
+    at.write("dir/notes", "alpha\n");
+    at.write("notes", "beta\n");
 
     // The directory itself must be standard input, not its contents.
-    let output = std::process::Command::new(assert_cmd::cargo::cargo_bin!("diffutils"))
-        .arg("diff")
-        .arg("-")
-        .arg(&notes)
-        .stdin(File::open(&dir)?)
-        .output()?;
-    output
-        .assert()
-        .code(predicate::eq(1))
-        .failure()
-        .stdout("1c1\n< alpha\n---\n> beta\n");
-    Ok(())
+    ts.ucmd()
+        .args(&["-", "notes"])
+        .set_stdin(File::open(at.plus("dir")).unwrap())
+        .fails_with_code(1)
+        .stdout_is("1c1\n< alpha\n---\n> beta\n");
 }
 
 #[test]
-fn color() -> Result<(), Box<dyn std::error::Error>> {
-    let tmp_dir = tempdir()?;
-    let old = tmp_dir.path().join("old");
-    let new = tmp_dir.path().join("new");
-    std::fs::write(&old, "sun\nrain\n")?;
-    std::fs::write(&new, "sun\nsnow\n")?;
+fn color() {
+    let (at, ts) = at_and_ts!();
+    at.write("old", "sun\nrain\n");
+    at.write("new", "sun\nsnow\n");
 
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff").arg("--color=always").arg(&old).arg(&new);
-    cmd.assert()
-        .code(predicate::eq(1))
-        .stdout("\x1b[36m2c2\x1b[0m\n\x1b[31m< rain\x1b[0m\n---\n\x1b[32m> snow\x1b[0m\n");
+    ts.ucmd()
+        .args(&["--color=always", "old", "new"])
+        .fails_with_code(1)
+        .stdout_is("\x1b[36m2c2\x1b[0m\n\x1b[31m< rain\x1b[0m\n---\n\x1b[32m> snow\x1b[0m\n");
 
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff")
-        .arg("--color=always")
-        .arg("--palette=de=4:ad=7")
-        .arg(&old)
-        .arg(&new);
-    cmd.assert()
-        .code(predicate::eq(1))
-        .stdout("\x1b[36m2c2\x1b[0m\n\x1b[4m< rain\x1b[0m\n---\n\x1b[7m> snow\x1b[0m\n");
+    ts.ucmd()
+        .args(&["--color=always", "--palette=de=4:ad=7", "old", "new"])
+        .fails_with_code(1)
+        .stdout_is("\x1b[36m2c2\x1b[0m\n\x1b[4m< rain\x1b[0m\n---\n\x1b[7m> snow\x1b[0m\n");
 
     // Standard output is not a terminal here, and TERM=dumb never gets colors.
     for args in [&["--color"][..], &["--color=auto", "---presume-output-tty"]] {
-        let mut cmd = cargo_bin_cmd!("diffutils");
-        cmd.env("TERM", "dumb")
-            .arg("diff")
+        ts.ucmd()
+            .env("TERM", "dumb")
             .args(args)
-            .arg(&old)
-            .arg(&new);
-        cmd.assert()
-            .code(predicate::eq(1))
-            .stdout("2c2\n< rain\n---\n> snow\n");
+            .args(&["old", "new"])
+            .fails_with_code(1)
+            .stdout_is("2c2\n< rain\n---\n> snow\n");
     }
 
     // Like GNU diff, an unset TERM does not disable --color=auto on a terminal.
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.env_remove("TERM")
-        .arg("diff")
-        .arg("--color=auto")
-        .arg("---presume-output-tty")
-        .arg(&old)
-        .arg(&new);
-    cmd.assert()
-        .code(predicate::eq(1))
-        .stdout("\x1b[36m2c2\x1b[0m\n\x1b[31m< rain\x1b[0m\n---\n\x1b[32m> snow\x1b[0m\n");
+    // The environment of the command is cleared, so TERM is not set.
+    ts.ucmd()
+        .args(&["--color=auto", "---presume-output-tty", "old", "new"])
+        .fails_with_code(1)
+        .stdout_is("\x1b[36m2c2\x1b[0m\n\x1b[31m< rain\x1b[0m\n---\n\x1b[32m> snow\x1b[0m\n");
 
     // An invalid palette is reported and disables colors.
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff")
-        .arg("--color=always")
-        .arg("--palette=up=1")
-        .arg(&old)
-        .arg(&new);
-    cmd.assert()
-        .code(predicate::eq(1))
-        .stdout("2c2\n< rain\n---\n> snow\n")
-        .stderr(predicate::str::contains("unrecognized prefix: up"));
+    ts.ucmd()
+        .args(&["--color=always", "--palette=up=1", "old", "new"])
+        .fails_with_code(1)
+        .stdout_is("2c2\n< rain\n---\n> snow\n")
+        .stderr_contains("unrecognized prefix: up");
 
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff").arg("--color=sometimes").arg(&old).arg(&new);
-    cmd.assert()
-        .code(predicate::eq(2))
-        .stderr(predicate::str::contains("invalid color 'sometimes'"));
+    ts.ucmd()
+        .args(&["--color=sometimes", "old", "new"])
+        .fails_with_code(2)
+        .stderr_contains("invalid color 'sometimes'");
 
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff").arg("--colour").arg(&old).arg(&new);
-    cmd.assert()
-        .code(predicate::eq(2))
-        .stderr(predicate::str::contains("unrecognized option '--colour'"));
+    ts.ucmd()
+        .args(&["--colour", "old", "new"])
+        .fails_with_code(2)
+        .stderr_contains("unrecognized option '--colour'");
 
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff")
-        .arg("--palette")
-        .arg("ln=1")
-        .arg("--color=always")
-        .arg(&old)
-        .arg(&new);
-    cmd.assert()
-        .code(predicate::eq(1))
-        .stdout("\x1b[1m2c2\x1b[0m\n\x1b[31m< rain\x1b[0m\n---\n\x1b[32m> snow\x1b[0m\n");
-    Ok(())
+    ts.ucmd()
+        .args(&["--palette", "ln=1", "--color=always", "old", "new"])
+        .fails_with_code(1)
+        .stdout_is("\x1b[1m2c2\x1b[0m\n\x1b[31m< rain\x1b[0m\n---\n\x1b[32m> snow\x1b[0m\n");
 }
 
 #[cfg(target_os = "linux")]
 #[test]
-fn write_error() -> Result<(), Box<dyn std::error::Error>> {
-    let tmp_dir = tempdir()?;
-    let old = tmp_dir.path().join("old");
-    let new = tmp_dir.path().join("new");
-    std::fs::write(&old, "left\n")?;
-    std::fs::write(&new, "right\n")?;
+fn write_error() {
+    let (at, ts) = at_and_ts!();
+    at.write("old", "left\n");
+    at.write("new", "right\n");
 
-    let output = std::process::Command::new(assert_cmd::cargo::cargo_bin!("diffutils"))
-        .arg("diff")
-        .arg(&old)
-        .arg(&new)
-        .stdout(File::create("/dev/full")?)
-        .output()?;
-    output
-        .assert()
-        .code(predicate::eq(2))
-        .stderr("diff: standard output: No space left on device\n");
-    Ok(())
+    ts.ucmd()
+        .args(&["old", "new"])
+        .set_stdout(File::create("/dev/full").unwrap())
+        .fails_with_code(2)
+        .stderr_is("diff: standard output: No space left on device\n");
 }
 
 // TZ is not honored on Windows.
 #[cfg(unix)]
 #[test]
-fn context_timestamp_follows_time_locale() -> Result<(), Box<dyn std::error::Error>> {
-    let tmp_dir = tempdir()?;
-    let old = tmp_dir.path().join("old");
-    let new = tmp_dir.path().join("new");
-    std::fs::write(&old, "left\n")?;
-    std::fs::write(&new, "right\n")?;
+fn context_timestamp_follows_time_locale() {
+    let (at, ts) = at_and_ts!();
+    at.write("old", "left\n");
+    at.write("new", "right\n");
     // 2009-02-13 23:31:30.25 UTC
     let mtime = std::time::UNIX_EPOCH + std::time::Duration::from_millis(1_234_567_890_250);
-    for path in [&old, &new] {
+    for path in ["old", "new"] {
         File::options()
             .write(true)
-            .open(path)?
-            .set_modified(mtime)?;
+            .open(at.plus(path))
+            .unwrap()
+            .set_modified(mtime)
+            .unwrap();
     }
 
     let traditional = "Fri Feb 13 23:31:30 2009";
@@ -584,238 +405,192 @@ fn context_timestamp_follows_time_locale() -> Result<(), Box<dyn std::error::Err
         ),
         (&[("LANG", "fr_FR.UTF-8")], iso),
     ] {
-        let mut cmd = cargo_bin_cmd!("diffutils");
-        cmd.env("TZ", "UTC0")
-            .env_remove("LC_ALL")
-            .env_remove("LC_TIME")
-            .env_remove("LANG")
+        let expected = format!("*** old\t{timestamp}\n--- new\t{timestamp}\n");
+        // The command starts with a cleared environment except for the
+        // LC_ALL=C default, which an empty value unsets.
+        ts.ucmd()
+            .env("TZ", "UTC0")
+            .env("LC_ALL", "")
             .envs(variables.iter().copied())
-            .arg("diff")
-            .arg("-c")
-            .arg(&old)
-            .arg(&new);
-        cmd.assert()
-            .code(predicate::eq(1))
-            .stdout(predicate::str::starts_with(format!(
-                "*** {}\t{timestamp}\n--- {}\t{timestamp}\n",
-                old.display(),
-                new.display()
-            )));
+            .args(&["-c", "old", "new"])
+            .fails_with_code(1)
+            .stdout_str_check(|s| s.starts_with(&expected));
     }
-    Ok(())
 }
 
 #[test]
-fn compare_directories() -> Result<(), Box<dyn std::error::Error>> {
-    let tmp_dir = tempdir()?;
-    let left = tmp_dir.path().join("left");
-    let right = tmp_dir.path().join("right");
-    for dir in [&left, &right] {
-        std::fs::create_dir_all(dir.join("nested/inner"))?;
-        std::fs::write(dir.join("equal"), "same\n")?;
+fn compare_directories() {
+    let (at, ts) = at_and_ts!();
+    let left = "left";
+    let right = "right";
+    for dir in [left, right] {
+        at.mkdir_all(&format!("{dir}/nested/inner"));
+        at.write(&format!("{dir}/equal"), "same\n");
     }
-    std::fs::write(left.join("changed"), "old\n")?;
-    std::fs::write(right.join("changed"), "new\n")?;
-    std::fs::write(left.join("nested/inner/deep"), "one\n")?;
-    std::fs::write(right.join("nested/inner/deep"), "two\n")?;
-    std::fs::write(left.join("gone"), "bye\n")?;
-    std::fs::write(right.join("added"), "hi\n")?;
-    std::fs::write(left.join("kind"), "file\n")?;
-    std::fs::create_dir(right.join("kind"))?;
-    let left = left.to_str().unwrap();
-    let right = right.to_str().unwrap();
+    at.write("left/changed", "old\n");
+    at.write("right/changed", "new\n");
+    at.write("left/nested/inner/deep", "one\n");
+    at.write("right/nested/inner/deep", "two\n");
+    at.write("left/gone", "bye\n");
+    at.write("right/added", "hi\n");
+    at.write("left/kind", "file\n");
+    at.mkdir("right/kind");
     // Entry names are joined to the directories with the native separator.
     let s = std::path::MAIN_SEPARATOR;
 
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff").arg(left).arg(right);
-    cmd.assert().code(predicate::eq(1)).stdout(format!(
-        "Only in {right}: added\n\
-         diff {left}{s}changed {right}{s}changed\n1c1\n< old\n---\n> new\n\
-         Only in {left}: gone\n\
-         File {left}{s}kind is a regular file while file {right}{s}kind is a directory\n\
-         Common subdirectories: {left}{s}nested and {right}{s}nested\n"
-    ));
+    ts.ucmd()
+        .args(&[left, right])
+        .fails_with_code(1)
+        .stdout_is(format!(
+            "Only in {right}: added\n\
+             diff {left}{s}changed {right}{s}changed\n1c1\n< old\n---\n> new\n\
+             Only in {left}: gone\n\
+             File {left}{s}kind is a regular file while file {right}{s}kind is a directory\n\
+             Common subdirectories: {left}{s}nested and {right}{s}nested\n"
+        ));
 
     // Options are repeated as given in the headers, and trailing slashes
     // do not end up in the compared paths.
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff")
-        .arg("-r")
-        .arg("-q")
-        .arg(format!("{left}/"))
-        .arg(right);
-    cmd.assert().code(predicate::eq(1)).stdout(format!(
-        "Only in {right}: added\n\
-         Files {left}{s}changed and {right}{s}changed differ\n\
-         Only in {left}/: gone\n\
-         File {left}{s}kind is a regular file while file {right}{s}kind is a directory\n\
-         Files {left}{s}nested{s}inner{s}deep and {right}{s}nested{s}inner{s}deep differ\n"
-    ));
+    ts.ucmd()
+        .args(&["-r", "-q", &format!("{left}/"), right])
+        .fails_with_code(1)
+        .stdout_is(format!(
+            "Only in {right}: added\n\
+             Files {left}{s}changed and {right}{s}changed differ\n\
+             Only in {left}/: gone\n\
+             File {left}{s}kind is a regular file while file {right}{s}kind is a directory\n\
+             Files {left}{s}nested{s}inner{s}deep and {right}{s}nested{s}inner{s}deep differ\n"
+        ));
 
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff")
-        .arg("-N")
-        .arg("-r")
-        .arg("-e")
-        .arg(left)
-        .arg(right);
-    cmd.assert().code(predicate::eq(1)).stdout(format!(
-        "diff -N -r -e {left}{s}added {right}{s}added\n0a\nhi\n.\n\
-         diff -N -r -e {left}{s}changed {right}{s}changed\n1c\nnew\n.\n\
-         diff -N -r -e {left}{s}gone {right}{s}gone\n1d\n\
-         File {left}{s}kind is a regular file while file {right}{s}kind is a directory\n\
-         diff -N -r -e {left}{s}nested{s}inner{s}deep {right}{s}nested{s}inner{s}deep\n1c\ntwo\n.\n"
-    ));
+    ts.ucmd()
+        .args(&["-N", "-r", "-e", left, right])
+        .fails_with_code(1)
+        .stdout_is(format!(
+            "diff -N -r -e {left}{s}added {right}{s}added\n0a\nhi\n.\n\
+             diff -N -r -e {left}{s}changed {right}{s}changed\n1c\nnew\n.\n\
+             diff -N -r -e {left}{s}gone {right}{s}gone\n1d\n\
+             File {left}{s}kind is a regular file while file {right}{s}kind is a directory\n\
+             diff -N -r -e {left}{s}nested{s}inner{s}deep {right}{s}nested{s}inner{s}deep\n1c\ntwo\n.\n"
+        ));
 
     // -s reports the identical files, but a directory is not compared with
     // itself.
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff").arg("-r").arg("-s").arg(left).arg(left);
-    cmd.assert().code(predicate::eq(0)).stdout("");
+    ts.ucmd()
+        .args(&["-r", "-s", left, left])
+        .succeeds()
+        .no_stdout();
 
-    let copy = tmp_dir.path().join("copy");
-    std::fs::create_dir_all(copy.join("nested/inner"))?;
-    std::fs::write(copy.join("changed"), "old\n")?;
-    std::fs::write(copy.join("equal"), "same\n")?;
-    std::fs::write(copy.join("nested/inner/deep"), "one\n")?;
-    let copy = copy.to_str().unwrap();
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff").arg("-r").arg("-s").arg(left).arg(copy);
-    cmd.assert().code(predicate::eq(1)).stdout(format!(
-        "Files {left}{s}changed and {copy}{s}changed are identical\n\
-         Files {left}{s}equal and {copy}{s}equal are identical\n\
-         Only in {left}: gone\n\
-         Only in {left}: kind\n\
-         Files {left}{s}nested{s}inner{s}deep and {copy}{s}nested{s}inner{s}deep are identical\n"
-    ));
-    Ok(())
+    let copy = "copy";
+    at.mkdir_all("copy/nested/inner");
+    at.write("copy/changed", "old\n");
+    at.write("copy/equal", "same\n");
+    at.write("copy/nested/inner/deep", "one\n");
+    ts.ucmd()
+        .args(&["-r", "-s", left, copy])
+        .fails_with_code(1)
+        .stdout_is(format!(
+            "Files {left}{s}changed and {copy}{s}changed are identical\n\
+             Files {left}{s}equal and {copy}{s}equal are identical\n\
+             Only in {left}: gone\n\
+             Only in {left}: kind\n\
+             Files {left}{s}nested{s}inner{s}deep and {copy}{s}nested{s}inner{s}deep are identical\n"
+        ));
 }
 
 #[cfg(unix)]
 #[test]
-fn compare_directories_special_entries() -> Result<(), Box<dyn std::error::Error>> {
-    let tmp_dir = tempdir()?;
+fn compare_directories_special_entries() {
+    let (at, ts) = at_and_ts!();
     for dir in ["one", "two"] {
-        std::fs::create_dir_all(tmp_dir.path().join(dir).join("tools/bin"))?;
+        at.mkdir_all(&format!("{dir}/tools/bin"));
         // Links to the same directory are not compared.
-        std::os::unix::fs::symlink("..", tmp_dir.path().join(dir).join("parent"))?;
-        let status = std::process::Command::new("mkfifo")
-            .arg(tmp_dir.path().join(dir).join("queue"))
-            .status()?;
-        assert!(status.success());
+        at.relative_symlink_dir("..", &format!("{dir}/parent"));
+        at.mkfifo(&format!("{dir}/queue"));
     }
-    std::fs::write(tmp_dir.path().join("one/tools/bin/run"), "go\n")?;
-    std::fs::remove_dir_all(tmp_dir.path().join("two/tools"))?;
+    at.write("one/tools/bin/run", "go\n");
+    std::fs::remove_dir_all(at.plus("two/tools")).unwrap();
 
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.current_dir(tmp_dir.path())
-        .arg("diff")
-        .arg("-N")
-        .arg("one")
-        .arg("two");
-    cmd.assert().code(predicate::eq(1)).stdout(
-        "File one/queue is a fifo while file two/queue is a fifo\n\
-         Common subdirectories: one/tools and two/tools\n",
-    );
+    ts.ucmd()
+        .args(&["-N", "one", "two"])
+        .fails_with_code(1)
+        .stdout_is(
+            "File one/queue is a fifo while file two/queue is a fifo\n\
+             Common subdirectories: one/tools and two/tools\n",
+        );
 
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.current_dir(tmp_dir.path())
-        .arg("diff")
-        .arg("-r")
-        .arg("-N")
-        .arg("one")
-        .arg("two");
-    cmd.assert().code(predicate::eq(1)).stdout(
-        "File one/queue is a fifo while file two/queue is a fifo\n\
-         diff -r -N one/tools/bin/run two/tools/bin/run\n1d0\n< go\n",
-    );
+    ts.ucmd()
+        .args(&["-r", "-N", "one", "two"])
+        .fails_with_code(1)
+        .stdout_is(
+            "File one/queue is a fifo while file two/queue is a fifo\n\
+             diff -r -N one/tools/bin/run two/tools/bin/run\n1d0\n< go\n",
+        );
 
     // A link back to a directory being compared is reported.
-    std::os::unix::fs::symlink("..", tmp_dir.path().join("one/tools/again"))?;
-    std::fs::create_dir(tmp_dir.path().join("two/tools"))?;
-    std::os::unix::fs::symlink("..", tmp_dir.path().join("two/tools/again"))?;
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.current_dir(tmp_dir.path())
-        .arg("diff")
-        .arg("-r")
-        .arg("one")
-        .arg("two");
-    cmd.assert()
-        .code(predicate::eq(2))
-        .stdout(predicate::str::contains("Only in one/tools: bin\n"))
-        .stderr("diff: one/tools/again: recursive directory loop\n");
-    Ok(())
+    at.relative_symlink_dir("..", "one/tools/again");
+    at.mkdir("two/tools");
+    at.relative_symlink_dir("..", "two/tools/again");
+    ts.ucmd()
+        .args(&["-r", "one", "two"])
+        .fails_with_code(2)
+        .stdout_contains("Only in one/tools: bin\n")
+        .stderr_is("diff: one/tools/again: recursive directory loop\n");
 }
 
 #[test]
-fn directory_name_matching() -> Result<(), Box<dyn std::error::Error>> {
-    let tmp_dir = tempdir()?;
-    let left = tmp_dir.path().join("left");
-    let right = tmp_dir.path().join("right");
-    std::fs::create_dir_all(left.join("lib"))?;
-    std::fs::create_dir_all(right.join("lib"))?;
+fn directory_name_matching() {
+    let (at, ts) = at_and_ts!();
+    let left = "left";
+    let right = "right";
+    at.mkdir_all("left/lib");
+    at.mkdir_all("right/lib");
     for name in ["Readme", "notes", "lib/early"] {
-        std::fs::write(left.join(name), "v1\n")?;
+        at.write(&format!("{left}/{name}"), "v1\n");
     }
     for name in ["readme", "Notes", "Todo", "lib/EARLY"] {
-        std::fs::write(right.join(name), "v1\n")?;
+        at.write(&format!("{right}/{name}"), "v1\n");
     }
     // Names differing only by case can only coexist on case-sensitive file
     // systems; there, they pair in byte order.
-    std::fs::write(left.join("README"), "v1\n")?;
-    let case_sensitive = std::fs::read_dir(&left)?.count() == 4;
+    at.write("left/README", "v1\n");
+    let case_sensitive = std::fs::read_dir(at.plus(left)).unwrap().count() == 4;
     let unpaired_readme = if case_sensitive {
-        format!("Only in {}: Readme\n", left.display())
+        format!("Only in {left}: Readme\n")
     } else {
         String::new()
     };
-    let left = left.to_str().unwrap();
-    let right = right.to_str().unwrap();
     let s = std::path::MAIN_SEPARATOR;
 
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff")
-        .arg("-r")
-        .arg("--ignore-file-name-case")
-        .arg(left)
-        .arg(right);
-    cmd.assert()
-        .code(predicate::eq(1))
-        .stdout(format!("{unpaired_readme}Only in {right}: Todo\n"));
+    ts.ucmd()
+        .args(&["-r", "--ignore-file-name-case", left, right])
+        .fails_with_code(1)
+        .stdout_is(format!("{unpaired_readme}Only in {right}: Todo\n"));
 
     // -S only skips names at the top level.
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff")
-        .arg("-r")
-        .arg("-S")
-        .arg("l")
-        .arg(left)
-        .arg(right);
-    cmd.assert().code(predicate::eq(1)).stdout(format!(
-        "Only in {right}{s}lib: EARLY\nOnly in {left}{s}lib: early\n\
-         Only in {left}: notes\nOnly in {right}: readme\n"
-    ));
+    ts.ucmd()
+        .args(&["-r", "-S", "l", left, right])
+        .fails_with_code(1)
+        .stdout_is(format!(
+            "Only in {right}{s}lib: EARLY\nOnly in {left}{s}lib: early\n\
+             Only in {left}: notes\nOnly in {right}: readme\n"
+        ));
 
     // The starting name is matched regardless of case too.
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff")
-        .arg("--starting-file=NOTES")
-        .arg("--ignore-file-name-case")
-        .arg(left)
-        .arg(right);
-    cmd.assert()
-        .code(predicate::eq(1))
-        .stdout(format!("{unpaired_readme}Only in {right}: Todo\n"));
+    ts.ucmd()
+        .args(&[
+            "--starting-file=NOTES",
+            "--ignore-file-name-case",
+            left,
+            right,
+        ])
+        .fails_with_code(1)
+        .stdout_is(format!("{unpaired_readme}Only in {right}: Todo\n"));
 
     // A file compared with a directory finds its counterpart regardless of case.
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff")
-        .arg("--ignore-file-name-case")
-        .arg(format!("{left}{s}notes"))
-        .arg(right);
-    cmd.assert().code(predicate::eq(0)).stdout("");
-    Ok(())
+    ts.ucmd()
+        .args(&["--ignore-file-name-case", &format!("{left}{s}notes"), right])
+        .succeeds()
+        .no_stdout();
 }
 
 // Among names differing only by case, the one that is the same on both sides
@@ -878,284 +653,183 @@ fn ignore_file_name_case_reports_unpaired_after_pairs() -> Result<(), Box<dyn st
 
 #[cfg(unix)]
 #[test]
-fn no_dereference() -> Result<(), Box<dyn std::error::Error>> {
-    use std::os::unix::fs::symlink;
+fn no_dereference() {
+    let (at, ts) = at_and_ts!();
+    at.write("plain", "text\n");
+    at.write("other", "text\n");
+    at.relative_symlink_file("plain", "to-plain");
+    at.relative_symlink_file("plain", "also-to-plain");
+    at.relative_symlink_file("other", "to-other");
 
-    let tmp_dir = tempdir()?;
-    let dir = tmp_dir.path();
-    std::fs::write(dir.join("plain"), "text\n")?;
-    std::fs::write(dir.join("other"), "text\n")?;
-    symlink("plain", dir.join("to-plain"))?;
-    symlink("plain", dir.join("also-to-plain"))?;
-    symlink("other", dir.join("to-other"))?;
-    let path = |name: &str| dir.join(name).to_str().unwrap().to_string();
+    ts.ucmd()
+        .args(&["plain", "to-other"])
+        .succeeds()
+        .no_stdout();
 
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff").arg(path("plain")).arg(path("to-other"));
-    cmd.assert().code(predicate::eq(0)).stdout("");
+    ts.ucmd()
+        .args(&["--no-dereference", "plain", "to-other"])
+        .fails_with_code(1)
+        .stdout_is("File plain is a regular file while file to-other is a symbolic link\n");
 
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff")
-        .arg("--no-dereference")
-        .arg(path("plain"))
-        .arg(path("to-other"));
-    cmd.assert().code(predicate::eq(1)).stdout(format!(
-        "File {} is a regular file while file {} is a symbolic link\n",
-        path("plain"),
-        path("to-other")
-    ));
+    ts.ucmd()
+        .args(&["--no-dereference", "to-plain", "also-to-plain"])
+        .succeeds()
+        .no_stdout();
 
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff")
-        .arg("--no-dereference")
-        .arg(path("to-plain"))
-        .arg(path("also-to-plain"));
-    cmd.assert().code(predicate::eq(0)).stdout("");
-
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff")
-        .arg("--no-dereference")
-        .arg(path("to-plain"))
-        .arg(path("to-other"));
-    cmd.assert().code(predicate::eq(1)).stdout(format!(
-        "Symbolic links '{}' -> 'plain' and '{}' -> 'other' differ\n",
-        path("to-plain"),
-        path("to-other")
-    ));
+    ts.ucmd()
+        .args(&["--no-dereference", "to-plain", "to-other"])
+        .fails_with_code(1)
+        .stdout_is("Symbolic links 'to-plain' -> 'plain' and 'to-other' -> 'other' differ\n");
 
     // In directories, dangling links are entries like any other.
-    std::fs::create_dir(dir.join("left"))?;
-    std::fs::create_dir(dir.join("right"))?;
-    symlink("missing", dir.join("left/dangling"))?;
-    symlink("../plain", dir.join("right/dangling"))?;
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff")
-        .arg("-r")
-        .arg("--no-dereference")
-        .arg(path("left"))
-        .arg(path("right"));
-    cmd.assert().code(predicate::eq(1)).stdout(format!(
-        "Symbolic links '{0}/dangling' -> 'missing' and '{1}/dangling' -> '../plain' differ\n",
-        path("left"),
-        path("right")
-    ));
+    at.mkdir("left");
+    at.mkdir("right");
+    at.relative_symlink_file("missing", "left/dangling");
+    at.relative_symlink_file("../plain", "right/dangling");
+    ts.ucmd()
+        .args(&["-r", "--no-dereference", "left", "right"])
+        .fails_with_code(1)
+        .stdout_is(
+            "Symbolic links 'left/dangling' -> 'missing' and 'right/dangling' -> '../plain' differ\n",
+        );
 
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff")
-        .arg("-r")
-        .arg(path("left"))
-        .arg(path("right"));
-    cmd.assert()
-        .code(predicate::eq(2))
-        .stderr(predicate::str::contains(
-            "dangling: No such file or directory",
-        ));
+    ts.ucmd()
+        .args(&["-r", "left", "right"])
+        .fails_with_code(2)
+        .stderr_contains("dangling: No such file or directory");
 
     // Links with the same target are identical files.
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff")
-        .arg("-s")
-        .arg("--no-dereference")
-        .arg(path("to-plain"))
-        .arg(path("also-to-plain"));
-    cmd.assert().code(predicate::eq(0)).stdout(format!(
-        "Files {} and {} are identical\n",
-        path("to-plain"),
-        path("also-to-plain")
-    ));
+    ts.ucmd()
+        .args(&["-s", "--no-dereference", "to-plain", "also-to-plain"])
+        .succeeds()
+        .stdout_is("Files to-plain and also-to-plain are identical\n");
 
     // A file compared with a directory is looked up in it, and that entry is
     // not followed either.
-    std::fs::write(dir.join("left/plain"), "text\n")?;
-    symlink("../other", dir.join("left/to-other"))?;
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff")
-        .arg("--no-dereference")
-        .arg(path("plain"))
-        .arg(path("left"));
-    cmd.assert().code(predicate::eq(0)).stdout("");
+    at.write("left/plain", "text\n");
+    at.relative_symlink_file("../other", "left/to-other");
+    ts.ucmd()
+        .args(&["--no-dereference", "plain", "left"])
+        .succeeds()
+        .no_stdout();
 
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff")
-        .arg("--no-dereference")
-        .arg(path("left"))
-        .arg(path("to-other"));
-    cmd.assert().code(predicate::eq(1)).stdout(format!(
-        "Symbolic links '{}/to-other' -> '../other' and '{}' -> 'other' differ\n",
-        path("left"),
-        path("to-other")
-    ));
-    Ok(())
+    ts.ucmd()
+        .args(&["--no-dereference", "left", "to-other"])
+        .fails_with_code(1)
+        .stdout_is(
+            "Symbolic links 'left/to-other' -> '../other' and 'to-other' -> 'other' differ\n",
+        );
 }
 
 #[test]
-fn compare_file_to_directory() -> Result<(), Box<dyn std::error::Error>> {
-    let tmp_dir = tempdir()?;
+fn compare_file_to_directory() {
+    let (at, ts) = at_and_ts!();
+    at.mkdir("d");
+    at.write("a", "a\n");
+    at.write("d/a", "da\n");
+    // The name is joined to the directory with the native separator.
+    let da = format!("d{}a", std::path::MAIN_SEPARATOR);
 
-    let directory = tmp_dir.path().join("d");
-    let _ = std::fs::create_dir(&directory);
-
-    let a_path = tmp_dir.path().join("a");
-    let mut a = File::create(&a_path).unwrap();
-    a.write_all(b"a\n").unwrap();
-
-    let da_path = directory.join("a");
-    let mut da = File::create(&da_path).unwrap();
-    da.write_all(b"da\n").unwrap();
-
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff");
-    cmd.arg("-u").arg(&directory).arg(&a_path);
-    cmd.assert().code(predicate::eq(1)).failure();
-
-    let output = cmd.output().unwrap().stdout;
+    let result = ts.ucmd().args(&["-u", "d", "a"]).fails_with_code(1);
     assert_diff_eq!(
-        output,
-        format!(
-            "--- {}\tTIMESTAMP\n+++ {}\tTIMESTAMP\n@@ -1 +1 @@\n-da\n+a\n",
-            da_path.display(),
-            a_path.display()
-        )
+        result.stdout(),
+        format!("--- {da}\tTIMESTAMP\n+++ a\tTIMESTAMP\n@@ -1 +1 @@\n-da\n+a\n")
     );
 
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff");
-    cmd.arg("-u").arg(&a_path).arg(&directory);
-    cmd.assert().code(predicate::eq(1)).failure();
-
-    let output = cmd.output().unwrap().stdout;
+    let result = ts.ucmd().args(&["-u", "a", "d"]).fails_with_code(1);
     assert_diff_eq!(
-        output,
-        format!(
-            "--- {}\tTIMESTAMP\n+++ {}\tTIMESTAMP\n@@ -1 +1 @@\n-a\n+da\n",
-            a_path.display(),
-            da_path.display()
-        )
+        result.stdout(),
+        format!("--- a\tTIMESTAMP\n+++ {da}\tTIMESTAMP\n@@ -1 +1 @@\n-a\n+da\n")
     );
-
-    Ok(())
 }
 
 // Regression for #269: the `-y` gutter marker must sit at the middle of the gutter.
 #[test]
-fn sdiff_gutter_marker_column() -> Result<(), Box<dyn std::error::Error>> {
-    let mut file1 = NamedTempFile::new()?;
-    file1.write_all("aa\n".as_bytes())?;
-    let mut file2 = NamedTempFile::new()?;
-    file2.write_all("bb\n".as_bytes())?;
+fn sdiff_gutter_marker_column() {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", "aa\n");
+    at.write("file2", "bb\n");
 
     // --expand-tabs: padding is spaces.
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff")
-        .arg("-y")
-        .arg("--width=40")
-        .arg("--expand-tabs")
-        .arg(file1.path())
-        .arg(file2.path());
-    let output = cmd.output().unwrap().stdout;
-    assert_eq!(
-        output,
-        b"aa                 <\n                   >    bb\n"
-    );
+    ts.ucmd()
+        .args(&["-y", "--width=40", "--expand-tabs", "file1", "file2"])
+        .run()
+        .stdout_is("aa                 <\n                   >    bb\n");
 
     // Default (expand_tabs: false): padding goes through the tab path.
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff")
-        .arg("-y")
-        .arg("--width=40")
-        .arg(file1.path())
-        .arg(file2.path());
-    let output = cmd.output().unwrap().stdout;
-    assert_eq!(output, b"aa\t\t   <\n\t\t   >\tbb\n");
-
-    Ok(())
+    ts.ucmd()
+        .args(&["-y", "--width=40", "file1", "file2"])
+        .run()
+        .stdout_is("aa\t\t   <\n\t\t   >\tbb\n");
 }
 
 #[test]
-fn normal_format_single_line_ranges() -> Result<(), Box<dyn std::error::Error>> {
-    let tmp_dir = tempdir()?;
-    let old = tmp_dir.path().join("old");
-    let new = tmp_dir.path().join("new");
-    std::fs::write(&old, "north\neast\nsouth\nwest\n")?;
-    std::fs::write(&new, "north\nsouth\nwest\nup\ndown\n")?;
+fn normal_format_single_line_ranges() {
+    let (at, ts) = at_and_ts!();
+    at.write("old", "north\neast\nsouth\nwest\n");
+    at.write("new", "north\nsouth\nwest\nup\ndown\n");
 
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff").arg(&old).arg(&new);
-    cmd.assert()
-        .code(predicate::eq(1))
-        .stdout("2d1\n< east\n4a4,5\n> up\n> down\n");
+    ts.ucmd()
+        .args(&["old", "new"])
+        .fails_with_code(1)
+        .stdout_is("2d1\n< east\n4a4,5\n> up\n> down\n");
 
-    let empty = tmp_dir.path().join("empty");
-    std::fs::write(&empty, "")?;
-    std::fs::write(&new, "north\n")?;
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff").arg(&empty).arg(&new);
-    cmd.assert().code(predicate::eq(1)).stdout("0a1\n> north\n");
+    at.touch("empty");
+    at.write("new", "north\n");
+    ts.ucmd()
+        .args(&["empty", "new"])
+        .fails_with_code(1)
+        .stdout_is("0a1\n> north\n");
 
-    std::fs::write(&new, "north\neast\nsouth\nwest\nup\n")?;
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff").arg(&old).arg(&new);
-    cmd.assert().code(predicate::eq(1)).stdout("4a5\n> up\n");
-    Ok(())
+    at.write("new", "north\neast\nsouth\nwest\nup\n");
+    ts.ucmd()
+        .args(&["old", "new"])
+        .fails_with_code(1)
+        .stdout_is("4a5\n> up\n");
 }
 
 #[test]
-fn ed_format_single_line_deletions() -> Result<(), Box<dyn std::error::Error>> {
-    let tmp_dir = tempdir()?;
-    let old = tmp_dir.path().join("old");
-    let new = tmp_dir.path().join("new");
-    std::fs::write(&old, "red\norange\nyellow\ngreen\nblue\n")?;
-    std::fs::write(&new, "red\norange\nyellow\nblue\n")?;
+fn ed_format_single_line_deletions() {
+    let (at, ts) = at_and_ts!();
+    at.write("old", "red\norange\nyellow\ngreen\nblue\n");
+    at.write("new", "red\norange\nyellow\nblue\n");
 
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff").arg("-e").arg(&old).arg(&new);
-    cmd.assert().code(predicate::eq(1)).stdout("4d\n");
+    ts.ucmd()
+        .args(&["-e", "old", "new"])
+        .fails_with_code(1)
+        .stdout_is("4d\n");
 
-    std::fs::write(&new, "red\nblue\n")?;
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff").arg("-e").arg(&old).arg(&new);
-    cmd.assert().code(predicate::eq(1)).stdout("2,4d\n");
-    Ok(())
+    at.write("new", "red\nblue\n");
+    ts.ucmd()
+        .args(&["-e", "old", "new"])
+        .fails_with_code(1)
+        .stdout_is("2,4d\n");
 }
 
 #[test]
-fn ed_format_writes_hunks_last_to_first() -> Result<(), Box<dyn std::error::Error>> {
-    let tmp_dir = tempdir()?;
-    let old = tmp_dir.path().join("old");
-    let new = tmp_dir.path().join("new");
+fn ed_format_writes_hunks_last_to_first() {
+    let (at, ts) = at_and_ts!();
 
     // GNU diff starts from the end of the file, so every command uses the
     // line numbers of the original file.
-    std::fs::write(&old, "a\nb\nc\nd\ne\n")?;
-    std::fs::write(&new, "b\nd\n")?;
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff").arg("-e").arg(&old).arg(&new);
-    cmd.assert().code(predicate::eq(1)).stdout("5d\n3d\n1d\n");
-
-    std::fs::write(&old, "a\nb\n")?;
-    std::fs::write(&new, "X\na\nb\nY\n")?;
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff").arg("-e").arg(&old).arg(&new);
-    cmd.assert()
-        .code(predicate::eq(1))
-        .stdout("2a\nY\n.\n0a\nX\n.\n");
-
-    std::fs::write(&old, "a\nb\nc\nd\n")?;
-    std::fs::write(&new, "a\nX\nY\nc\n")?;
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff").arg("-e").arg(&old).arg(&new);
-    cmd.assert()
-        .code(predicate::eq(1))
-        .stdout("4d\n2c\nX\nY\n.\n");
-    Ok(())
+    for (old, new, expected) in [
+        ("a\nb\nc\nd\ne\n", "b\nd\n", "5d\n3d\n1d\n"),
+        ("a\nb\n", "X\na\nb\nY\n", "2a\nY\n.\n0a\nX\n.\n"),
+        ("a\nb\nc\nd\n", "a\nX\nY\nc\n", "4d\n2c\nX\nY\n.\n"),
+    ] {
+        at.write("old", old);
+        at.write("new", new);
+        ts.ucmd()
+            .args(&["-e", "old", "new"])
+            .fails_with_code(1)
+            .stdout_is(expected);
+    }
 }
 
 #[test]
-fn ed_format_dot_line_ends_text_once() -> Result<(), Box<dyn std::error::Error>> {
-    let tmp_dir = tempdir()?;
-    let old = tmp_dir.path().join("old");
-    let new = tmp_dir.path().join("new");
-    std::fs::write(&old, "a\nb\n")?;
+fn ed_format_dot_line_ends_text_once() {
+    let (at, ts) = at_and_ts!();
+    at.write("old", "a\nb\n");
 
     // A "." line is written as "..", then s/.// fixes it. Like GNU diff, no
     // empty "a" command follows when it is the last line of the hunk.
@@ -1164,156 +838,105 @@ fn ed_format_dot_line_ends_text_once() -> Result<(), Box<dyn std::error::Error>>
         (".\n.\nb\n", "1c\n..\n.\ns/.//\na\n..\n.\ns/.//\n"),
         ("a\n.\nc\n", "2c\n..\n.\ns/.//\na\nc\n.\n"),
     ] {
-        std::fs::write(&new, contents)?;
-        let mut cmd = cargo_bin_cmd!("diffutils");
-        cmd.arg("diff").arg("-e").arg(&old).arg(&new);
-        cmd.assert().code(predicate::eq(1)).stdout(expected);
+        at.write("new", contents);
+        ts.ucmd()
+            .args(&["-e", "old", "new"])
+            .fails_with_code(1)
+            .stdout_is(expected);
     }
-    Ok(())
 }
 
 #[test]
-fn function_lines() -> Result<(), Box<dyn std::error::Error>> {
-    let tmp_dir = tempdir()?;
-    let old = tmp_dir.path().join("old.c");
-    let new = tmp_dir.path().join("new.c");
-    std::fs::write(
-        &old,
+fn function_lines() {
+    let (at, ts) = at_and_ts!();
+    at.write(
+        "old.c",
         "int zero;\nstatic int twice(int n)\n{\n  int r;\n  r = n * 2;\n  return r;\n}\n",
-    )?;
-    std::fs::write(
-        &new,
+    );
+    at.write(
+        "new.c",
         "int zero;\nstatic int twice(int n)\n{\n  int r;\n  r = n + n;\n  return r;\n}\n",
-    )?;
+    );
 
     // -p defaults to the context format and shows the enclosing C function.
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff").arg("-p").arg("-C1").arg(&old).arg(&new);
-    cmd.assert()
-        .code(predicate::eq(1))
-        .stdout(predicate::str::contains(
-            "\n*************** static int twice(int n)\n*** 4,6 ****\n",
-        ));
+    ts.ucmd()
+        .args(&["-p", "-C1", "old.c", "new.c"])
+        .fails_with_code(1)
+        .stdout_contains("\n*************** static int twice(int n)\n*** 4,6 ****\n");
 
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff")
-        .arg("-U0")
-        .arg("-F")
-        .arg("^int")
-        .arg(&old)
-        .arg(&new);
-    cmd.assert()
-        .code(predicate::eq(1))
-        .stdout(predicate::str::ends_with(
-            "@@ -5 +5 @@ int zero;\n-  r = n * 2;\n+  r = n + n;\n",
-        ));
+    ts.ucmd()
+        .args(&["-U0", "-F", "^int", "old.c", "new.c"])
+        .fails_with_code(1)
+        .stdout_str_check(|s| s.ends_with("@@ -5 +5 @@ int zero;\n-  r = n * 2;\n+  r = n + n;\n"));
 
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff")
-        .arg("-u")
-        .arg("-F")
-        .arg("\\(")
-        .arg(&old)
-        .arg(&new);
-    cmd.assert()
-        .code(predicate::eq(2))
-        .stderr("'\\(': Unmatched ( or \\(\n");
-    Ok(())
+    ts.ucmd()
+        .args(&["-u", "-F", "\\(", "old.c", "new.c"])
+        .fails_with_code(2)
+        .stderr_is("'\\(': Unmatched ( or \\(\n");
 }
 
 #[cfg(unix)]
 #[test]
-fn quoted_file_names() -> Result<(), Box<dyn std::error::Error>> {
-    let tmp_dir = tempdir()?;
-    let dir = tmp_dir.path().to_str().unwrap();
-    std::fs::write(tmp_dir.path().join("my notes"), "draft\n")?;
-    std::fs::write(tmp_dir.path().join("final\tv2"), "done\n")?;
-    std::fs::write(tmp_dir.path().join("plain$name"), "done\n")?;
+fn quoted_file_names() {
+    let (at, ts) = at_and_ts!();
+    at.write("my notes", "draft\n");
+    at.write("final\tv2", "done\n");
+    at.write("plain$name", "done\n");
 
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.env("TZ", "UTC0")
-        .arg("diff")
-        .arg("-u")
-        .arg(format!("{dir}/my notes"))
-        .arg(format!("{dir}/final\tv2"));
-    cmd.assert()
-        .code(predicate::eq(1))
-        .stdout(predicate::str::is_match(format!(
-            "^--- \"{dir}/my notes\"\t[^\n]*\n\\+\\+\\+ \"{dir}/final\\\\tv2\"\t"
-        ))?);
+    ts.ucmd()
+        .args(&["-u", "my notes", "final\tv2"])
+        .fails_with_code(1)
+        .stdout_matches(
+            &regex::Regex::new("^--- \"my notes\"\t[^\n]*\n\\+\\+\\+ \"final\\\\tv2\"\t").unwrap(),
+        );
 
     // Names without special characters are left alone.
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff")
-        .arg("-c")
-        .arg(format!("{dir}/my notes"))
-        .arg(format!("{dir}/plain$name"));
-    cmd.assert()
-        .code(predicate::eq(1))
-        .stdout(predicate::str::contains(format!(
-            "\n--- {dir}/plain$name\t"
-        )));
+    ts.ucmd()
+        .args(&["-c", "my notes", "plain$name"])
+        .fails_with_code(1)
+        .stdout_contains("\n--- plain$name\t");
 
     // The diff -r header quotes the options for the shell and the names as
     // in the other headers.
     for (side, content) in [("one", "a\n"), ("two", "b\n")] {
-        std::fs::create_dir(tmp_dir.path().join(side))?;
-        std::fs::write(tmp_dir.path().join(side).join("my file"), content)?;
+        at.mkdir(side);
+        at.write(&format!("{side}/my file"), content);
     }
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.current_dir(&tmp_dir)
-        .arg("diff")
-        .arg("-r")
-        .arg("-F")
-        .arg("my func")
-        .arg("one")
-        .arg("two");
-    cmd.assert()
-        .code(predicate::eq(1))
-        .stdout("diff -r -F 'my func' \"one/my file\" \"two/my file\"\n1c1\n< a\n---\n> b\n");
-    Ok(())
+    ts.ucmd()
+        .args(&["-r", "-F", "my func", "one", "two"])
+        .fails_with_code(1)
+        .stdout_is("diff -r -F 'my func' \"one/my file\" \"two/my file\"\n1c1\n< a\n---\n> b\n");
 }
 
 #[test]
-fn extra_operand_after_double_dash() -> Result<(), Box<dyn std::error::Error>> {
-    let mut old = NamedTempFile::new()?;
-    old.write_all(b"a\nb\n")?;
-    let mut new = NamedTempFile::new()?;
-    new.write_all(b"a\nc\n")?;
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff")
-        .arg("--")
-        .arg(old.path())
-        .arg(new.path())
-        .arg("extra");
-    cmd.assert()
-        .code(predicate::eq(2))
-        .stdout(predicate::str::is_empty())
-        .stderr(predicate::str::contains("extra operand 'extra'"));
-    Ok(())
+fn extra_operand_after_double_dash() {
+    let (at, ts) = at_and_ts!();
+    at.write("old", "a\nb\n");
+    at.write("new", "a\nc\n");
+    ts.ucmd()
+        .args(&["--", "old", "new", "extra"])
+        .fails_with_code(2)
+        .no_stdout()
+        .stderr_contains("extra operand 'extra'");
 }
 
 #[test]
-fn extra_operand_without_double_dash() -> Result<(), Box<dyn std::error::Error>> {
-    let mut old = NamedTempFile::new()?;
-    old.write_all(b"a\nb\n")?;
-    let mut new = NamedTempFile::new()?;
-    new.write_all(b"a\nc\n")?;
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff").arg(old.path()).arg(new.path()).arg("extra");
-    cmd.assert()
-        .code(predicate::eq(2))
-        .stdout(predicate::str::is_empty())
-        .stderr("diff: extra operand 'extra'\ndiff: Try 'diff --help' for more information.\n");
-    Ok(())
+fn extra_operand_without_double_dash() {
+    let (at, ts) = at_and_ts!();
+    at.write("old", "a\nb\n");
+    at.write("new", "a\nc\n");
+    ts.ucmd()
+        .args(&["old", "new", "extra"])
+        .fails_with_code(2)
+        .no_stdout()
+        .stderr_is("diff: extra operand 'extra'\ndiff: Try 'diff --help' for more information.\n");
 }
 
 #[test]
-fn trailing_context_without_final_newlines() -> Result<(), Box<dyn std::error::Error>> {
-    let mut file1 = NamedTempFile::new()?;
-    file1.write_all(b"1\n2\n3\n4\n5\n6\n7\n8")?;
-    let mut file2 = NamedTempFile::new()?;
-    file2.write_all(b"1\nX\n3\n4\n5\n6\n7\n8")?;
+fn trailing_context_without_final_newlines() {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", "1\n2\n3\n4\n5\n6\n7\n8");
+    at.write("file2", "1\nX\n3\n4\n5\n6\n7\n8");
 
     for (format, hunk) in [
         ("-u", "@@ -1,5 +1,5 @@\n 1\n-2\n+X\n 3\n 4\n 5\n"),
@@ -1321,37 +944,16 @@ fn trailing_context_without_final_newlines() -> Result<(), Box<dyn std::error::E
             "-c",
             "*** 1,5 ****\n  1\n! 2\n  3\n  4\n  5\n--- 1,5 ----\n  1\n! X\n  3\n  4\n  5\n",
         ),
-    ] {
-        let mut cmd = cargo_bin_cmd!("diffutils");
-        cmd.arg("diff")
-            .arg(format)
-            .arg(file1.path())
-            .arg(file2.path());
-        cmd.assert()
-            .code(predicate::eq(1))
-            .stdout(predicate::str::ends_with(hunk));
-    }
-
-    // the last line is still shown when it is within the trailing context
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff")
-        .arg("-U5")
-        .arg(file1.path())
-        .arg(file2.path());
-    cmd.assert()
-        .code(predicate::eq(1))
-        .stdout(predicate::str::ends_with(
-            "@@ -1,7 +1,7 @@\n 1\n-2\n+X\n 3\n 4\n 5\n 6\n 7\n",
-        ));
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff")
-        .arg("-U6")
-        .arg(file1.path())
-        .arg(file2.path());
-    cmd.assert()
-        .code(predicate::eq(1))
-        .stdout(predicate::str::ends_with(
+        // the last line is still shown when it is within the trailing context
+        ("-U5", "@@ -1,7 +1,7 @@\n 1\n-2\n+X\n 3\n 4\n 5\n 6\n 7\n"),
+        (
+            "-U6",
             "@@ -1,8 +1,8 @@\n 1\n-2\n+X\n 3\n 4\n 5\n 6\n 7\n 8\n\\ No newline at end of file\n",
-        ));
-    Ok(())
+        ),
+    ] {
+        ts.ucmd()
+            .args(&[format, "file1", "file2"])
+            .fails_with_code(1)
+            .stdout_str_check(|s| s.ends_with(hunk));
+    }
 }

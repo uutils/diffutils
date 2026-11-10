@@ -3,86 +3,55 @@
 // For the full copyright and license information, please view the LICENSE-*
 // files that was distributed with this source code.
 
-use assert_cmd::cargo::cargo_bin_cmd;
-use predicates::prelude::*;
-use tempfile::NamedTempFile;
+use uutests::util::TestScenario;
+
+use crate::TESTS_BINARY;
 
 #[test]
-fn unknown_param() -> Result<(), Box<dyn std::error::Error>> {
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("patch");
-    cmd.assert()
-        .code(predicate::eq(2))
-        .failure()
-        .stderr(predicate::eq("patch: utility not supported\n"));
+fn unknown_param() {
+    let ts = TestScenario::new("patch");
+    ts.ucmd()
+        .fails_with_code(2)
+        .stderr_is("patch: utility not supported\n");
 
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.assert()
-        .code(predicate::eq(0))
-        .success()
-        .stderr(predicate::str::starts_with(
-            "Expected utility name as second argument, got nothing.\n",
-        ));
+    ts.cmd(TESTS_BINARY).succeeds().stderr_str_check(|s| {
+        s.starts_with("Expected utility name as second argument, got nothing.\n")
+    });
 
     for subcmd in ["diff", "cmp", "uu-diff", "uucmp"] {
-        let mut cmd = cargo_bin_cmd!("diffutils");
-        cmd.arg(subcmd);
-        cmd.arg("--foobar");
-        cmd.assert()
-            .code(predicate::eq(2))
-            .failure()
-            .stderr(predicate::str::contains("unrecognized option '--foobar'"));
+        TestScenario::new(subcmd)
+            .ucmd()
+            .arg("--foobar")
+            .fails_with_code(2)
+            .stderr_contains("unrecognized option '--foobar'");
     }
-    Ok(())
 }
 
 #[test]
-fn cannot_read_files() -> Result<(), Box<dyn std::error::Error>> {
-    let file = NamedTempFile::new()?;
-
-    let nofile = NamedTempFile::new()?;
-    let nopath = nofile.into_temp_path();
-    std::fs::remove_file(&nopath)?;
+fn cannot_read_files() {
+    let ts = TestScenario::new("diff");
+    ts.fixtures.touch("file");
 
     #[cfg(not(windows))]
     let error_message = "No such file or directory";
     #[cfg(windows)]
     let error_message = "The system cannot find the file specified.";
+    let expected = format!(": nofile: {error_message}\n");
 
     for subcmd in ["diff", "cmp"] {
-        let mut cmd = cargo_bin_cmd!("diffutils");
-        cmd.arg(subcmd);
-        cmd.arg(&nopath).arg(file.path());
-        cmd.assert()
-            .code(predicate::eq(2))
-            .failure()
-            .stderr(predicate::str::ends_with(format!(
-                ": {}: {error_message}\n",
-                &nopath.as_os_str().to_string_lossy()
-            )));
+        ts.ccmd(subcmd)
+            .args(&["nofile", "file"])
+            .fails_with_code(2)
+            .stderr_str_check(|s| s.ends_with(&expected));
 
-        let mut cmd = cargo_bin_cmd!("diffutils");
-        cmd.arg(subcmd);
-        cmd.arg(file.path()).arg(&nopath);
-        cmd.assert()
-            .code(predicate::eq(2))
-            .failure()
-            .stderr(predicate::str::ends_with(format!(
-                ": {}: {error_message}\n",
-                &nopath.as_os_str().to_string_lossy()
-            )));
+        ts.ccmd(subcmd)
+            .args(&["file", "nofile"])
+            .fails_with_code(2)
+            .stderr_str_check(|s| s.ends_with(&expected));
     }
 
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("diff");
-    cmd.arg(&nopath).arg(&nopath);
-    cmd.assert().code(predicate::eq(2)).failure().stderr(
-        predicate::str::contains(format!(
-            ": {}: {error_message}\n",
-            &nopath.as_os_str().to_string_lossy()
-        ))
-        .count(2),
-    );
-
-    Ok(())
+    ts.ucmd()
+        .args(&["nofile", "nofile"])
+        .fails_with_code(2)
+        .stderr_str_check(|s| s.matches(&expected).count() == 2);
 }
