@@ -5,71 +5,59 @@
 
 use diffutilslib::assert_diff_eq;
 
+use rstest::rstest;
 use std::fs::File;
-use uutests::at_and_ts;
+use uutests::{at_and_ts, new_ucmd};
 
-#[test]
-fn no_differences() {
+#[rstest]
+fn no_differences(#[values(&[][..], &["-u"], &["-c"], &["-e"])] format: &[&str]) {
     let (at, ts) = at_and_ts!();
     at.touch("file");
-    for option in ["", "-u", "-c", "-e"] {
-        let mut cmd = ts.ucmd();
-        if !option.is_empty() {
-            cmd.arg(option);
-        }
-        cmd.args(&["file", "file"]).succeeds().no_stdout();
-    }
+    ts.ucmd()
+        .args(format)
+        .args(&["file", "file"])
+        .succeeds()
+        .no_stdout();
 }
 
-#[test]
-fn no_differences_report_identical_files() {
+// The same file, then two files with the same content.
+#[rstest]
+fn no_differences_report_identical_files(
+    #[values(&[][..], &["-u"], &["-c"], &["-e"])] format: &[&str],
+    #[values("file1", "file2")] second: &str,
+) {
     let (at, ts) = at_and_ts!();
     at.write("file1", "foo\n");
     at.write("file2", "foo\n");
-    // the same file, then two files with the same content
-    for second in ["file1", "file2"] {
-        for option in ["", "-u", "-c", "-e"] {
-            let mut cmd = ts.ucmd();
-            if !option.is_empty() {
-                cmd.arg(option);
-            }
-            cmd.args(&["-s", "file1", second])
-                .succeeds()
-                .stdout_is(format!("Files file1 and {second} are identical\n"));
-        }
-    }
+    ts.ucmd()
+        .args(format)
+        .args(&["-s", "file1", second])
+        .succeeds()
+        .stdout_is(format!("Files file1 and {second} are identical\n"));
 }
 
-#[test]
-fn differences() {
+#[rstest]
+fn differences(#[values(&[][..], &["-u"], &["-c"], &["-e"])] format: &[&str]) {
     let (at, ts) = at_and_ts!();
     at.write("file1", "foo\n");
     at.write("file2", "bar\n");
-    for option in ["", "-u", "-c", "-e"] {
-        let mut cmd = ts.ucmd();
-        if !option.is_empty() {
-            cmd.arg(option);
-        }
-        cmd.args(&["file1", "file2"])
-            .fails_with_code(1)
-            .stdout_check(|s| !s.is_empty());
-    }
+    ts.ucmd()
+        .args(format)
+        .args(&["file1", "file2"])
+        .fails_with_code(1)
+        .stdout_check(|s| !s.is_empty());
 }
 
-#[test]
-fn differences_brief() {
+#[rstest]
+fn differences_brief(#[values(&[][..], &["-u"], &["-c"], &["-e"])] format: &[&str]) {
     let (at, ts) = at_and_ts!();
     at.write("file1", "foo\n");
     at.write("file2", "bar\n");
-    for option in ["", "-u", "-c", "-e"] {
-        let mut cmd = ts.ucmd();
-        if !option.is_empty() {
-            cmd.arg(option);
-        }
-        cmd.args(&["-q", "file1", "file2"])
-            .fails_with_code(1)
-            .stdout_is("Files file1 and file2 differ\n");
-    }
+    ts.ucmd()
+        .args(format)
+        .args(&["-q", "file1", "file2"])
+        .fails_with_code(1)
+        .stdout_is("Files file1 and file2 differ\n");
 }
 
 #[test]
@@ -83,78 +71,114 @@ fn missing_newline() {
         .stderr_str_check(|s| s.starts_with("No newline at end of file"));
 }
 
-#[test]
-fn read_from_stdin() {
+#[rstest]
+#[case::second(&["file1", "-"], "bar\n", "--- file1\tTIMESTAMP\n+++ -\tTIMESTAMP\n")]
+#[case::first(&["-", "file2"], "foo\n", "--- -\tTIMESTAMP\n+++ file2\tTIMESTAMP\n")]
+fn read_from_stdin(#[case] operands: &[&str], #[case] input: &str, #[case] headers: &str) {
     let (at, ts) = at_and_ts!();
     at.write("file1", "foo\n");
     at.write("file2", "bar\n");
 
     let result = ts
         .ucmd()
-        .args(&["-u", "file1", "-"])
+        .arg("-u")
+        .args(operands)
+        .pipe_in(input)
+        .fails_with_code(1);
+    assert_diff_eq!(
+        result.stdout(),
+        format!("{headers}@@ -1 +1 @@\n-foo\n+bar\n")
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn read_from_dev_stdin() {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", "foo\n");
+
+    let result = ts
+        .ucmd()
+        .args(&["-u", "file1", "/dev/stdin"])
         .pipe_in("bar\n")
         .fails_with_code(1);
     assert_diff_eq!(
         result.stdout(),
-        "--- file1\tTIMESTAMP\n+++ -\tTIMESTAMP\n@@ -1 +1 @@\n-foo\n+bar\n"
+        "--- file1\tTIMESTAMP\n+++ /dev/stdin\tTIMESTAMP\n@@ -1 +1 @@\n-foo\n+bar\n"
     );
-
-    let result = ts
-        .ucmd()
-        .args(&["-u", "-", "file2"])
-        .pipe_in("foo\n")
-        .fails_with_code(1);
-    assert_diff_eq!(
-        result.stdout(),
-        "--- -\tTIMESTAMP\n+++ file2\tTIMESTAMP\n@@ -1 +1 @@\n-foo\n+bar\n"
-    );
-
-    ts.ucmd().args(&["-u", "-", "-"]).succeeds().no_stdout();
-
-    #[cfg(unix)]
-    {
-        let result = ts
-            .ucmd()
-            .args(&["-u", "file1", "/dev/stdin"])
-            .pipe_in("bar\n")
-            .fails_with_code(1);
-        assert_diff_eq!(
-            result.stdout(),
-            "--- file1\tTIMESTAMP\n+++ /dev/stdin\tTIMESTAMP\n@@ -1 +1 @@\n-foo\n+bar\n"
-        );
-    }
 }
 
 #[test]
-fn missing_file_as_empty() {
+fn both_from_stdin() {
+    new_ucmd!().args(&["-u", "-", "-"]).succeeds().no_stdout();
+}
+
+#[rstest]
+fn missing_file_as_empty(#[values("-N", "--new-file", "--unidirectional-new-file")] option: &str) {
     let (at, ts) = at_and_ts!();
     at.write("present", "kiwi\nmango\n");
 
-    for option in ["-N", "--new-file", "--unidirectional-new-file"] {
-        ts.ucmd()
-            .args(&[option, "absent", "present"])
-            .fails_with_code(1)
-            .stdout_is("0a1,2\n> kiwi\n> mango\n");
-    }
-
     ts.ucmd()
-        .args(&["-N", "present", "absent"])
+        .args(&[option, "absent", "present"])
         .fails_with_code(1)
-        .stdout_is("1,2d0\n< kiwi\n< mango\n");
+        .stdout_is("0a1,2\n> kiwi\n> mango\n");
+}
 
-    // Only a missing first operand is accepted here.
-    ts.ucmd()
-        .args(&["--unidirectional-new-file", "present", "absent"])
-        .fails_with_code(2);
+#[rstest]
+#[case::new_file(&["-N", "present", "absent"], 1, "1,2d0\n< kiwi\n< mango\n")]
+// Only a missing first operand is accepted here.
+#[case::unidirectional(&["--unidirectional-new-file", "present", "absent"], 2, "")]
+// Without the option, a missing file is trouble.
+#[case::no_option(&["absent", "present"], 2, "")]
+fn missing_second_file(#[case] args: &[&str], #[case] code: i32, #[case] expected: &str) {
+    let (at, ts) = at_and_ts!();
+    at.write("present", "kiwi\nmango\n");
 
-    // Without the option, a missing file is trouble.
-    ts.ucmd().args(&["absent", "present"]).fails_with_code(2);
+    ts.ucmd().args(args).run().code_is(code).stdout_is(expected);
 }
 
 // TZ is not honored on Windows.
 #[cfg(unix)]
-#[test]
-fn missing_file_header_timestamp() {
+#[rstest]
+#[case::unified_c(
+    "-u",
+    "C",
+    ["---", "+++"],
+    "1970-01-01 00:00:00.000000000 +0000",
+    "2009-02-13 23:31:30.250000000 +0000"
+)]
+#[case::context_utf8(
+    "-c",
+    "en_US.UTF-8",
+    ["***", "---"],
+    "1970-01-01 00:00:00.000000000 +0000",
+    "2009-02-13 23:31:30.250000000 +0000"
+)]
+#[case::context_c(
+    "-c",
+    "C",
+    ["***", "---"],
+    "Thu Jan  1 00:00:00 1970",
+    "Fri Feb 13 23:31:30 2009"
+)]
+fn missing_file_header_timestamp(
+    #[case] format: &str,
+    #[case] locale: &str,
+    #[case] markers: [&str; 2],
+    #[case] epoch: &str,
+    #[case] timestamp: &str,
+    // --unidirectional-new-file only accepts a missing first operand.
+    #[values(
+        ("-N", false),
+        ("--new-file", false),
+        ("--unidirectional-new-file", false),
+        ("-N", true),
+        ("--new-file", true)
+    )]
+    option_and_reverse: (&str, bool),
+    #[values(false, true)] recursive: bool,
+) {
+    let (option, reverse) = option_and_reverse;
     let (at, ts) = at_and_ts!();
     at.mkdir("left");
     at.mkdir_all("right/nested");
@@ -169,85 +193,52 @@ fn missing_file_header_timestamp() {
     let absent = "left/nested/file";
     let present = "right/nested/file";
 
-    for (format, locale, markers, epoch, timestamp) in [
-        (
-            "-u",
-            "C",
-            ["---", "+++"],
-            "1970-01-01 00:00:00.000000000 +0000",
-            "2009-02-13 23:31:30.250000000 +0000",
-        ),
-        (
-            "-c",
-            "en_US.UTF-8",
-            ["***", "---"],
-            "1970-01-01 00:00:00.000000000 +0000",
-            "2009-02-13 23:31:30.250000000 +0000",
-        ),
-        (
-            "-c",
-            "C",
-            ["***", "---"],
-            "Thu Jan  1 00:00:00 1970",
-            "Fri Feb 13 23:31:30 2009",
-        ),
-    ] {
-        for option in ["-N", "--new-file", "--unidirectional-new-file"] {
-            for reverse in [false, true] {
-                if reverse && option == "--unidirectional-new-file" {
-                    continue;
-                }
-                let headers = if reverse {
-                    format!(
-                        "{} {present}\t{timestamp}\n{} {absent}\t{epoch}\n",
-                        markers[0], markers[1]
-                    )
-                } else {
-                    format!(
-                        "{} {absent}\t{epoch}\n{} {present}\t{timestamp}\n",
-                        markers[0], markers[1]
-                    )
-                };
-                for recursive in [false, true] {
-                    let (from, to) = if recursive {
-                        ("left", "right")
-                    } else {
-                        (absent, present)
-                    };
-                    let mut cmd = ts.ucmd();
-                    cmd.env("TZ", "UTC0")
-                        .env("LC_ALL", locale)
-                        .arg(format)
-                        .arg(option);
-                    if recursive {
-                        cmd.arg("-r");
-                    }
-                    cmd.arg(if reverse { to } else { from })
-                        .arg(if reverse { from } else { to })
-                        .fails_with_code(1)
-                        .no_stderr()
-                        .stdout_contains(&headers);
-                }
-            }
-        }
+    let headers = if reverse {
+        format!(
+            "{} {present}\t{timestamp}\n{} {absent}\t{epoch}\n",
+            markers[0], markers[1]
+        )
+    } else {
+        format!(
+            "{} {absent}\t{epoch}\n{} {present}\t{timestamp}\n",
+            markers[0], markers[1]
+        )
+    };
+    let (from, to) = if recursive {
+        ("left", "right")
+    } else {
+        (absent, present)
+    };
+    let mut cmd = ts.ucmd();
+    cmd.env("TZ", "UTC0")
+        .env("LC_ALL", locale)
+        .arg(format)
+        .arg(option);
+    if recursive {
+        cmd.arg("-r");
     }
+    cmd.arg(if reverse { to } else { from })
+        .arg(if reverse { from } else { to })
+        .fails_with_code(1)
+        .no_stderr()
+        .stdout_contains(&headers);
 }
 
-#[test]
-fn missing_file_as_empty_keeps_stdin_timestamp() {
+#[rstest]
+fn missing_file_as_empty_keeps_stdin_timestamp(
+    #[values("-u", "-c")] format: &str,
+    #[values(["-", "file"], ["file", "-"])] operands: [&str; 2],
+) {
     let (at, ts) = at_and_ts!();
     at.write("file", "file\n");
 
-    for format in ["-u", "-c"] {
-        for (from, to) in [("-", "file"), ("file", "-")] {
-            ts.ucmd()
-                .args(&[format, "-N", from, to])
-                .pipe_in("stdin\n")
-                .fails_with_code(1)
-                .no_stderr()
-                .stdout_does_not_contain("1970");
-        }
-    }
+    ts.ucmd()
+        .args(&[format, "-N"])
+        .args(&operands)
+        .pipe_in("stdin\n")
+        .fails_with_code(1)
+        .no_stderr()
+        .stdout_does_not_contain("1970");
 }
 
 #[test]
@@ -273,14 +264,19 @@ fn binary_files() {
         .args(&["-q", "left.bin", "right.bin"])
         .fails_with_code(1)
         .stdout_only("Files left.bin and right.bin differ\n");
+}
 
-    // -a and --text force a line-by-line comparison.
-    for option in ["-a", "--text"] {
-        ts.ucmd()
-            .args(&[option, "left.bin", "right.bin"])
-            .fails_with_code(1)
-            .stdout_str_check(|s| s.starts_with("1c1\n"));
-    }
+// -a and --text force a line-by-line comparison.
+#[rstest]
+fn binary_files_as_text(#[values("-a", "--text")] option: &str) {
+    let (at, ts) = at_and_ts!();
+    at.write_bytes("left.bin", b"header\x00\x7fpayload-one\n");
+    at.write_bytes("right.bin", b"header\x00\x7fpayload-two\n");
+
+    ts.ucmd()
+        .args(&[option, "left.bin", "right.bin"])
+        .fails_with_code(1)
+        .stdout_str_check(|s| s.starts_with("1c1\n"));
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -299,60 +295,68 @@ fn stdin_is_directory() {
         .stdout_is("1c1\n< alpha\n---\n> beta\n");
 }
 
+const PLAIN: &str = "2c2\n< rain\n---\n> snow\n";
+const COLORED: &str = "\x1b[36m2c2\x1b[0m\n\x1b[31m< rain\x1b[0m\n---\n\x1b[32m> snow\x1b[0m\n";
+
+#[rstest]
+#[case::always(&["--color=always"], None, COLORED)]
+#[case::palette(
+    &["--color=always", "--palette=de=4:ad=7"],
+    None,
+    "\x1b[36m2c2\x1b[0m\n\x1b[4m< rain\x1b[0m\n---\n\x1b[7m> snow\x1b[0m\n"
+)]
+#[case::palette_before_color(
+    &["--palette", "ln=1", "--color=always"],
+    None,
+    "\x1b[1m2c2\x1b[0m\n\x1b[31m< rain\x1b[0m\n---\n\x1b[32m> snow\x1b[0m\n"
+)]
+// Standard output is not a terminal here, and TERM=dumb never gets colors.
+#[case::auto_not_a_terminal(&["--color"], Some("dumb"), PLAIN)]
+#[case::auto_dumb_terminal(&["--color=auto", "---presume-output-tty"], Some("dumb"), PLAIN)]
+// Like GNU diff, an unset TERM does not disable --color=auto on a terminal.
+#[case::auto_unset_term(&["--color=auto", "---presume-output-tty"], None, COLORED)]
+fn color(#[case] options: &[&str], #[case] term: Option<&str>, #[case] expected: &str) {
+    let (at, ts) = at_and_ts!();
+    at.write("old", "sun\nrain\n");
+    at.write("new", "sun\nsnow\n");
+
+    // The environment of the command is cleared, so TERM is only set here.
+    let mut cmd = ts.ucmd();
+    if let Some(term) = term {
+        cmd.env("TERM", term);
+    }
+    cmd.args(options)
+        .args(&["old", "new"])
+        .fails_with_code(1)
+        .stdout_only(expected);
+}
+
+// An invalid palette is reported and disables colors.
 #[test]
-fn color() {
+fn color_invalid_palette() {
     let (at, ts) = at_and_ts!();
     at.write("old", "sun\nrain\n");
     at.write("new", "sun\nsnow\n");
 
     ts.ucmd()
-        .args(&["--color=always", "old", "new"])
-        .fails_with_code(1)
-        .stdout_is("\x1b[36m2c2\x1b[0m\n\x1b[31m< rain\x1b[0m\n---\n\x1b[32m> snow\x1b[0m\n");
-
-    ts.ucmd()
-        .args(&["--color=always", "--palette=de=4:ad=7", "old", "new"])
-        .fails_with_code(1)
-        .stdout_is("\x1b[36m2c2\x1b[0m\n\x1b[4m< rain\x1b[0m\n---\n\x1b[7m> snow\x1b[0m\n");
-
-    // Standard output is not a terminal here, and TERM=dumb never gets colors.
-    for args in [&["--color"][..], &["--color=auto", "---presume-output-tty"]] {
-        ts.ucmd()
-            .env("TERM", "dumb")
-            .args(args)
-            .args(&["old", "new"])
-            .fails_with_code(1)
-            .stdout_is("2c2\n< rain\n---\n> snow\n");
-    }
-
-    // Like GNU diff, an unset TERM does not disable --color=auto on a terminal.
-    // The environment of the command is cleared, so TERM is not set.
-    ts.ucmd()
-        .args(&["--color=auto", "---presume-output-tty", "old", "new"])
-        .fails_with_code(1)
-        .stdout_is("\x1b[36m2c2\x1b[0m\n\x1b[31m< rain\x1b[0m\n---\n\x1b[32m> snow\x1b[0m\n");
-
-    // An invalid palette is reported and disables colors.
-    ts.ucmd()
         .args(&["--color=always", "--palette=up=1", "old", "new"])
         .fails_with_code(1)
-        .stdout_is("2c2\n< rain\n---\n> snow\n")
+        .stdout_is(PLAIN)
         .stderr_contains("unrecognized prefix: up");
+}
+
+#[rstest]
+#[case::invalid_value("--color=sometimes", "invalid color 'sometimes'")]
+#[case::misspelled("--colour", "unrecognized option '--colour'")]
+fn color_bad_option(#[case] option: &str, #[case] error: &str) {
+    let (at, ts) = at_and_ts!();
+    at.write("old", "sun\nrain\n");
+    at.write("new", "sun\nsnow\n");
 
     ts.ucmd()
-        .args(&["--color=sometimes", "old", "new"])
+        .args(&[option, "old", "new"])
         .fails_with_code(2)
-        .stderr_contains("invalid color 'sometimes'");
-
-    ts.ucmd()
-        .args(&["--colour", "old", "new"])
-        .fails_with_code(2)
-        .stderr_contains("unrecognized option '--colour'");
-
-    ts.ucmd()
-        .args(&["--palette", "ln=1", "--color=always", "old", "new"])
-        .fails_with_code(1)
-        .stdout_is("\x1b[1m2c2\x1b[0m\n\x1b[31m< rain\x1b[0m\n---\n\x1b[32m> snow\x1b[0m\n");
+        .stderr_contains(error);
 }
 
 #[cfg(target_os = "linux")]
@@ -369,10 +373,24 @@ fn write_error() {
         .stderr_is("diff: standard output: No space left on device\n");
 }
 
+const TRADITIONAL: &str = "Fri Feb 13 23:31:30 2009";
+const ISO: &str = "2009-02-13 23:31:30.250000000 +0000";
+
+// LC_ALL overrides LC_TIME, which overrides LANG; empty values are unset.
 // TZ is not honored on Windows.
 #[cfg(unix)]
-#[test]
-fn context_timestamp_follows_time_locale() {
+#[rstest]
+#[case::lc_all_c(&[("LC_ALL", "C")], TRADITIONAL)]
+#[case::lc_all_posix(&[("LC_ALL", "POSIX"), ("LC_TIME", "en_US.UTF-8")], TRADITIONAL)]
+#[case::lc_all_utf8(&[("LC_ALL", "en_US.UTF-8"), ("LC_TIME", "C")], ISO)]
+#[case::lc_time_c(&[("LC_TIME", "C"), ("LANG", "en_US.UTF-8")], TRADITIONAL)]
+#[case::lc_time_utf8(&[("LC_TIME", "en_US.UTF-8"), ("LANG", "C")], ISO)]
+#[case::lang_posix(&[("LC_ALL", ""), ("LC_TIME", ""), ("LANG", "POSIX")], TRADITIONAL)]
+#[case::lang_utf8(&[("LANG", "fr_FR.UTF-8")], ISO)]
+fn context_timestamp_follows_time_locale(
+    #[case] variables: &[(&str, &str)],
+    #[case] timestamp: &str,
+) {
     let (at, ts) = at_and_ts!();
     at.write("old", "left\n");
     at.write("new", "right\n");
@@ -387,35 +405,16 @@ fn context_timestamp_follows_time_locale() {
             .unwrap();
     }
 
-    let traditional = "Fri Feb 13 23:31:30 2009";
-    let iso = "2009-02-13 23:31:30.250000000 +0000";
-    // LC_ALL overrides LC_TIME, which overrides LANG; empty values are unset.
-    for (variables, timestamp) in [
-        (&[("LC_ALL", "C")][..], traditional),
-        (
-            &[("LC_ALL", "POSIX"), ("LC_TIME", "en_US.UTF-8")],
-            traditional,
-        ),
-        (&[("LC_ALL", "en_US.UTF-8"), ("LC_TIME", "C")], iso),
-        (&[("LC_TIME", "C"), ("LANG", "en_US.UTF-8")], traditional),
-        (&[("LC_TIME", "en_US.UTF-8"), ("LANG", "C")], iso),
-        (
-            &[("LC_ALL", ""), ("LC_TIME", ""), ("LANG", "POSIX")],
-            traditional,
-        ),
-        (&[("LANG", "fr_FR.UTF-8")], iso),
-    ] {
-        let expected = format!("*** old\t{timestamp}\n--- new\t{timestamp}\n");
-        // The command starts with a cleared environment except for the
-        // LC_ALL=C default, which an empty value unsets.
-        ts.ucmd()
-            .env("TZ", "UTC0")
-            .env("LC_ALL", "")
-            .envs(variables.iter().copied())
-            .args(&["-c", "old", "new"])
-            .fails_with_code(1)
-            .stdout_str_check(|s| s.starts_with(&expected));
-    }
+    let expected = format!("*** old\t{timestamp}\n--- new\t{timestamp}\n");
+    // The command starts with a cleared environment except for the
+    // LC_ALL=C default, which an empty value unsets.
+    ts.ucmd()
+        .env("TZ", "UTC0")
+        .env("LC_ALL", "")
+        .envs(variables.iter().copied())
+        .args(&["-c", "old", "new"])
+        .fails_with_code(1)
+        .stdout_str_check(|s| s.starts_with(&expected));
 }
 
 #[test]
@@ -686,106 +685,73 @@ fn compare_file_to_directory() {
 }
 
 // Regression for #269: the `-y` gutter marker must sit at the middle of the gutter.
-#[test]
-fn sdiff_gutter_marker_column() {
+#[rstest]
+// --expand-tabs: padding is spaces.
+#[case::expand_tabs(&["--expand-tabs"], "aa                 <\n                   >    bb\n")]
+// Default (expand_tabs: false): padding goes through the tab path.
+#[case::tabs(&[], "aa\t\t   <\n\t\t   >\tbb\n")]
+fn sdiff_gutter_marker_column(#[case] options: &[&str], #[case] expected: &str) {
     let (at, ts) = at_and_ts!();
     at.write("file1", "aa\n");
     at.write("file2", "bb\n");
 
-    // --expand-tabs: padding is spaces.
     ts.ucmd()
-        .args(&["-y", "--width=40", "--expand-tabs", "file1", "file2"])
+        .args(&["-y", "--width=40"])
+        .args(options)
+        .args(&["file1", "file2"])
         .run()
-        .stdout_is("aa                 <\n                   >    bb\n");
-
-    // Default (expand_tabs: false): padding goes through the tab path.
-    ts.ucmd()
-        .args(&["-y", "--width=40", "file1", "file2"])
-        .run()
-        .stdout_is("aa\t\t   <\n\t\t   >\tbb\n");
+        .stdout_is(expected);
 }
 
-#[test]
-fn normal_format_single_line_ranges() {
+#[rstest]
+#[case::delete_and_append(
+    "north\neast\nsouth\nwest\n",
+    "north\nsouth\nwest\nup\ndown\n",
+    "2d1\n< east\n4a4,5\n> up\n> down\n"
+)]
+#[case::append_to_empty("", "north\n", "0a1\n> north\n")]
+#[case::append_one(
+    "north\neast\nsouth\nwest\n",
+    "north\neast\nsouth\nwest\nup\n",
+    "4a5\n> up\n"
+)]
+fn normal_format_single_line_ranges(#[case] old: &str, #[case] new: &str, #[case] expected: &str) {
     let (at, ts) = at_and_ts!();
-    at.write("old", "north\neast\nsouth\nwest\n");
-    at.write("new", "north\nsouth\nwest\nup\ndown\n");
+    at.write("old", old);
+    at.write("new", new);
 
     ts.ucmd()
         .args(&["old", "new"])
         .fails_with_code(1)
-        .stdout_is("2d1\n< east\n4a4,5\n> up\n> down\n");
-
-    at.touch("empty");
-    at.write("new", "north\n");
-    ts.ucmd()
-        .args(&["empty", "new"])
-        .fails_with_code(1)
-        .stdout_is("0a1\n> north\n");
-
-    at.write("new", "north\neast\nsouth\nwest\nup\n");
-    ts.ucmd()
-        .args(&["old", "new"])
-        .fails_with_code(1)
-        .stdout_is("4a5\n> up\n");
+        .stdout_is(expected);
 }
 
-#[test]
-fn ed_format_single_line_deletions() {
+#[rstest]
+#[case::single_line_deletion(
+    "red\norange\nyellow\ngreen\nblue\n",
+    "red\norange\nyellow\nblue\n",
+    "4d\n"
+)]
+#[case::range_deletion("red\norange\nyellow\ngreen\nblue\n", "red\nblue\n", "2,4d\n")]
+// GNU diff starts from the end of the file, so every command uses the line
+// numbers of the original file.
+#[case::deletions_last_to_first("a\nb\nc\nd\ne\n", "b\nd\n", "5d\n3d\n1d\n")]
+#[case::appends_last_to_first("a\nb\n", "X\na\nb\nY\n", "2a\nY\n.\n0a\nX\n.\n")]
+#[case::change_after_deletion("a\nb\nc\nd\n", "a\nX\nY\nc\n", "4d\n2c\nX\nY\n.\n")]
+// A "." line is written as "..", then s/.// fixes it. Like GNU diff, no empty
+// "a" command follows when it is the last line of the hunk.
+#[case::dot_line_appended("a\nb\n", "a\nb\n.\n", "2a\n..\n.\ns/.//\n")]
+#[case::dot_lines_changed("a\nb\n", ".\n.\nb\n", "1c\n..\n.\ns/.//\na\n..\n.\ns/.//\n")]
+#[case::dot_line_in_change("a\nb\n", "a\n.\nc\n", "2c\n..\n.\ns/.//\na\nc\n.\n")]
+fn ed_format(#[case] old: &str, #[case] new: &str, #[case] expected: &str) {
     let (at, ts) = at_and_ts!();
-    at.write("old", "red\norange\nyellow\ngreen\nblue\n");
-    at.write("new", "red\norange\nyellow\nblue\n");
+    at.write("old", old);
+    at.write("new", new);
 
     ts.ucmd()
         .args(&["-e", "old", "new"])
         .fails_with_code(1)
-        .stdout_is("4d\n");
-
-    at.write("new", "red\nblue\n");
-    ts.ucmd()
-        .args(&["-e", "old", "new"])
-        .fails_with_code(1)
-        .stdout_is("2,4d\n");
-}
-
-#[test]
-fn ed_format_writes_hunks_last_to_first() {
-    let (at, ts) = at_and_ts!();
-
-    // GNU diff starts from the end of the file, so every command uses the
-    // line numbers of the original file.
-    for (old, new, expected) in [
-        ("a\nb\nc\nd\ne\n", "b\nd\n", "5d\n3d\n1d\n"),
-        ("a\nb\n", "X\na\nb\nY\n", "2a\nY\n.\n0a\nX\n.\n"),
-        ("a\nb\nc\nd\n", "a\nX\nY\nc\n", "4d\n2c\nX\nY\n.\n"),
-    ] {
-        at.write("old", old);
-        at.write("new", new);
-        ts.ucmd()
-            .args(&["-e", "old", "new"])
-            .fails_with_code(1)
-            .stdout_is(expected);
-    }
-}
-
-#[test]
-fn ed_format_dot_line_ends_text_once() {
-    let (at, ts) = at_and_ts!();
-    at.write("old", "a\nb\n");
-
-    // A "." line is written as "..", then s/.// fixes it. Like GNU diff, no
-    // empty "a" command follows when it is the last line of the hunk.
-    for (contents, expected) in [
-        ("a\nb\n.\n", "2a\n..\n.\ns/.//\n"),
-        (".\n.\nb\n", "1c\n..\n.\ns/.//\na\n..\n.\ns/.//\n"),
-        ("a\n.\nc\n", "2c\n..\n.\ns/.//\na\nc\n.\n"),
-    ] {
-        at.write("new", contents);
-        ts.ucmd()
-            .args(&["-e", "old", "new"])
-            .fails_with_code(1)
-            .stdout_is(expected);
-    }
+        .stdout_is(expected);
 }
 
 #[test]
@@ -850,52 +816,39 @@ fn quoted_file_names() {
         .stdout_is("diff -r -F 'my func' \"one/my file\" \"two/my file\"\n1c1\n< a\n---\n> b\n");
 }
 
-#[test]
-fn extra_operand_after_double_dash() {
+#[rstest]
+#[case::after_double_dash(&["--", "old", "new", "extra"])]
+#[case::without_double_dash(&["old", "new", "extra"])]
+fn extra_operand(#[case] args: &[&str]) {
     let (at, ts) = at_and_ts!();
     at.write("old", "a\nb\n");
     at.write("new", "a\nc\n");
     ts.ucmd()
-        .args(&["--", "old", "new", "extra"])
-        .fails_with_code(2)
-        .no_stdout()
-        .stderr_contains("extra operand 'extra'");
-}
-
-#[test]
-fn extra_operand_without_double_dash() {
-    let (at, ts) = at_and_ts!();
-    at.write("old", "a\nb\n");
-    at.write("new", "a\nc\n");
-    ts.ucmd()
-        .args(&["old", "new", "extra"])
+        .args(args)
         .fails_with_code(2)
         .no_stdout()
         .stderr_is("diff: extra operand 'extra'\ndiff: Try 'diff --help' for more information.\n");
 }
 
-#[test]
-fn trailing_context_without_final_newlines() {
+#[rstest]
+#[case::unified("-u", "@@ -1,5 +1,5 @@\n 1\n-2\n+X\n 3\n 4\n 5\n")]
+#[case::context(
+    "-c",
+    "*** 1,5 ****\n  1\n! 2\n  3\n  4\n  5\n--- 1,5 ----\n  1\n! X\n  3\n  4\n  5\n"
+)]
+// the last line is still shown when it is within the trailing context
+#[case::up_to_last_line("-U5", "@@ -1,7 +1,7 @@\n 1\n-2\n+X\n 3\n 4\n 5\n 6\n 7\n")]
+#[case::last_line(
+    "-U6",
+    "@@ -1,8 +1,8 @@\n 1\n-2\n+X\n 3\n 4\n 5\n 6\n 7\n 8\n\\ No newline at end of file\n"
+)]
+fn trailing_context_without_final_newlines(#[case] format: &str, #[case] hunk: &str) {
     let (at, ts) = at_and_ts!();
     at.write("file1", "1\n2\n3\n4\n5\n6\n7\n8");
     at.write("file2", "1\nX\n3\n4\n5\n6\n7\n8");
 
-    for (format, hunk) in [
-        ("-u", "@@ -1,5 +1,5 @@\n 1\n-2\n+X\n 3\n 4\n 5\n"),
-        (
-            "-c",
-            "*** 1,5 ****\n  1\n! 2\n  3\n  4\n  5\n--- 1,5 ----\n  1\n! X\n  3\n  4\n  5\n",
-        ),
-        // the last line is still shown when it is within the trailing context
-        ("-U5", "@@ -1,7 +1,7 @@\n 1\n-2\n+X\n 3\n 4\n 5\n 6\n 7\n"),
-        (
-            "-U6",
-            "@@ -1,8 +1,8 @@\n 1\n-2\n+X\n 3\n 4\n 5\n 6\n 7\n 8\n\\ No newline at end of file\n",
-        ),
-    ] {
-        ts.ucmd()
-            .args(&[format, "file1", "file2"])
-            .fails_with_code(1)
-            .stdout_str_check(|s| s.ends_with(hunk));
-    }
+    ts.ucmd()
+        .args(&[format, "file1", "file2"])
+        .fails_with_code(1)
+        .stdout_str_check(|s| s.ends_with(hunk));
 }

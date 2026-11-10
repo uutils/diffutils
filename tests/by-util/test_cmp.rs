@@ -3,6 +3,7 @@
 // For the full copyright and license information, please view the LICENSE-*
 // files that was distributed with this source code.
 
+use rstest::rstest;
 #[cfg(not(windows))]
 use std::fs::OpenOptions;
 use uutests::{at_and_ts, new_ucmd};
@@ -45,19 +46,19 @@ fn cmp_incompatible_params() {
         .stderr_str_check(|s| s.ends_with(": options -l and -s are incompatible\n"));
 }
 
-#[test]
-fn cmp_stdin() {
+#[rstest]
+#[case::equal("a\n", 0, "")]
+#[case::different("b\n", 1, "a - differ: char 1, line 1\n")]
+fn cmp_stdin(#[case] input: &str, #[case] code: i32, #[case] expected: &str) {
     let (at, ts) = at_and_ts!();
     at.write("a", "a\n");
 
-    ts.ucmd().arg("a").pipe_in("a\n").succeeds().no_output();
-
     ts.ucmd()
         .arg("a")
-        .pipe_in("b\n")
-        .fails_with_code(1)
-        .no_stderr()
-        .stdout_str_check(|s| s.ends_with(" - differ: char 1, line 1\n"));
+        .pipe_in(input)
+        .run()
+        .code_is(code)
+        .stdout_only(expected);
 }
 
 #[test]
@@ -82,144 +83,116 @@ fn cmp_one_file_empty() {
         .stderr_str_check(|s| s.ends_with(" which is empty\n"));
 }
 
-#[test]
-fn cmp_immediate_difference() {
+#[rstest]
+#[case::default(&[], "a b differ: char 1, line 1\n")]
+#[case::print_bytes(&["-b"], "a b differ: byte 1, line 1 is 141 a 142 b\n")]
+#[case::verbose(&["-l"], "1 141 142\n2 142 143\n3 143 144\n")]
+#[case::verbose_print_bytes(
+    &["-l", "-b"],
+    "1 141 a    142 b\n2 142 b    143 c\n3 143 c    144 d\n"
+)]
+fn cmp_immediate_difference(#[case] options: &[&str], #[case] expected: &str) {
     let (at, ts) = at_and_ts!();
     at.write("a", "abc\n");
     at.write("b", "bcd\n");
 
     ts.ucmd()
+        .args(options)
         .args(&["a", "b"])
         .fails_with_code(1)
-        .stdout_str_check(|s| s.ends_with(" differ: char 1, line 1\n"));
-
-    ts.ucmd()
-        .args(&["-b", "a", "b"])
-        .fails_with_code(1)
-        .no_stderr()
-        .stdout_str_check(|s| s.ends_with(" differ: byte 1, line 1 is 141 a 142 b\n"));
-
-    ts.ucmd()
-        .args(&["-l", "a", "b"])
-        .fails_with_code(1)
-        .stdout_only("1 141 142\n2 142 143\n3 143 144\n");
-
-    ts.ucmd()
-        .args(&["-l", "-b", "a", "b"])
-        .fails_with_code(1)
-        .stdout_only("1 141 a    142 b\n2 142 b    143 c\n3 143 c    144 d\n");
+        .stdout_only(expected);
 }
 
-#[test]
-fn cmp_newline_difference() {
+#[rstest]
+#[case::default(&[], "a b differ: char 8, line 2\n", None)]
+#[case::print_bytes(&["-b"], "a b differ: byte 8, line 2 is 147 g  12 ^J\n", None)]
+#[case::verbose(&["-l"], "8 147  12\n", Some(" after byte 8\n"))]
+#[case::verbose_print_bytes(&["-b", "-l"], "8 147 g     12 ^J\n", Some(" after byte 8\n"))]
+fn cmp_newline_difference(
+    #[case] options: &[&str],
+    #[case] expected: &str,
+    #[case] eof: Option<&str>,
+) {
     let (at, ts) = at_and_ts!();
     at.write("a", "abc\ndefg");
     at.write("b", "abc\ndef\ng");
 
-    ts.ucmd()
-        .args(&["a", "b"])
-        .fails_with_code(1)
-        .no_stderr()
-        .stdout_str_check(|s| s.ends_with(" differ: char 8, line 2\n"));
-
-    ts.ucmd()
-        .args(&["-b", "a", "b"])
-        .fails_with_code(1)
-        .no_stderr()
-        .stdout_str_check(|s| s.ends_with(" differ: byte 8, line 2 is 147 g  12 ^J\n"));
-
-    ts.ucmd()
-        .args(&["-l", "a", "b"])
-        .fails_with_code(1)
-        .stdout_str_check(|s| s.starts_with("8 147  12\n"))
-        .stderr_contains(" EOF on")
-        .stderr_str_check(|s| s.ends_with(" after byte 8\n"));
-
-    ts.ucmd()
-        .args(&["-b", "-l", "a", "b"])
-        .fails_with_code(1)
-        .stdout_str_check(|s| s.starts_with("8 147 g     12 ^J\n"))
-        .stderr_contains(" EOF on")
-        .stderr_str_check(|s| s.ends_with(" after byte 8\n"));
+    let result = ts.ucmd().args(options).args(&["a", "b"]).fails_with_code(1);
+    result.stdout_is(expected);
+    match eof {
+        Some(eof) => result
+            .stderr_contains(" EOF on")
+            .stderr_str_check(|s| s.ends_with(eof)),
+        None => result.no_stderr(),
+    };
 }
 
-#[test]
-fn cmp_max_bytes() {
+// -n limits the comparison, -i skips the start of both files.
+#[rstest]
+#[case::max_bytes_before_difference(&["-l", "-b", "-n", "3"], 0, "")]
+#[case::max_bytes_at_difference(&["-l", "-b", "-n", "4"], 1, "4  40      144 d\n")]
+#[case::max_bytes(&["-l", "-b", "-n", "13"], 1, " 4  40      144 d\n 8  40      150 h\n")]
+#[case::max_bytes_suffix(&["-l", "-b", "-n", "1K"], 1, " 4  40      144 d\n 8  40      150 h\n")]
+#[case::skip_past_differences(&["-l", "-b", "-i", "8"], 0, "")]
+#[case::skip(&["-b", "-i", "4"], 1, "a b differ: byte 4, line 1 is  40   150 h\n")]
+fn cmp_max_bytes_and_skip(#[case] options: &[&str], #[case] code: i32, #[case] expected: &str) {
     let (at, ts) = at_and_ts!();
     at.write("a", "abc efg ijkl\n");
     at.write("b", "abcdefghijkl\n");
 
     ts.ucmd()
-        .args(&["-l", "-b", "-n", "3", "a", "b"])
-        .succeeds()
-        .no_output();
-
-    ts.ucmd()
-        .args(&["-l", "-b", "-n", "4", "a", "b"])
-        .fails_with_code(1)
-        .stdout_only("4  40      144 d\n");
-
-    ts.ucmd()
-        .args(&["-l", "-b", "-n", "13", "a", "b"])
-        .fails_with_code(1)
-        .stdout_only(" 4  40      144 d\n 8  40      150 h\n");
-
-    ts.ucmd()
-        .args(&["-l", "-b", "-n", "1K", "a", "b"])
-        .fails_with_code(1)
-        .stdout_only(" 4  40      144 d\n 8  40      150 h\n");
+        .args(options)
+        .args(&["a", "b"])
+        .run()
+        .code_is(code)
+        .stdout_only(expected);
 }
 
-#[test]
-fn cmp_skip_args_parsing() {
+#[rstest]
+#[case::option(&["-i", "3", "a", "b"], 0)]
+// A smaller positional skip does not override -i
+#[case::smaller_positional(&["-i", "3", "a", "b", "1", "1"], 0)]
+// Single positional argument should only affect first file.
+#[case::single_positional(&["a", "b", "3"], 1)]
+#[case::positionals(&["a", "b", "3", "3"], 0)]
+fn cmp_skip_args_parsing(#[case] args: &[&str], #[case] code: i32) {
     let (at, ts) = at_and_ts!();
     at.write("a", "---abc\n");
     at.write("b", "###abc\n");
 
+    let expected = if code == 0 {
+        ""
+    } else {
+        "a b differ: char 1, line 1\n"
+    };
     ts.ucmd()
-        .args(&["-i", "3", "a", "b"])
-        .succeeds()
-        .no_output();
-
-    // A smaller positional skip does not override -i
-    ts.ucmd()
-        .args(&["-i", "3", "a", "b", "1", "1"])
-        .succeeds()
-        .no_output();
-
-    // Single positional argument should only affect first file.
-    ts.ucmd()
-        .args(&["a", "b", "3"])
-        .fails_with_code(1)
-        .no_stderr()
-        .stdout_str_check(|s| s.ends_with(" differ: char 1, line 1\n"));
-
-    ts.ucmd().args(&["a", "b", "3", "3"]).succeeds().no_output();
+        .args(args)
+        .run()
+        .code_is(code)
+        .stdout_only(expected);
 }
 
-#[test]
-fn cmp_skip_uses_larger_of_option_and_positional() {
+// Like GNU cmp, the larger of -i and the positional skip wins.
+#[rstest]
+#[case::larger_positional(&["-i", "1", "a", "b", "5", "5"], 0)]
+// The same applies when -i is given more than once.
+#[case::repeated_option(&["-i", "5", "--ignore-initial=1", "a", "b"], 0)]
+#[case::both_too_small(&["-i", "1", "a", "b", "2", "2"], 1)]
+fn cmp_skip_uses_larger_of_option_and_positional(#[case] args: &[&str], #[case] code: i32) {
     let (at, ts) = at_and_ts!();
     at.write("a", "12345xyz\n");
     at.write("b", "abcdexyz\n");
 
-    // Like GNU cmp, the larger of -i and the positional skip wins.
+    let expected = if code == 0 {
+        ""
+    } else {
+        "a b differ: char 1, line 1\n"
+    };
     ts.ucmd()
-        .args(&["-i", "1", "a", "b", "5", "5"])
-        .succeeds()
-        .no_output();
-
-    // The same applies when -i is given more than once.
-    ts.ucmd()
-        .args(&["-i", "5", "--ignore-initial=1", "a", "b"])
-        .succeeds()
-        .no_output();
-
-    ts.ucmd()
-        .args(&["-i", "1", "a", "b", "2", "2"])
-        .fails_with_code(1)
-        .no_stderr()
-        .stdout_str_check(|s| s.ends_with(" differ: char 1, line 1\n"));
+        .args(args)
+        .run()
+        .code_is(code)
+        .stdout_only(expected);
 }
 
 #[test]
@@ -235,24 +208,6 @@ fn cmp_skip_suffix_parsing() {
 }
 
 #[test]
-fn cmp_skip() {
-    let (at, ts) = at_and_ts!();
-    at.write("a", "abc efg ijkl\n");
-    at.write("b", "abcdefghijkl\n");
-
-    ts.ucmd()
-        .args(&["-l", "-b", "-i", "8", "a", "b"])
-        .succeeds()
-        .no_output();
-
-    ts.ucmd()
-        .args(&["-b", "-i", "4", "a", "b"])
-        .fails_with_code(1)
-        .no_stderr()
-        .stdout_str_check(|s| s.ends_with(" differ: byte 4, line 1 is  40   150 h\n"));
-}
-
-#[test]
 fn cmp_print_bytes_high_byte() {
     let (at, ts) = at_and_ts!();
     at.write("a", "a");
@@ -262,8 +217,7 @@ fn cmp_print_bytes_high_byte() {
     ts.ucmd()
         .args(&["-b", "a", "b"])
         .fails_with_code(1)
-        .no_stderr()
-        .stdout_str_check(|s| s.ends_with(" differ: byte 1, line 1 is 141 a 303 M-C\n"));
+        .stdout_only("a b differ: byte 1, line 1 is 141 a 303 M-C\n");
 }
 
 #[test]
@@ -356,36 +310,29 @@ fn cmp_fast_paths() {
         .stdout_str_check(|s| s.ends_with(" differ: byte 24577, line 4\n"));
 }
 
-#[test]
-fn cmp_difference_term_follows_messages_locale() {
+// LC_ALL overrides LC_MESSAGES, which overrides LANG; empty values are unset.
+#[rstest]
+#[case::nothing_set(&[], "char")]
+#[case::lc_all_c(&[("LC_ALL", "C"), ("LC_MESSAGES", "en_US.UTF-8")], "char")]
+#[case::lc_all_utf8(&[("LC_ALL", "en_US.UTF-8"), ("LC_MESSAGES", "C")], "byte")]
+#[case::lc_messages_posix(&[("LC_MESSAGES", "POSIX"), ("LANG", "en_US.UTF-8")], "char")]
+#[case::lc_messages_utf8(&[("LC_MESSAGES", "en_US.UTF-8"), ("LANG", "C")], "byte")]
+#[case::lang_utf8(&[("LC_ALL", ""), ("LANG", "en_US.UTF-8")], "byte")]
+#[case::lang_c(&[("LC_ALL", ""), ("LC_MESSAGES", ""), ("LANG", "C")], "char")]
+fn cmp_difference_term_follows_messages_locale(
+    #[case] variables: &[(&str, &str)],
+    #[case] term: &str,
+) {
     let (at, ts) = at_and_ts!();
     at.write("a", "abc\n");
     at.write("b", "bcd\n");
 
-    // LC_ALL overrides LC_MESSAGES, which overrides LANG; empty values are unset.
-    for (variables, term) in [
-        (&[][..], "char"),
-        (
-            &[("LC_ALL", "C"), ("LC_MESSAGES", "en_US.UTF-8")][..],
-            "char",
-        ),
-        (&[("LC_ALL", "en_US.UTF-8"), ("LC_MESSAGES", "C")], "byte"),
-        (&[("LC_MESSAGES", "POSIX"), ("LANG", "en_US.UTF-8")], "char"),
-        (&[("LC_MESSAGES", "en_US.UTF-8"), ("LANG", "C")], "byte"),
-        (&[("LC_ALL", ""), ("LANG", "en_US.UTF-8")], "byte"),
-        (
-            &[("LC_ALL", ""), ("LC_MESSAGES", ""), ("LANG", "C")],
-            "char",
-        ),
-    ] {
-        let expected = format!(" differ: {term} 1, line 1\n");
-        // The command starts with a cleared environment except for the
-        // LC_ALL=C default, which an empty value unsets.
-        ts.ucmd()
-            .env("LC_ALL", "")
-            .envs(variables.iter().copied())
-            .args(&["a", "b"])
-            .fails_with_code(1)
-            .stdout_str_check(|s| s.ends_with(&expected));
-    }
+    // The command starts with a cleared environment except for the
+    // LC_ALL=C default, which an empty value unsets.
+    ts.ucmd()
+        .env("LC_ALL", "")
+        .envs(variables.iter().copied())
+        .args(&["a", "b"])
+        .fails_with_code(1)
+        .stdout_is(format!("a b differ: {term} 1, line 1\n"));
 }
