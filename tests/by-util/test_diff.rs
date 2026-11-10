@@ -477,6 +477,18 @@ fn color() -> Result<(), Box<dyn std::error::Error>> {
             .stdout("2c2\n< rain\n---\n> snow\n");
     }
 
+    // Like GNU diff, an unset TERM does not disable --color=auto on a terminal.
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.env_remove("TERM")
+        .arg("diff")
+        .arg("--color=auto")
+        .arg("---presume-output-tty")
+        .arg(&old)
+        .arg(&new);
+    cmd.assert()
+        .code(predicate::eq(1))
+        .stdout("\x1b[36m2c2\x1b[0m\n\x1b[31m< rain\x1b[0m\n---\n\x1b[32m> snow\x1b[0m\n");
+
     // An invalid palette is reported and disables colors.
     let mut cmd = cargo_bin_cmd!("diffutils");
     cmd.arg("diff")
