@@ -226,7 +226,7 @@ fn output_palette(params: &Params) -> Option<Palette> {
         ColorWhen::Always => true,
         ColorWhen::Auto => {
             (params.presume_output_tty || stdout().is_terminal())
-                && std::env::var_os("TERM").is_some_and(|term| term != "dumb")
+                && std::env::var_os("TERM").is_none_or(|term| term != "dumb")
         }
     };
     if !enabled {
