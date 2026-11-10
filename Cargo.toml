@@ -5,6 +5,8 @@ edition = "2021"
 description = "A CLI app for generating diff files"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/uutils/diffutils"
+# test_common.rs and by-util/ are modules of tests/tests.rs
+autotests = false
 
 [lib]
 name = "diffutilslib"
@@ -23,12 +25,12 @@ same-file = "1.0.6"
 unicode-width = "0.2.0"
 
 [dev-dependencies]
-assert_cmd = "2.0.14"
+ctor = "1.0"
 divan = { version = "6.0.0", package = "codspeed-divan-compat" }
 pretty_assertions = "1.4.0"
-predicates = "3.1.0"
 rand = "0.10.0"
 tempfile = "3.26.0"
+uutests = "0.12.0"
 
 [profile.release]
 lto = "thin"
@@ -38,6 +40,10 @@ panic = "abort"
 # alias profile for 'dist'
 [profile.dist]
 inherits = "release"
+
+[[test]]
+name = "tests"
+path = "tests/tests.rs"
 
 [[bench]]
 name = "bench_diffutils"

@@ -3,588 +3,281 @@
 // For the full copyright and license information, please view the LICENSE-*
 // files that was distributed with this source code.
 
-use assert_cmd::cargo::cargo_bin_cmd;
-use predicates::prelude::*;
-use std::fs::File;
 #[cfg(not(windows))]
 use std::fs::OpenOptions;
-use std::io::Write;
-use tempfile::{tempdir, NamedTempFile};
+use uutests::{at_and_ts, new_ucmd};
 
 // A file whose metadata length is 0 but which still yields bytes (/dev/zero)
 // collapses the offset column to two characters, so the padding subtraction
 // underflowed once the running offset reached three digits.
 #[test]
 #[cfg(unix)]
-fn cmp_verbose_zero_length_metadata() -> Result<(), Box<dyn std::error::Error>> {
-    let mut file = NamedTempFile::new()?;
-    file.write_all(&[0xffu8; 150])?;
+fn cmp_verbose_zero_length_metadata() {
+    let (at, ts) = at_and_ts!();
+    at.write_bytes("file", &[0xffu8; 150]);
 
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("cmp")
-        .arg("--verbose")
-        .arg("/dev/zero")
-        .arg(file.path());
-    cmd.assert()
-        .code(predicate::eq(1))
-        .stdout(predicate::str::contains("150   0 377"));
-    Ok(())
+    ts.ucmd()
+        .args(&["--verbose", "/dev/zero", "file"])
+        .fails_with_code(1)
+        .stdout_contains("150   0 377");
 }
 
 // The offset column is as wide as the bytes left after the skips, as in GNU
 // cmp: 9 bytes are compared here, so the offsets take one column.
 #[test]
-fn cmp_verbose_offset_width_after_skip() -> Result<(), Box<dyn std::error::Error>> {
-    let tmp_dir = tempdir()?;
-    let a_path = tmp_dir.path().join("a");
-    let b_path = tmp_dir.path().join("b");
-    File::create(&a_path)?.write_all(b"0123456789abcdefghijklmnopqrstuvwxyz")?;
-    File::create(&b_path)?.write_all(b"0123456789abcdefghijklmnopqrstuvwxyz")?;
+fn cmp_verbose_offset_width_after_skip() {
+    let (at, ts) = at_and_ts!();
+    at.write("a", "0123456789abcdefghijklmnopqrstuvwxyz");
+    at.write("b", "0123456789abcdefghijklmnopqrstuvwxyz");
 
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.env("LC_ALL", "C");
-    cmd.arg("cmp")
-        .arg("-l")
-        .arg("--ignore-initial=27:26")
-        .arg(&a_path)
-        .arg(&b_path);
-    cmd.assert()
-        .code(predicate::eq(1))
-        .stdout(predicate::str::starts_with("1 162 161\n2 163 162\n"))
-        .stderr(predicate::str::ends_with(" after byte 9\n"));
-    Ok(())
+    ts.ucmd()
+        .args(&["-l", "--ignore-initial=27:26", "a", "b"])
+        .fails_with_code(1)
+        .stdout_str_check(|s| s.starts_with("1 162 161\n2 163 162\n"))
+        .stderr_str_check(|s| s.ends_with(" after byte 9\n"));
 }
 
 #[test]
-fn cmp_incompatible_params() -> Result<(), Box<dyn std::error::Error>> {
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("cmp");
-    cmd.arg("-l");
-    cmd.arg("-s");
-    cmd.arg("/etc/passwd").arg("/etc/group");
-    cmd.assert()
-        .code(predicate::eq(2))
-        .failure()
-        .stderr(predicate::str::ends_with(
-            ": options -l and -s are incompatible\n",
-        ));
-
-    Ok(())
+fn cmp_incompatible_params() {
+    new_ucmd!()
+        .args(&["-l", "-s", "/etc/passwd", "/etc/group"])
+        .fails_with_code(2)
+        .stderr_str_check(|s| s.ends_with(": options -l and -s are incompatible\n"));
 }
 
 #[test]
-fn cmp_stdin() -> Result<(), Box<dyn std::error::Error>> {
-    let tmp_dir = tempdir()?;
+fn cmp_stdin() {
+    let (at, ts) = at_and_ts!();
+    at.write("a", "a\n");
 
-    let a_path = tmp_dir.path().join("a");
-    let mut a = File::create(&a_path).unwrap();
-    a.write_all(b"a\n").unwrap();
+    ts.ucmd().arg("a").pipe_in("a\n").succeeds().no_output();
 
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("cmp");
-    cmd.arg(&a_path);
-    cmd.write_stdin("a\n");
-    cmd.assert()
-        .code(predicate::eq(0))
-        .success()
-        .stderr(predicate::str::is_empty())
-        .stdout(predicate::str::is_empty());
-
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.env("LC_ALL", "C");
-    cmd.arg("cmp");
-    cmd.arg(&a_path);
-    cmd.write_stdin("b\n");
-    cmd.assert()
-        .code(predicate::eq(1))
-        .failure()
-        .stderr(predicate::str::is_empty())
-        .stdout(predicate::str::ends_with(" - differ: char 1, line 1\n"));
-
-    Ok(())
+    ts.ucmd()
+        .arg("a")
+        .pipe_in("b\n")
+        .fails_with_code(1)
+        .no_stderr()
+        .stdout_str_check(|s| s.ends_with(" - differ: char 1, line 1\n"));
 }
 
 #[test]
-fn cmp_equal_files() -> Result<(), Box<dyn std::error::Error>> {
-    let tmp_dir = tempdir()?;
+fn cmp_equal_files() {
+    let (at, ts) = at_and_ts!();
+    at.write("a", "a\n");
+    at.write("b", "a\n");
 
-    let a_path = tmp_dir.path().join("a");
-    let mut a = File::create(&a_path).unwrap();
-    a.write_all(b"a\n").unwrap();
-
-    let b_path = tmp_dir.path().join("b");
-    let mut b = File::create(&b_path).unwrap();
-    b.write_all(b"a\n").unwrap();
-
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("cmp");
-    cmd.arg(&a_path).arg(&b_path);
-    cmd.assert()
-        .code(predicate::eq(0))
-        .success()
-        .stderr(predicate::str::is_empty())
-        .stdout(predicate::str::is_empty());
-
-    Ok(())
+    ts.ucmd().args(&["a", "b"]).succeeds().no_output();
 }
 
 #[test]
-fn cmp_one_file_empty() -> Result<(), Box<dyn std::error::Error>> {
-    let tmp_dir = tempdir()?;
+fn cmp_one_file_empty() {
+    let (at, ts) = at_and_ts!();
+    at.write("a", "a\n");
+    at.touch("b");
 
-    let a_path = tmp_dir.path().join("a");
-    let mut a = File::create(&a_path).unwrap();
-    a.write_all(b"a\n").unwrap();
-
-    let b_path = tmp_dir.path().join("b");
-    let _ = File::create(&b_path).unwrap();
-
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("cmp");
-    cmd.arg(&a_path).arg(&b_path);
-    cmd.assert()
-        .code(predicate::eq(1))
-        .failure()
-        .stderr(predicate::str::contains(" EOF on "))
-        .stderr(predicate::str::ends_with(" which is empty\n"));
-
-    Ok(())
+    ts.ucmd()
+        .args(&["a", "b"])
+        .fails_with_code(1)
+        .stderr_contains(" EOF on ")
+        .stderr_str_check(|s| s.ends_with(" which is empty\n"));
 }
 
 #[test]
-fn cmp_immediate_difference() -> Result<(), Box<dyn std::error::Error>> {
-    let tmp_dir = tempdir()?;
+fn cmp_immediate_difference() {
+    let (at, ts) = at_and_ts!();
+    at.write("a", "abc\n");
+    at.write("b", "bcd\n");
 
-    let a_path = tmp_dir.path().join("a");
-    let mut a = File::create(&a_path).unwrap();
-    a.write_all(b"abc\n").unwrap();
+    ts.ucmd()
+        .args(&["a", "b"])
+        .fails_with_code(1)
+        .stdout_str_check(|s| s.ends_with(" differ: char 1, line 1\n"));
 
-    let b_path = tmp_dir.path().join("b");
-    let mut b = File::create(&b_path).unwrap();
-    b.write_all(b"bcd\n").unwrap();
+    ts.ucmd()
+        .args(&["-b", "a", "b"])
+        .fails_with_code(1)
+        .no_stderr()
+        .stdout_str_check(|s| s.ends_with(" differ: byte 1, line 1 is 141 a 142 b\n"));
 
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.env("LC_ALL", "C");
-    cmd.arg("cmp");
-    cmd.arg(&a_path).arg(&b_path);
-    cmd.assert()
-        .code(predicate::eq(1))
-        .failure()
-        .stdout(predicate::str::ends_with(" differ: char 1, line 1\n"));
+    ts.ucmd()
+        .args(&["-l", "a", "b"])
+        .fails_with_code(1)
+        .stdout_only("1 141 142\n2 142 143\n3 143 144\n");
 
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.env("LC_ALL", "C");
-    cmd.arg("cmp");
-    cmd.arg("-b");
-    cmd.arg(&a_path).arg(&b_path);
-    cmd.assert()
-        .code(predicate::eq(1))
-        .failure()
-        .stderr(predicate::str::is_empty())
-        .stdout(predicate::str::ends_with(
-            " differ: byte 1, line 1 is 141 a 142 b\n",
-        ));
-
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.env("LC_ALL", "C");
-    cmd.arg("cmp");
-    cmd.arg("-l");
-    cmd.arg(&a_path).arg(&b_path);
-    cmd.assert()
-        .code(predicate::eq(1))
-        .failure()
-        .stderr(predicate::str::is_empty())
-        .stdout(predicate::eq("1 141 142\n2 142 143\n3 143 144\n"));
-
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.env("LC_ALL", "C");
-    cmd.arg("cmp");
-    cmd.arg("-l");
-    cmd.arg("-b");
-    cmd.arg(&a_path).arg(&b_path);
-    cmd.assert()
-        .code(predicate::eq(1))
-        .failure()
-        .stderr(predicate::str::is_empty())
-        .stdout(predicate::eq(
-            "1 141 a    142 b\n2 142 b    143 c\n3 143 c    144 d\n",
-        ));
-
-    Ok(())
+    ts.ucmd()
+        .args(&["-l", "-b", "a", "b"])
+        .fails_with_code(1)
+        .stdout_only("1 141 a    142 b\n2 142 b    143 c\n3 143 c    144 d\n");
 }
 
 #[test]
-fn cmp_newline_difference() -> Result<(), Box<dyn std::error::Error>> {
-    let tmp_dir = tempdir()?;
+fn cmp_newline_difference() {
+    let (at, ts) = at_and_ts!();
+    at.write("a", "abc\ndefg");
+    at.write("b", "abc\ndef\ng");
 
-    let a_path = tmp_dir.path().join("a");
-    let mut a = File::create(&a_path).unwrap();
-    a.write_all(b"abc\ndefg").unwrap();
+    ts.ucmd()
+        .args(&["a", "b"])
+        .fails_with_code(1)
+        .no_stderr()
+        .stdout_str_check(|s| s.ends_with(" differ: char 8, line 2\n"));
 
-    let b_path = tmp_dir.path().join("b");
-    let mut b = File::create(&b_path).unwrap();
-    b.write_all(b"abc\ndef\ng").unwrap();
+    ts.ucmd()
+        .args(&["-b", "a", "b"])
+        .fails_with_code(1)
+        .no_stderr()
+        .stdout_str_check(|s| s.ends_with(" differ: byte 8, line 2 is 147 g  12 ^J\n"));
 
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.env("LC_ALL", "C");
-    cmd.arg("cmp");
-    cmd.arg(&a_path).arg(&b_path);
-    cmd.assert()
-        .code(predicate::eq(1))
-        .failure()
-        .stderr(predicate::str::is_empty())
-        .stdout(predicate::str::ends_with(" differ: char 8, line 2\n"));
+    ts.ucmd()
+        .args(&["-l", "a", "b"])
+        .fails_with_code(1)
+        .stdout_str_check(|s| s.starts_with("8 147  12\n"))
+        .stderr_contains(" EOF on")
+        .stderr_str_check(|s| s.ends_with(" after byte 8\n"));
 
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.env("LC_ALL", "C");
-    cmd.arg("cmp");
-    cmd.arg("-b");
-    cmd.arg(&a_path).arg(&b_path);
-    cmd.assert()
-        .code(predicate::eq(1))
-        .failure()
-        .stderr(predicate::str::is_empty())
-        .stdout(predicate::str::ends_with(
-            " differ: byte 8, line 2 is 147 g  12 ^J\n",
-        ));
-
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.env("LC_ALL", "C");
-    cmd.arg("cmp");
-    cmd.arg("-l");
-    cmd.arg(&a_path).arg(&b_path);
-    cmd.assert()
-        .code(predicate::eq(1))
-        .failure()
-        .stdout(predicate::str::starts_with("8 147  12\n"))
-        .stderr(predicate::str::contains(" EOF on"))
-        .stderr(predicate::str::ends_with(" after byte 8\n"));
-
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.env("LC_ALL", "C");
-    cmd.arg("cmp");
-    cmd.arg("-b");
-    cmd.arg("-l");
-    cmd.arg(&a_path).arg(&b_path);
-    cmd.assert()
-        .code(predicate::eq(1))
-        .failure()
-        .stdout(predicate::str::starts_with("8 147 g     12 ^J\n"))
-        .stderr(predicate::str::contains(" EOF on"))
-        .stderr(predicate::str::ends_with(" after byte 8\n"));
-
-    Ok(())
+    ts.ucmd()
+        .args(&["-b", "-l", "a", "b"])
+        .fails_with_code(1)
+        .stdout_str_check(|s| s.starts_with("8 147 g     12 ^J\n"))
+        .stderr_contains(" EOF on")
+        .stderr_str_check(|s| s.ends_with(" after byte 8\n"));
 }
 
 #[test]
-fn cmp_max_bytes() -> Result<(), Box<dyn std::error::Error>> {
-    let tmp_dir = tempdir()?;
+fn cmp_max_bytes() {
+    let (at, ts) = at_and_ts!();
+    at.write("a", "abc efg ijkl\n");
+    at.write("b", "abcdefghijkl\n");
 
-    let a_path = tmp_dir.path().join("a");
-    let mut a = File::create(&a_path).unwrap();
-    a.write_all(b"abc efg ijkl\n").unwrap();
+    ts.ucmd()
+        .args(&["-l", "-b", "-n", "3", "a", "b"])
+        .succeeds()
+        .no_output();
 
-    let b_path = tmp_dir.path().join("b");
-    let mut b = File::create(&b_path).unwrap();
-    b.write_all(b"abcdefghijkl\n").unwrap();
+    ts.ucmd()
+        .args(&["-l", "-b", "-n", "4", "a", "b"])
+        .fails_with_code(1)
+        .stdout_only("4  40      144 d\n");
 
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("cmp");
-    cmd.arg("-l");
-    cmd.arg("-b");
-    cmd.arg("-n");
-    cmd.arg("3");
-    cmd.arg(&a_path).arg(&b_path);
-    cmd.assert()
-        .code(predicate::eq(0))
-        .success()
-        .stderr(predicate::str::is_empty())
-        .stdout(predicate::str::is_empty());
+    ts.ucmd()
+        .args(&["-l", "-b", "-n", "13", "a", "b"])
+        .fails_with_code(1)
+        .stdout_only(" 4  40      144 d\n 8  40      150 h\n");
 
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("cmp");
-    cmd.arg("-l");
-    cmd.arg("-b");
-    cmd.arg("-n");
-    cmd.arg("4");
-    cmd.arg(&a_path).arg(&b_path);
-    cmd.assert()
-        .code(predicate::eq(1))
-        .failure()
-        .stderr(predicate::str::is_empty())
-        .stdout(predicate::eq("4  40      144 d\n"));
-
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("cmp");
-    cmd.arg("-l");
-    cmd.arg("-b");
-    cmd.arg("-n");
-    cmd.arg("13");
-    cmd.arg(&a_path).arg(&b_path);
-    cmd.assert()
-        .code(predicate::eq(1))
-        .failure()
-        .stderr(predicate::str::is_empty())
-        .stdout(predicate::eq(" 4  40      144 d\n 8  40      150 h\n"));
-
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("cmp");
-    cmd.arg("-l");
-    cmd.arg("-b");
-    cmd.arg("-n");
-    cmd.arg("1K");
-    cmd.arg(&a_path).arg(&b_path);
-    cmd.assert()
-        .code(predicate::eq(1))
-        .failure()
-        .stderr(predicate::str::is_empty())
-        .stdout(predicate::eq(" 4  40      144 d\n 8  40      150 h\n"));
-    Ok(())
+    ts.ucmd()
+        .args(&["-l", "-b", "-n", "1K", "a", "b"])
+        .fails_with_code(1)
+        .stdout_only(" 4  40      144 d\n 8  40      150 h\n");
 }
 
 #[test]
-fn cmp_skip_args_parsing() -> Result<(), Box<dyn std::error::Error>> {
-    let tmp_dir = tempdir()?;
+fn cmp_skip_args_parsing() {
+    let (at, ts) = at_and_ts!();
+    at.write("a", "---abc\n");
+    at.write("b", "###abc\n");
 
-    let a_path = tmp_dir.path().join("a");
-    let mut a = File::create(&a_path).unwrap();
-    a.write_all(b"---abc\n").unwrap();
-
-    let b_path = tmp_dir.path().join("b");
-    let mut b = File::create(&b_path).unwrap();
-    b.write_all(b"###abc\n").unwrap();
-
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.env("LC_ALL", "C");
-    cmd.arg("cmp");
-    cmd.arg("-i");
-    cmd.arg("3");
-    cmd.arg(&a_path).arg(&b_path);
-    cmd.assert()
-        .code(predicate::eq(0))
-        .success()
-        .stderr(predicate::str::is_empty())
-        .stdout(predicate::str::is_empty());
+    ts.ucmd()
+        .args(&["-i", "3", "a", "b"])
+        .succeeds()
+        .no_output();
 
     // A smaller positional skip does not override -i
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.env("LC_ALL", "C");
-    cmd.arg("cmp");
-    cmd.arg("-i");
-    cmd.arg("3");
-    cmd.arg(&a_path).arg(&b_path);
-    cmd.arg("1").arg("1");
-    cmd.assert()
-        .code(predicate::eq(0))
-        .success()
-        .stderr(predicate::str::is_empty())
-        .stdout(predicate::str::is_empty());
+    ts.ucmd()
+        .args(&["-i", "3", "a", "b", "1", "1"])
+        .succeeds()
+        .no_output();
 
     // Single positional argument should only affect first file.
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.env("LC_ALL", "C");
-    cmd.arg("cmp");
-    cmd.arg(&a_path).arg(&b_path);
-    cmd.arg("3");
-    cmd.assert()
-        .code(predicate::eq(1))
-        .failure()
-        .stderr(predicate::str::is_empty())
-        .stdout(predicate::str::ends_with(" differ: char 1, line 1\n"));
+    ts.ucmd()
+        .args(&["a", "b", "3"])
+        .fails_with_code(1)
+        .no_stderr()
+        .stdout_str_check(|s| s.ends_with(" differ: char 1, line 1\n"));
 
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.env("LC_ALL", "C");
-    cmd.arg("cmp");
-    cmd.arg(&a_path).arg(&b_path);
-    cmd.arg("3");
-    cmd.arg("3");
-    cmd.assert()
-        .code(predicate::eq(0))
-        .success()
-        .stderr(predicate::str::is_empty())
-        .stdout(predicate::str::is_empty());
-
-    Ok(())
+    ts.ucmd().args(&["a", "b", "3", "3"]).succeeds().no_output();
 }
 
 #[test]
-fn cmp_skip_uses_larger_of_option_and_positional() -> Result<(), Box<dyn std::error::Error>> {
-    let tmp_dir = tempdir()?;
-
-    let a_path = tmp_dir.path().join("a");
-    let mut a = File::create(&a_path).unwrap();
-    a.write_all(b"12345xyz\n").unwrap();
-
-    let b_path = tmp_dir.path().join("b");
-    let mut b = File::create(&b_path).unwrap();
-    b.write_all(b"abcdexyz\n").unwrap();
+fn cmp_skip_uses_larger_of_option_and_positional() {
+    let (at, ts) = at_and_ts!();
+    at.write("a", "12345xyz\n");
+    at.write("b", "abcdexyz\n");
 
     // Like GNU cmp, the larger of -i and the positional skip wins.
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.env("LC_ALL", "C");
-    cmd.arg("cmp");
-    cmd.arg("-i");
-    cmd.arg("1");
-    cmd.arg(&a_path).arg(&b_path);
-    cmd.arg("5").arg("5");
-    cmd.assert()
-        .code(predicate::eq(0))
-        .success()
-        .stderr(predicate::str::is_empty())
-        .stdout(predicate::str::is_empty());
+    ts.ucmd()
+        .args(&["-i", "1", "a", "b", "5", "5"])
+        .succeeds()
+        .no_output();
 
     // The same applies when -i is given more than once.
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.env("LC_ALL", "C");
-    cmd.arg("cmp");
-    cmd.arg("-i");
-    cmd.arg("5");
-    cmd.arg("--ignore-initial=1");
-    cmd.arg(&a_path).arg(&b_path);
-    cmd.assert()
-        .code(predicate::eq(0))
-        .success()
-        .stderr(predicate::str::is_empty())
-        .stdout(predicate::str::is_empty());
+    ts.ucmd()
+        .args(&["-i", "5", "--ignore-initial=1", "a", "b"])
+        .succeeds()
+        .no_output();
 
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.env("LC_ALL", "C");
-    cmd.arg("cmp");
-    cmd.arg("-i");
-    cmd.arg("1");
-    cmd.arg(&a_path).arg(&b_path);
-    cmd.arg("2").arg("2");
-    cmd.assert()
-        .code(predicate::eq(1))
-        .failure()
-        .stderr(predicate::str::is_empty())
-        .stdout(predicate::str::ends_with(" differ: char 1, line 1\n"));
-
-    Ok(())
+    ts.ucmd()
+        .args(&["-i", "1", "a", "b", "2", "2"])
+        .fails_with_code(1)
+        .no_stderr()
+        .stdout_str_check(|s| s.ends_with(" differ: char 1, line 1\n"));
 }
 
 #[test]
-fn cmp_skip_suffix_parsing() -> Result<(), Box<dyn std::error::Error>> {
-    let tmp_dir = tempdir()?;
+fn cmp_skip_suffix_parsing() {
+    let (at, ts) = at_and_ts!();
+    at.write("a", &format!("{}c\n", "a".repeat(1024)));
+    at.write("b", &format!("{}c\n", "b".repeat(1024)));
 
-    let a_path = tmp_dir.path().join("a");
-    let mut a = File::create(&a_path).unwrap();
-    writeln!(a, "{}c", "a".repeat(1024)).unwrap();
-    a.flush().unwrap();
-
-    let b_path = tmp_dir.path().join("b");
-    let mut b = File::create(&b_path).unwrap();
-    writeln!(b, "{}c", "b".repeat(1024)).unwrap();
-    b.flush().unwrap();
-
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("cmp");
-    cmd.arg("--ignore-initial=1K");
-    cmd.arg(&a_path).arg(&b_path);
-    cmd.assert()
-        .code(predicate::eq(0))
-        .success()
-        .stderr(predicate::str::is_empty())
-        .stdout(predicate::str::is_empty());
-
-    Ok(())
+    ts.ucmd()
+        .args(&["--ignore-initial=1K", "a", "b"])
+        .succeeds()
+        .no_output();
 }
 
 #[test]
-fn cmp_skip() -> Result<(), Box<dyn std::error::Error>> {
-    let tmp_dir = tempdir()?;
+fn cmp_skip() {
+    let (at, ts) = at_and_ts!();
+    at.write("a", "abc efg ijkl\n");
+    at.write("b", "abcdefghijkl\n");
 
-    let a_path = tmp_dir.path().join("a");
-    let mut a = File::create(&a_path).unwrap();
-    a.write_all(b"abc efg ijkl\n").unwrap();
+    ts.ucmd()
+        .args(&["-l", "-b", "-i", "8", "a", "b"])
+        .succeeds()
+        .no_output();
 
-    let b_path = tmp_dir.path().join("b");
-    let mut b = File::create(&b_path).unwrap();
-    b.write_all(b"abcdefghijkl\n").unwrap();
-
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("cmp");
-    cmd.arg("-l");
-    cmd.arg("-b");
-    cmd.arg("-i");
-    cmd.arg("8");
-    cmd.arg(&a_path).arg(&b_path);
-    cmd.assert()
-        .code(predicate::eq(0))
-        .success()
-        .stderr(predicate::str::is_empty())
-        .stdout(predicate::str::is_empty());
-
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("cmp");
-    cmd.arg("-b");
-    cmd.arg("-i");
-    cmd.arg("4");
-    cmd.arg(&a_path).arg(&b_path);
-    cmd.assert()
-        .code(predicate::eq(1))
-        .failure()
-        .stderr(predicate::str::is_empty())
-        .stdout(predicate::str::ends_with(
-            " differ: byte 4, line 1 is  40   150 h\n",
-        ));
-
-    Ok(())
+    ts.ucmd()
+        .args(&["-b", "-i", "4", "a", "b"])
+        .fails_with_code(1)
+        .no_stderr()
+        .stdout_str_check(|s| s.ends_with(" differ: byte 4, line 1 is  40   150 h\n"));
 }
 
 #[test]
-fn cmp_print_bytes_high_byte() -> Result<(), Box<dyn std::error::Error>> {
-    let tmp_dir = tempdir()?;
-
-    let a_path = tmp_dir.path().join("a");
-    let mut a = File::create(&a_path).unwrap();
-    a.write_all(b"a").unwrap();
-
-    let b_path = tmp_dir.path().join("b");
-    let mut b = File::create(&b_path).unwrap();
-    b.write_all(&[0xC3]).unwrap();
+fn cmp_print_bytes_high_byte() {
+    let (at, ts) = at_and_ts!();
+    at.write("a", "a");
+    at.write_bytes("b", &[0xC3]);
 
     // GNU cmp does not pad the printed bytes, whatever the second byte is.
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("cmp");
-    cmd.arg("-b");
-    cmd.arg(&a_path).arg(&b_path);
-    cmd.assert()
-        .code(predicate::eq(1))
-        .failure()
-        .stderr(predicate::str::is_empty())
-        .stdout(predicate::str::ends_with(
-            " differ: byte 1, line 1 is 141 a 303 M-C\n",
-        ));
-
-    Ok(())
+    ts.ucmd()
+        .args(&["-b", "a", "b"])
+        .fails_with_code(1)
+        .no_stderr()
+        .stdout_str_check(|s| s.ends_with(" differ: byte 1, line 1 is 141 a 303 M-C\n"));
 }
 
 #[test]
-fn cmp_binary() -> Result<(), Box<dyn std::error::Error>> {
-    let tmp_dir = tempdir()?;
-
+fn cmp_binary() {
+    let (at, ts) = at_and_ts!();
     let mut bytes = vec![0, 15, 31, 32, 33, 40, 64, 126, 127, 128, 129, 200, 254, 255];
-
-    let a_path = tmp_dir.path().join("a");
-    let mut a = File::create(&a_path).unwrap();
-    a.write_all(&bytes).unwrap();
-
+    at.write_bytes("a", &bytes);
     bytes.reverse();
+    at.write_bytes("b", &bytes);
 
-    let b_path = tmp_dir.path().join("b");
-    let mut b = File::create(&b_path).unwrap();
-    b.write_all(&bytes).unwrap();
-
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("cmp");
-    cmd.arg("-l");
-    cmd.arg("-b");
-    cmd.arg(&a_path).arg(&b_path);
-    cmd.assert()
-        .code(predicate::eq(1))
-        .failure()
-        .stdout(predicate::eq(concat!(
+    ts.ucmd()
+        .args(&["-l", "-b", "a", "b"])
+        .fails_with_code(1)
+        .stdout_is(concat!(
             " 1   0 ^@   377 M-^?\n",
             " 2  17 ^O   376 M-~\n",
             " 3  37 ^_   310 M-H\n",
@@ -599,65 +292,50 @@ fn cmp_binary() -> Result<(), Box<dyn std::error::Error>> {
             "12 310 M-H   37 ^_\n",
             "13 376 M-~   17 ^O\n",
             "14 377 M-^?   0 ^@\n"
-        )));
-
-    Ok(())
+        ));
 }
 
 #[test]
 #[cfg(not(windows))]
-fn cmp_fast_paths() -> Result<(), Box<dyn std::error::Error>> {
-    let tmp_dir = tempdir()?;
-
-    // This test mimics one found in the GNU cmp test suite. It is used for
-    // validating the /dev/null optimization.
-    let a_path = tmp_dir.path().join("a");
-    let a = File::create(&a_path).unwrap();
-    a.set_len(14 * 1024 * 1024 * 1024 * 1024).unwrap();
-
-    let b_path = tmp_dir.path().join("b");
-    let b = File::create(&b_path).unwrap();
-    b.set_len(15 * 1024 * 1024 * 1024 * 1024).unwrap();
-
-    let dev_null = OpenOptions::new().write(true).open("/dev/null").unwrap();
-
-    let mut child = std::process::Command::new(assert_cmd::cargo::cargo_bin!("diffutils"))
-        .arg("cmp")
-        .arg(&a_path)
-        .arg(&b_path)
-        .stdout(dev_null)
-        .spawn()
-        .unwrap();
-
+fn cmp_fast_paths() {
     // Bound the runtime to a very short time that still allows for some resource
     // constraint to slow it down while also allowing very fast systems to exit as
     // early as possible.
     const MAX_TRIES: u8 = 50;
+
+    let (at, ts) = at_and_ts!();
+
+    // This test mimics one found in the GNU cmp test suite. It is used for
+    // validating the /dev/null optimization.
+    at.make_file("a")
+        .set_len(14 * 1024 * 1024 * 1024 * 1024)
+        .unwrap();
+    at.make_file("b")
+        .set_len(15 * 1024 * 1024 * 1024 * 1024)
+        .unwrap();
+
+    let dev_null = OpenOptions::new().write(true).open("/dev/null").unwrap();
+
+    let mut child = ts
+        .ucmd()
+        .args(&["a", "b"])
+        .set_stdout(dev_null)
+        .run_no_wait();
+
     for tries in 0..=MAX_TRIES {
-        if tries == MAX_TRIES {
-            panic!("cmp took too long to run, /dev/null optimization probably not working")
-        }
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                assert_eq!(status.code(), Some(1));
-                break;
-            }
-            Ok(None) => (),
-            Err(e) => panic!("{e:#?}"),
+        assert!(
+            tries < MAX_TRIES,
+            "cmp took too long to run, /dev/null optimization probably not working"
+        );
+        if !child.is_alive() {
+            break;
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
+    child.wait().unwrap().code_is(1);
 
     // Two stdins should be equal
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("cmp");
-    cmd.arg("-");
-    cmd.arg("-");
-    cmd.assert()
-        .code(predicate::eq(0))
-        .success()
-        .stdout(predicate::str::is_empty())
-        .stderr(predicate::str::is_empty());
+    ts.ucmd().args(&["-", "-"]).succeeds().no_output();
 
     // Files with longer than block size equal segments should still report
     // the correct line number for the difference. Assumes 8KB block size (see
@@ -666,39 +344,23 @@ fn cmp_fast_paths() -> Result<(), Box<dyn std::error::Error>> {
     let mut bytes = " ".repeat(4095);
     bytes.push('\n');
     bytes.push_str(&" ".repeat(4096));
-
     let bytes = bytes.repeat(3);
-    let bytes = bytes.as_bytes();
 
-    let a_path = tmp_dir.path().join("a");
-    let mut a = File::create(&a_path).unwrap();
-    a.write_all(bytes).unwrap();
-    a.write_all(b"A").unwrap();
+    at.write("a", &format!("{bytes}A"));
+    at.write("b", &format!("{bytes}B"));
 
-    let b_path = tmp_dir.path().join("b");
-    let mut b = File::create(&b_path).unwrap();
-    b.write_all(bytes).unwrap();
-    b.write_all(b"B").unwrap();
-
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("cmp");
-    cmd.arg(&a_path).arg(&b_path);
-    cmd.env("LC_ALL", "en_US");
-    cmd.assert()
-        .code(predicate::eq(1))
-        .failure()
-        .stdout(predicate::str::ends_with(" differ: byte 24577, line 4\n"));
-
-    Ok(())
+    ts.ucmd()
+        .args(&["a", "b"])
+        .env("LC_ALL", "en_US")
+        .fails_with_code(1)
+        .stdout_str_check(|s| s.ends_with(" differ: byte 24577, line 4\n"));
 }
 
 #[test]
-fn cmp_difference_term_follows_messages_locale() -> Result<(), Box<dyn std::error::Error>> {
-    let tmp_dir = tempdir()?;
-    let a_path = tmp_dir.path().join("a");
-    let b_path = tmp_dir.path().join("b");
-    std::fs::write(&a_path, "abc\n")?;
-    std::fs::write(&b_path, "bcd\n")?;
+fn cmp_difference_term_follows_messages_locale() {
+    let (at, ts) = at_and_ts!();
+    at.write("a", "abc\n");
+    at.write("b", "bcd\n");
 
     // LC_ALL overrides LC_MESSAGES, which overrides LANG; empty values are unset.
     for (variables, term) in [
@@ -716,20 +378,14 @@ fn cmp_difference_term_follows_messages_locale() -> Result<(), Box<dyn std::erro
             "char",
         ),
     ] {
-        let mut cmd = cargo_bin_cmd!("diffutils");
-        cmd.env_remove("LC_ALL")
-            .env_remove("LC_MESSAGES")
-            .env_remove("LANG")
+        let expected = format!(" differ: {term} 1, line 1\n");
+        // The command starts with a cleared environment except for the
+        // LC_ALL=C default, which an empty value unsets.
+        ts.ucmd()
+            .env("LC_ALL", "")
             .envs(variables.iter().copied())
-            .arg("cmp")
-            .arg(&a_path)
-            .arg(&b_path);
-        cmd.assert()
-            .code(predicate::eq(1))
-            .failure()
-            .stdout(predicate::str::ends_with(format!(
-                " differ: {term} 1, line 1\n"
-            )));
+            .args(&["a", "b"])
+            .fails_with_code(1)
+            .stdout_str_check(|s| s.ends_with(&expected));
     }
-    Ok(())
 }
