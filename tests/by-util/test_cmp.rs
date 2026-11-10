@@ -56,6 +56,30 @@ fn cmp_verbose_offset_width_after_skip() -> Result<(), Box<dyn std::error::Error
 }
 
 #[test]
+fn cmp_verbose_offset_width_stdin() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+    let b_path = tmp_dir.path().join("b");
+    File::create(&b_path)?.write_all(b"abcdeXghiY")?;
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.env("LC_ALL", "C");
+    cmd.arg("cmp").arg("-l").arg("-").arg(&b_path);
+    cmd.write_stdin("abcdefghij");
+    cmd.assert()
+        .code(predicate::eq(1))
+        .stdout(predicate::eq(" 6 146 130\n10 152 131\n"));
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.env("LC_ALL", "C");
+    cmd.arg("cmp").arg("-l").arg(&b_path).arg("-");
+    cmd.write_stdin("abcdefghij");
+    cmd.assert()
+        .code(predicate::eq(1))
+        .stdout(predicate::eq(" 6 130 146\n10 131 152\n"));
+    Ok(())
+}
+
+#[test]
 fn cmp_incompatible_params() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = cargo_bin_cmd!("diffutils");
     cmd.arg("cmp");

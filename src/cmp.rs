@@ -296,6 +296,26 @@ fn prepare_reader(
     Ok(reader)
 }
 
+/// Returns the size of `path` when it is a regular file, and `None` for standard input
+/// (`-`), pipes, devices and paths that cannot be stat'ed.
+fn regular_file_size(path: &OsString) -> Option<u64> {
+    if path == "-" {
+        return None;
+    }
+    let meta = fs::metadata(path).ok()?;
+    if !meta.is_file() {
+        return None;
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    let size = meta.len();
+
+    #[cfg(target_os = "windows")]
+    let size = meta.file_size();
+
+    Some(size)
+}
+
 #[derive(Debug)]
 pub enum Cmp {
     Equal,
@@ -308,24 +328,25 @@ pub fn cmp(params: &Params) -> Result<Cmp, String> {
 
     let mut offset_width = params.max_bytes.unwrap_or(BytesLimitU64::MAX);
 
-    if let (Ok(a_meta), Ok(b_meta)) = (fs::metadata(&params.from), fs::metadata(&params.to)) {
-        #[cfg(not(target_os = "windows"))]
-        let (a_size, b_size) = (a_meta.len(), b_meta.len());
+    let a_size = regular_file_size(&params.from);
+    let b_size = regular_file_size(&params.to);
 
-        #[cfg(target_os = "windows")]
-        let (a_size, b_size) = (a_meta.file_size(), b_meta.file_size());
-
-        // If the files have different sizes, we already know they are not identical. If we have not
-        // been asked to show even the first difference, we can quit early.
+    // If the files have different sizes, we already know they are not identical. If we have not
+    // been asked to show even the first difference, we can quit early.
+    if let (Some(a_size), Some(b_size)) = (a_size, b_size) {
         if params.quiet && a_size != b_size {
             return Ok(Cmp::Different);
         }
+    }
 
-        // The offsets count from the end of the skipped bytes.
-        let a_left = a_size.saturating_sub(params.skip_a.unwrap_or(0));
-        let b_left = b_size.saturating_sub(params.skip_b.unwrap_or(0));
-        let smaller = cmp::min(a_left, b_left) as BytesLimitU64;
-        offset_width = cmp::min(smaller, offset_width);
+    // Like GNU cmp, size the offset column from every operand that is a regular file, so that
+    // standard input or a pipe on one side does not widen it to the u64::MAX width. The offsets
+    // count from the end of the skipped bytes.
+    for (size, skip) in [(a_size, params.skip_a), (b_size, params.skip_b)] {
+        if let Some(size) = size {
+            let left = size.saturating_sub(skip.unwrap_or(0)) as BytesLimitU64;
+            offset_width = cmp::min(left, offset_width);
+        }
     }
 
     let offset_width = 1 + offset_width.checked_ilog10().unwrap_or(1) as usize;
