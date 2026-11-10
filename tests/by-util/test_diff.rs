@@ -1249,3 +1249,51 @@ fn extra_operand_without_double_dash() -> Result<(), Box<dyn std::error::Error>>
         .stderr("diff: extra operand 'extra'\ndiff: Try 'diff --help' for more information.\n");
     Ok(())
 }
+
+#[test]
+fn trailing_context_without_final_newlines() -> Result<(), Box<dyn std::error::Error>> {
+    let mut file1 = NamedTempFile::new()?;
+    file1.write_all(b"1\n2\n3\n4\n5\n6\n7\n8")?;
+    let mut file2 = NamedTempFile::new()?;
+    file2.write_all(b"1\nX\n3\n4\n5\n6\n7\n8")?;
+
+    for (format, hunk) in [
+        ("-u", "@@ -1,5 +1,5 @@\n 1\n-2\n+X\n 3\n 4\n 5\n"),
+        (
+            "-c",
+            "*** 1,5 ****\n  1\n! 2\n  3\n  4\n  5\n--- 1,5 ----\n  1\n! X\n  3\n  4\n  5\n",
+        ),
+    ] {
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff")
+            .arg(format)
+            .arg(file1.path())
+            .arg(file2.path());
+        cmd.assert()
+            .code(predicate::eq(1))
+            .stdout(predicate::str::ends_with(hunk));
+    }
+
+    // the last line is still shown when it is within the trailing context
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff")
+        .arg("-U5")
+        .arg(file1.path())
+        .arg(file2.path());
+    cmd.assert()
+        .code(predicate::eq(1))
+        .stdout(predicate::str::ends_with(
+            "@@ -1,7 +1,7 @@\n 1\n-2\n+X\n 3\n 4\n 5\n 6\n 7\n",
+        ));
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff")
+        .arg("-U6")
+        .arg(file1.path())
+        .arg(file2.path());
+    cmd.assert()
+        .code(predicate::eq(1))
+        .stdout(predicate::str::ends_with(
+            "@@ -1,8 +1,8 @@\n 1\n-2\n+X\n 3\n 4\n 5\n 6\n 7\n 8\n\\ No newline at end of file\n",
+        ));
+    Ok(())
+}

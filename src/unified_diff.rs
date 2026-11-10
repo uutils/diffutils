@@ -133,17 +133,12 @@ fn make_diff(
                 if (line_number_actual > actual_lines_count)
                     && (line_number_expected > expected_lines_count)
                 {
-                    if context_queue.len() < context_size {
-                        while let Some(line) = context_queue.pop_front() {
-                            debug_assert!(mismatch.lines.last() != Some(&DiffLine::MissingNL));
-                            mismatch.lines.push(DiffLine::Context(line.to_vec()));
-                        }
-                        if lines_since_mismatch < context_size {
-                            mismatch.lines.push(DiffLine::Context(str.to_vec()));
-                            mismatch.lines.push(DiffLine::MissingNL);
-                        }
+                    // this is the last line: lines still in the queue are past
+                    // the trailing context and there is no next hunk to lead into
+                    if lines_since_mismatch < context_size {
+                        mismatch.lines.push(DiffLine::Context(str.to_vec()));
+                        mismatch.lines.push(DiffLine::MissingNL);
                     }
-                    lines_since_mismatch = 0;
                 } else if line_number_actual > actual_lines_count {
                     if lines_since_mismatch > max_gap {
                         results.push(mismatch);
