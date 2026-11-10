@@ -29,6 +29,7 @@ ctor = "1.0"
 divan = { version = "6.0.0", package = "codspeed-divan-compat" }
 pretty_assertions = "1.4.0"
 rand = "0.10.0"
+rstest = "0.28.0"
 tempfile = "3.26.0"
 uutests = "0.12.0"
 
