@@ -193,7 +193,7 @@ pub struct FunctionLineFinder<'a> {
 }
 
 impl<'a> FunctionLineFinder<'a> {
-    /// Maximum number of characters of a function line that are shown.
+    /// Maximum number of bytes of a function line that are shown.
     const MAX_WIDTH: usize = 40;
 
     /// Returns `None` when there are no patterns, so no function lines.
@@ -220,15 +220,20 @@ impl<'a> FunctionLineFinder<'a> {
             }
         }
         self.next_line = self.next_line.max(end);
-        let line = self.last_match?.trim_ascii_start();
-        let end = match std::str::from_utf8(line) {
-            Ok(text) => text
-                .char_indices()
-                .nth(Self::MAX_WIDTH)
-                .map_or(line.len(), |(end, _)| end),
-            Err(_) => line.len().min(Self::MAX_WIDTH),
-        };
-        Some(line[..end].trim_ascii_end().to_vec())
+        // C's isspace(): unlike `is_ascii_whitespace`, it includes vertical tab.
+        let is_space = |byte: &u8| byte.is_ascii_whitespace() || *byte == b'\x0b';
+        let line = self.last_match?;
+        let start = line
+            .iter()
+            .position(|byte| !is_space(byte))
+            .unwrap_or(line.len());
+        let line = &line[start..];
+        let line = &line[..line.len().min(Self::MAX_WIDTH)];
+        let end = line
+            .iter()
+            .rposition(|byte| !is_space(byte))
+            .map_or(0, |last| last + 1);
+        Some(line[..end].to_vec())
     }
 }
 
