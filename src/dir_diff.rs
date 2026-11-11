@@ -57,17 +57,16 @@ impl DirectoryWalker<'_> {
                 ancestors.any(|ancestor| ancestor == Some(dir))
             })
         };
-        if let (true, true, Some(side)) = (
-            loops(0),
-            loops(1),
-            canonical_dirs.iter().position(Option::is_some),
-        ) {
-            eprintln!(
-                "{}: {}: recursive directory loop",
-                self.params.executable.to_string_lossy(),
-                dirs[side].to_string_lossy()
-            );
-            return Outcome::Trouble;
+        if loops(0) && loops(1) {
+            // Named after the first side that exists, as one may be missing (-N)
+            if let Some(side) = canonical_dirs.iter().position(Option::is_some) {
+                eprintln!(
+                    "{}: {}: recursive directory loop",
+                    self.params.executable.to_string_lossy(),
+                    dirs[side].to_string_lossy()
+                );
+                return Outcome::Trouble;
+            }
         }
         let (Some(mut from_names), Some(mut to_names)) = (self.list(from_dir), self.list(to_dir))
         else {
