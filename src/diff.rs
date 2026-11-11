@@ -97,6 +97,8 @@ pub fn compare_files(params: &Params, header: Option<&[u8]>) -> Outcome {
         }
     }
     let mut io_error = false;
+    let mut from_missing = false;
+    let mut to_missing = false;
     let from_result = read_file_contents(&params.from);
     let to_result = read_file_contents(&params.to);
     // Like GNU diff, -N and --unidirectional-new-file only treat a missing
@@ -112,6 +114,7 @@ pub fn compare_files(params: &Params, header: Option<&[u8]>) -> Outcome {
                 && params.missing_file != MissingFile::Error
                 && !both_missing =>
         {
+            from_missing = true;
             vec![]
         }
         Err(e) => {
@@ -127,6 +130,7 @@ pub fn compare_files(params: &Params, header: Option<&[u8]>) -> Outcome {
                 && params.missing_file == MissingFile::Empty
                 && !both_missing =>
         {
+            to_missing = true;
             vec![]
         }
         Err(e) => {
@@ -154,6 +158,12 @@ pub fn compare_files(params: &Params, header: Option<&[u8]>) -> Outcome {
         );
         return Outcome::Different;
     }
+
+    let params = &Params {
+        from_missing,
+        to_missing,
+        ..params.clone()
+    };
 
     // run diff
     let result: Vec<u8> = match params.format {
@@ -228,7 +238,7 @@ fn output_palette(params: &Params) -> Option<Palette> {
         ColorWhen::Always => true,
         ColorWhen::Auto => {
             (params.presume_output_tty || stdout().is_terminal())
-                && std::env::var_os("TERM").is_some_and(|term| term != "dumb")
+                && std::env::var_os("TERM").is_none_or(|term| term != "dumb")
         }
     };
     if !enabled {

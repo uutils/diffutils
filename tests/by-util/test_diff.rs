@@ -246,6 +246,124 @@ fn missing_file_as_empty() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+// TZ is not honored on Windows.
+#[cfg(unix)]
+#[test]
+fn missing_file_header_timestamp() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+    let left = tmp_dir.path().join("left");
+    let right = tmp_dir.path().join("right");
+    std::fs::create_dir(&left)?;
+    std::fs::create_dir_all(right.join("nested"))?;
+    let absent = left.join("nested/file");
+    let present = right.join("nested/file");
+    std::fs::write(&present, "kiwi\n")?;
+    let mtime = std::time::UNIX_EPOCH + std::time::Duration::from_millis(1_234_567_890_250);
+    File::options()
+        .write(true)
+        .open(&present)?
+        .set_modified(mtime)?;
+
+    for (format, locale, markers, epoch, timestamp) in [
+        (
+            "-u",
+            "C",
+            ["---", "+++"],
+            "1970-01-01 00:00:00.000000000 +0000",
+            "2009-02-13 23:31:30.250000000 +0000",
+        ),
+        (
+            "-c",
+            "en_US.UTF-8",
+            ["***", "---"],
+            "1970-01-01 00:00:00.000000000 +0000",
+            "2009-02-13 23:31:30.250000000 +0000",
+        ),
+        (
+            "-c",
+            "C",
+            ["***", "---"],
+            "Thu Jan  1 00:00:00 1970",
+            "Fri Feb 13 23:31:30 2009",
+        ),
+    ] {
+        for option in ["-N", "--new-file", "--unidirectional-new-file"] {
+            for reverse in [false, true] {
+                if reverse && option == "--unidirectional-new-file" {
+                    continue;
+                }
+                let headers = if reverse {
+                    format!(
+                        "{} {}\t{timestamp}\n{} {}\t{epoch}\n",
+                        markers[0],
+                        present.display(),
+                        markers[1],
+                        absent.display()
+                    )
+                } else {
+                    format!(
+                        "{} {}\t{epoch}\n{} {}\t{timestamp}\n",
+                        markers[0],
+                        absent.display(),
+                        markers[1],
+                        present.display()
+                    )
+                };
+                for recursive in [false, true] {
+                    let (from, to) = if recursive {
+                        (&left, &right)
+                    } else {
+                        (&absent, &present)
+                    };
+                    let mut cmd = cargo_bin_cmd!("diffutils");
+                    cmd.env("TZ", "UTC0")
+                        .env("LC_ALL", locale)
+                        .arg("diff")
+                        .arg(format)
+                        .arg(option);
+                    if recursive {
+                        cmd.arg("-r");
+                    }
+                    cmd.arg(if reverse { to } else { from })
+                        .arg(if reverse { from } else { to });
+                    cmd.assert()
+                        .code(predicate::eq(1))
+                        .stderr(predicate::str::is_empty())
+                        .stdout(predicate::str::contains(&headers));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn missing_file_as_empty_keeps_stdin_timestamp() -> Result<(), Box<dyn std::error::Error>> {
+    let mut file = NamedTempFile::new()?;
+    file.write_all(b"file\n")?;
+
+    let stdin = std::ffi::OsStr::new("-");
+    let file = file.path().as_os_str();
+    for format in ["-u", "-c"] {
+        for (from, to) in [(stdin, file), (file, stdin)] {
+            let mut cmd = cargo_bin_cmd!("diffutils");
+            cmd.env("TZ", "UTC0")
+                .env("LC_ALL", "C")
+                .arg("diff")
+                .arg(format)
+                .arg("-N")
+                .arg(from)
+                .arg(to)
+                .write_stdin("stdin\n");
+            cmd.assert()
+                .code(predicate::eq(1))
+                .stderr(predicate::str::is_empty())
+                .stdout(predicate::str::contains("1970").not());
+        }
+    }
+    Ok(())
+}
+
 #[test]
 fn new_file_both_missing_is_an_error() -> Result<(), Box<dyn std::error::Error>> {
     let tmp_dir = tempdir()?;
@@ -386,6 +504,18 @@ fn color() -> Result<(), Box<dyn std::error::Error>> {
             .code(predicate::eq(1))
             .stdout("2c2\n< rain\n---\n> snow\n");
     }
+
+    // Like GNU diff, an unset TERM does not disable --color=auto on a terminal.
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.env_remove("TERM")
+        .arg("diff")
+        .arg("--color=auto")
+        .arg("---presume-output-tty")
+        .arg(&old)
+        .arg(&new);
+    cmd.assert()
+        .code(predicate::eq(1))
+        .stdout("\x1b[36m2c2\x1b[0m\n\x1b[31m< rain\x1b[0m\n---\n\x1b[32m> snow\x1b[0m\n");
 
     // An invalid palette is reported and disables colors.
     let mut cmd = cargo_bin_cmd!("diffutils");
@@ -1111,5 +1241,87 @@ fn quoted_file_names() -> Result<(), Box<dyn std::error::Error>> {
     cmd.assert()
         .code(predicate::eq(1))
         .stdout("diff -r -F 'my func' \"one/my file\" \"two/my file\"\n1c1\n< a\n---\n> b\n");
+    Ok(())
+}
+
+#[test]
+fn extra_operand_after_double_dash() -> Result<(), Box<dyn std::error::Error>> {
+    let mut old = NamedTempFile::new()?;
+    old.write_all(b"a\nb\n")?;
+    let mut new = NamedTempFile::new()?;
+    new.write_all(b"a\nc\n")?;
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff")
+        .arg("--")
+        .arg(old.path())
+        .arg(new.path())
+        .arg("extra");
+    cmd.assert()
+        .code(predicate::eq(2))
+        .stdout(predicate::str::is_empty())
+        .stderr(predicate::str::contains("extra operand 'extra'"));
+    Ok(())
+}
+
+#[test]
+fn extra_operand_without_double_dash() -> Result<(), Box<dyn std::error::Error>> {
+    let mut old = NamedTempFile::new()?;
+    old.write_all(b"a\nb\n")?;
+    let mut new = NamedTempFile::new()?;
+    new.write_all(b"a\nc\n")?;
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff").arg(old.path()).arg(new.path()).arg("extra");
+    cmd.assert()
+        .code(predicate::eq(2))
+        .stdout(predicate::str::is_empty())
+        .stderr("diff: extra operand 'extra'\ndiff: Try 'diff --help' for more information.\n");
+    Ok(())
+}
+
+#[test]
+fn trailing_context_without_final_newlines() -> Result<(), Box<dyn std::error::Error>> {
+    let mut file1 = NamedTempFile::new()?;
+    file1.write_all(b"1\n2\n3\n4\n5\n6\n7\n8")?;
+    let mut file2 = NamedTempFile::new()?;
+    file2.write_all(b"1\nX\n3\n4\n5\n6\n7\n8")?;
+
+    for (format, hunk) in [
+        ("-u", "@@ -1,5 +1,5 @@\n 1\n-2\n+X\n 3\n 4\n 5\n"),
+        (
+            "-c",
+            "*** 1,5 ****\n  1\n! 2\n  3\n  4\n  5\n--- 1,5 ----\n  1\n! X\n  3\n  4\n  5\n",
+        ),
+    ] {
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff")
+            .arg(format)
+            .arg(file1.path())
+            .arg(file2.path());
+        cmd.assert()
+            .code(predicate::eq(1))
+            .stdout(predicate::str::ends_with(hunk));
+    }
+
+    // the last line is still shown when it is within the trailing context
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff")
+        .arg("-U5")
+        .arg(file1.path())
+        .arg(file2.path());
+    cmd.assert()
+        .code(predicate::eq(1))
+        .stdout(predicate::str::ends_with(
+            "@@ -1,7 +1,7 @@\n 1\n-2\n+X\n 3\n 4\n 5\n 6\n 7\n",
+        ));
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff")
+        .arg("-U6")
+        .arg(file1.path())
+        .arg(file2.path());
+    cmd.assert()
+        .code(predicate::eq(1))
+        .stdout(predicate::str::ends_with(
+            "@@ -1,8 +1,8 @@\n 1\n-2\n+X\n 3\n 4\n 5\n 6\n 7\n 8\n\\ No newline at end of file\n",
+        ));
     Ok(())
 }

@@ -242,15 +242,20 @@ pub fn is_posix_locale(category: &str) -> bool {
 }
 
 /// Retrieves the modification time of the input file specified by file path
+/// A file that was `missing` and compared as empty is dated at the Unix Epoch.
 /// If an error occurs, it returns the current system time
-pub fn get_modification_time(file_path: &str, style: TimestampStyle) -> String {
+pub fn get_modification_time(file_path: &str, style: TimestampStyle, missing: bool) -> String {
     use chrono::{DateTime, Local};
     use std::fs;
-    use std::time::SystemTime;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
-    let modification_time: SystemTime = fs::metadata(file_path)
-        .and_then(|m| m.modified())
-        .unwrap_or(SystemTime::now());
+    let modification_time: SystemTime = if missing {
+        UNIX_EPOCH
+    } else {
+        fs::metadata(file_path)
+            .and_then(|m| m.modified())
+            .unwrap_or(SystemTime::now())
+    };
 
     let modification_time: DateTime<Local> = modification_time.into();
     let format = match style {
@@ -521,7 +526,7 @@ mod tests {
             // verify
             assert_eq!(
                 current,
-                get_modification_time(&temp.path().to_string_lossy(), TimestampStyle::Iso)
+                get_modification_time(&temp.path().to_string_lossy(), TimestampStyle::Iso, false)
             );
         }
 
@@ -536,9 +541,10 @@ mod tests {
             // Because the file is invalid, it will return SystemTime::now()
             // which will be greater than previously saved time
             let current_time: DateTime<Local> = SystemTime::now().into();
-            let m_time: DateTime<Local> = get_modification_time(invalid_file, TimestampStyle::Iso)
-                .parse()
-                .unwrap();
+            let m_time: DateTime<Local> =
+                get_modification_time(invalid_file, TimestampStyle::Iso, false)
+                    .parse()
+                    .unwrap();
 
             assert!(m_time > current_time);
         }

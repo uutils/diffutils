@@ -58,6 +58,10 @@ pub struct Params {
     pub starting_file: Option<OsString>,
     pub ignore_file_name_case: bool,
     pub no_dereference: bool,
+    /// Set when `from` did not exist and was compared as an empty file.
+    pub from_missing: bool,
+    /// Set when `to` did not exist and was compared as an empty file.
+    pub to_missing: bool,
 }
 
 /// The pattern of `-p`, matching the first line of C functions.
@@ -86,8 +90,18 @@ impl Default for Params {
             starting_file: None,
             ignore_file_name_case: false,
             no_dereference: false,
+            from_missing: false,
+            to_missing: false,
         }
     }
+}
+
+fn extra_operand(executable: &OsStr, param: &OsStr) -> String {
+    let exe = executable.to_string_lossy();
+    format!(
+        "{exe}: extra operand '{}'\n{exe}: Try '{exe} --help' for more information.",
+        param.to_string_lossy()
+    )
 }
 
 /// Parses the command line, and also returns its arguments other than the
@@ -126,10 +140,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
             } else if to.is_none() {
                 to = Some(param);
             } else {
-                return Err(format!(
-                    "Usage: {} <from> <to>",
-                    params.executable.to_string_lossy()
-                ));
+                return Err(extra_operand(&params.executable, &param));
             }
             continue;
         }
@@ -329,10 +340,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
         } else if to.is_none() {
             to = Some(param);
         } else {
-            return Err(format!(
-                "Usage: {} <from> <to>",
-                params.executable.to_string_lossy()
-            ));
+            return Err(extra_operand(&params.executable, &param));
         }
     }
     params.from = if let Some(from) = from {
@@ -357,6 +365,10 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
             params.executable.to_string_lossy()
         ));
     };
+    // Operands after `--` are not checked by the option loop above.
+    if let Some((_, param)) = opts.next() {
+        return Err(extra_operand(&params.executable, &param));
+    }
 
     // diff DIRECTORY FILE => diff DIRECTORY/FILE FILE
     // diff FILE DIRECTORY => diff FILE DIRECTORY/FILE
@@ -1159,6 +1171,24 @@ mod tests {
                 .peekable()
         )
         .is_err());
+    }
+    #[test]
+    fn extra_operand_is_an_error() {
+        for args in [
+            &["diff", "foo", "bar", "baz"][..],
+            &["diff", "-", "-", "-"],
+            &["diff", "--", "foo", "bar", "baz"],
+            &["diff", "foo", "--", "bar", "baz"],
+        ] {
+            assert_eq!(
+                parse_params(args.iter().map(|x| os(x)).peekable()).err(),
+                Some(format!(
+                    "diff: extra operand '{0}'\ndiff: Try 'diff --help' for more information.",
+                    args[args.len() - 1]
+                )),
+                "{args:?}"
+            );
+        }
     }
     #[test]
     fn missing_arguments() {

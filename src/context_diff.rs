@@ -181,19 +181,14 @@ fn make_diff(
                     && (line_number_expected > expected_lines_count)
                 {
                     ChangeBlock::close(&mut block, &mut mismatch);
-                    if context_queue.len() < context_size {
-                        while let Some(line) = context_queue.pop_front() {
-                            mismatch.expected.push(DiffLine::Context(line.to_vec()));
-                            mismatch.actual.push(DiffLine::Context(line.to_vec()));
-                        }
-                        if lines_since_mismatch < context_size {
-                            mismatch.expected.push(DiffLine::Context(str.to_vec()));
-                            mismatch.actual.push(DiffLine::Context(str.to_vec()));
-                            mismatch.expected_missing_nl = true;
-                            mismatch.actual_missing_nl = true;
-                        }
+                    // this is the last line: lines still in the queue are past
+                    // the trailing context and there is no next hunk to lead into
+                    if lines_since_mismatch < context_size {
+                        mismatch.expected.push(DiffLine::Context(str.to_vec()));
+                        mismatch.actual.push(DiffLine::Context(str.to_vec()));
+                        mismatch.expected_missing_nl = true;
+                        mismatch.actual_missing_nl = true;
                     }
-                    lines_since_mismatch = 0;
                 } else if line_number_actual > actual_lines_count {
                     if lines_since_mismatch > max_gap {
                         results.push(mismatch);
@@ -323,8 +318,10 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
     } else {
         TimestampStyle::Iso
     };
-    let from_modified_time = get_modification_time(&params.from.to_string_lossy(), style);
-    let to_modified_time = get_modification_time(&params.to.to_string_lossy(), style);
+    let from_modified_time =
+        get_modification_time(&params.from.to_string_lossy(), style, params.from_missing);
+    let to_modified_time =
+        get_modification_time(&params.to.to_string_lossy(), style, params.to_missing);
     let mut output = Vec::new();
     write_file_header(&mut output, "***", &params.from, &from_modified_time);
     write_file_header(&mut output, "---", &params.to, &to_modified_time);
