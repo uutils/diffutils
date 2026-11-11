@@ -348,7 +348,8 @@ fn pair_entries<'a>(
 }
 
 /// Pairs names that all compare equal: identical names together, then the
-/// remaining ones in order.
+/// remaining ones in order. Like GNU diff, the names left without a pair come
+/// after the pairs.
 fn pair_equal_names<'a>(
     from_names: &'a [OsString],
     to_names: &'a [OsString],
@@ -356,17 +357,19 @@ fn pair_equal_names<'a>(
 ) {
     let is_exact = |name: &OsString, others: &[OsString]| others.contains(name);
     let mut inexact_to_names = to_names.iter().filter(|to| !is_exact(to, from_names));
+    let mut from_only = Vec::new();
     for from in from_names {
         let to = if is_exact(from, to_names) {
             Some(from)
         } else {
             inexact_to_names.next()
         };
-        entries.push(match to {
-            Some(to) => Entry::Both(from, to),
-            None => Entry::FromOnly(from),
-        });
+        match to {
+            Some(to) => entries.push(Entry::Both(from, to)),
+            None => from_only.push(Entry::FromOnly(from)),
+        }
     }
+    entries.extend(from_only);
     entries.extend(inexact_to_names.map(|to| Entry::ToOnly(to)));
 }
 
@@ -468,7 +471,8 @@ mod tests {
             ]
         );
 
-        // What has no exact match pairs in order; the rest is unpaired.
+        // What has no exact match pairs in order; the rest is unpaired, and
+        // comes after the pairs.
         let (from, to) = (names(&["Ab", "aB"]), names(&["AB", "aB", "ab"]));
         assert_eq!(
             pair_entries(&from, &to, ignoring_case),
@@ -482,10 +486,10 @@ mod tests {
         assert_eq!(
             pair_entries(&from, &to, ignoring_case),
             [
+                Entry::Both(name("ab"), name("ab")),
                 Entry::FromOnly(name("AB")),
                 Entry::FromOnly(name("Ab")),
                 Entry::FromOnly(name("aB")),
-                Entry::Both(name("ab"), name("ab")),
             ]
         );
     }
