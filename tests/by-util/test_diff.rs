@@ -845,6 +845,37 @@ fn ignore_file_name_case_prefers_exact_match() -> Result<(), Box<dyn std::error:
     Ok(())
 }
 
+#[test]
+fn ignore_file_name_case_reports_unpaired_after_pairs() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+    let dir = tmp_dir.path();
+    std::fs::create_dir(dir.join("one"))?;
+    std::fs::create_dir(dir.join("two"))?;
+    std::fs::write(dir.join("one/B"), "1\n")?;
+    std::fs::write(dir.join("one/b"), "1\n")?;
+    std::fs::write(dir.join("two/b"), "2\n")?;
+    std::fs::write(dir.join("one/c"), "1\n")?;
+    std::fs::write(dir.join("two/C"), "2\n")?;
+    std::fs::write(dir.join("two/c"), "2\n")?;
+    if std::fs::read_dir(dir.join("one"))?.count() != 3 {
+        // The file system is not case-sensitive.
+        return Ok(());
+    }
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.current_dir(dir).arg("diff").arg("-r");
+    cmd.arg("--ignore-file-name-case").arg("one").arg("two");
+    cmd.assert().code(predicate::eq(1)).stdout(concat!(
+        "diff -r --ignore-file-name-case one/b two/b\n",
+        "1c1\n< 1\n---\n> 2\n",
+        "Only in one: B\n",
+        "diff -r --ignore-file-name-case one/c two/c\n",
+        "1c1\n< 1\n---\n> 2\n",
+        "Only in two: C\n",
+    ));
+    Ok(())
+}
+
 #[cfg(unix)]
 #[test]
 fn no_dereference() -> Result<(), Box<dyn std::error::Error>> {
