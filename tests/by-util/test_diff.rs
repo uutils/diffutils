@@ -364,6 +364,43 @@ fn missing_file_as_empty_keeps_stdin_timestamp() -> Result<(), Box<dyn std::erro
     Ok(())
 }
 
+// Only the first block of a file, as large as its preferred I/O size, is
+// looked at to decide whether it is binary.
+#[cfg(unix)]
+#[test]
+fn binary_detection_reads_first_block() -> Result<(), Box<dyn std::error::Error>> {
+    use std::os::unix::fs::MetadataExt;
+
+    let tmp_dir = tempdir()?;
+    let late_nul = tmp_dir.path().join("late_nul");
+    let early_nul = tmp_dir.path().join("early_nul");
+    let text = tmp_dir.path().join("text");
+    let mut data = b"line\n".repeat(2000);
+    std::fs::write(&text, &data)?;
+    let block_size = usize::try_from(std::fs::metadata(&text)?.blksize())?;
+    if !(1..data.len()).contains(&block_size) {
+        return Ok(());
+    }
+    data[block_size] = 0;
+    std::fs::write(&late_nul, &data)?;
+    data[block_size - 1] = 0;
+    std::fs::write(&early_nul, &data)?;
+
+    for (from, to) in [(&late_nul, &text), (&text, &late_nul)] {
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff").arg(from).arg(to);
+        cmd.assert()
+            .code(predicate::eq(1))
+            .stdout(predicate::str::is_match(r"^\d+c\d+\n")?);
+    }
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff").arg(&early_nul).arg(&text);
+    cmd.assert()
+        .code(predicate::eq(1))
+        .stdout(predicate::str::starts_with("Binary files"));
+    Ok(())
+}
+
 #[test]
 fn binary_files() -> Result<(), Box<dyn std::error::Error>> {
     let tmp_dir = tempdir()?;
