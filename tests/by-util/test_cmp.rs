@@ -61,67 +61,50 @@ fn cmp_stdin(#[case] input: &str, #[case] code: i32, #[case] expected: &str) {
         .stdout_only(expected);
 }
 
-// Runs cmp with stdout on /dev/null, which turns the difference output off.
+// cmp turns the difference output off when its stdout is /dev/null.
 #[cfg(unix)]
-fn cmp_to_dev_null<I, S>(args: I) -> std::io::Result<std::process::Output>
-where
-    I: IntoIterator<Item = S>,
-    S: AsRef<std::ffi::OsStr>,
-{
-    std::process::Command::new(assert_cmd::cargo::cargo_bin!("diffutils"))
-        .arg("cmp")
-        .args(args)
-        .stdout(OpenOptions::new().write(true).open("/dev/null")?)
-        .output()
+fn dev_null() -> std::fs::File {
+    OpenOptions::new().write(true).open("/dev/null").unwrap()
 }
 
 // Unlike -s, sending stdout to /dev/null must not hide error messages.
 #[test]
 #[cfg(unix)]
-fn cmp_dev_null_stdout_still_reports_errors() -> Result<(), Box<dyn std::error::Error>> {
-    let tmp_dir = tempdir()?;
-    let a_path = tmp_dir.path().join("a");
-    std::fs::write(&a_path, b"abc")?;
+fn cmp_dev_null_stdout_still_reports_errors() {
+    let (at, ts) = at_and_ts!();
+    at.write("a", "abc");
 
-    let output = cmp_to_dev_null([&a_path, &tmp_dir.path().join("missing")])?;
-    assert_eq!(output.status.code(), Some(2));
-    assert!(String::from_utf8_lossy(&output.stderr).contains("No such file or directory"));
-
-    let output = cmp_to_dev_null(["-l".as_ref(), "-s".as_ref(), a_path.as_os_str()])?;
-    assert_eq!(output.status.code(), Some(2));
-    assert!(
-        String::from_utf8_lossy(&output.stderr).ends_with(": options -l and -s are incompatible\n")
-    );
-
-    Ok(())
+    ts.ucmd()
+        .args(&["a", "missing"])
+        .set_stdout(dev_null())
+        .fails_with_code(2)
+        .stderr_contains("No such file or directory");
+    ts.ucmd()
+        .args(&["-l", "-s", "a"])
+        .set_stdout(dev_null())
+        .fails_with_code(2)
+        .stderr_str_check(|s| s.ends_with(": options -l and -s are incompatible\n"));
 }
 
 // The difference and EOF reports stay off when stdout is /dev/null.
 #[test]
 #[cfg(unix)]
-fn cmp_dev_null_stdout_reports_no_difference() -> Result<(), Box<dyn std::error::Error>> {
-    let tmp_dir = tempdir()?;
-    let a_path = tmp_dir.path().join("a");
-    std::fs::write(&a_path, b"abcdef")?;
-    let shorter_path = tmp_dir.path().join("shorter");
-    std::fs::write(&shorter_path, b"abc")?;
-    let changed_path = tmp_dir.path().join("changed");
-    std::fs::write(&changed_path, b"abcdeX")?;
+fn cmp_dev_null_stdout_reports_no_difference() {
+    let (at, ts) = at_and_ts!();
+    at.write("a", "abcdef");
+    at.write("shorter", "abc");
+    at.write("changed", "abcdeX");
 
-    for other in [&shorter_path, &changed_path] {
-        for option in [None, Some("-l"), Some("-b")] {
-            let output = cmp_to_dev_null(
-                option
-                    .iter()
-                    .map(std::ffi::OsStr::new)
-                    .chain([a_path.as_os_str(), other.as_os_str()]),
-            )?;
-            assert_eq!(output.status.code(), Some(1));
-            assert!(output.stderr.is_empty());
+    for other in ["shorter", "changed"] {
+        for option in [&[][..], &["-l"], &["-b"]] {
+            ts.ucmd()
+                .args(option)
+                .args(&["a", other])
+                .set_stdout(dev_null())
+                .fails_with_code(1)
+                .no_stderr();
         }
     }
-
-    Ok(())
 }
 
 #[test]
