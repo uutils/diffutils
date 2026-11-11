@@ -540,51 +540,38 @@ fn compare_directories_special_entries() {
 // has nothing there: a real directory on the other side ends the recursion.
 #[cfg(unix)]
 #[test]
-fn recursive_loop_on_one_side_only() -> Result<(), Box<dyn std::error::Error>> {
-    use std::os::unix::fs::symlink;
-
-    let tmp_dir = tempdir()?;
-    let dir = tmp_dir.path();
-    std::fs::create_dir_all(dir.join("one/sub"))?;
-    std::fs::create_dir_all(dir.join("two/sub/loop"))?;
-    symlink("..", dir.join("one/sub/loop"))?;
+fn recursive_loop_on_one_side_only() {
+    let (at, ts) = at_and_ts!();
+    at.mkdir_all("one/sub");
+    at.mkdir_all("two/sub/loop");
+    at.relative_symlink_dir("..", "one/sub/loop");
 
     for (from, to) in [("one", "two"), ("two", "one")] {
-        let mut cmd = cargo_bin_cmd!("diffutils");
-        cmd.current_dir(dir).arg("diff").arg("-r").arg(from).arg(to);
-        cmd.assert()
-            .code(predicate::eq(1))
-            .stdout("Only in one/sub/loop: sub\n")
-            .stderr("");
+        ts.ucmd()
+            .args(&["-r", from, to])
+            .fails_with_code(1)
+            .stdout_only("Only in one/sub/loop: sub\n");
     }
 
     // With -N a missing directory is compared as an empty one, which would
     // never end the recursion.
-    std::fs::remove_dir(dir.join("two/sub/loop"))?;
+    std::fs::remove_dir(at.plus("two/sub/loop")).unwrap();
     for (from, to) in [("one", "two"), ("two", "one")] {
-        let mut cmd = cargo_bin_cmd!("diffutils");
-        cmd.current_dir(dir).arg("diff").arg("-r").arg("-N");
-        cmd.arg(from).arg(to);
-        cmd.assert()
-            .code(predicate::eq(2))
-            .stderr("diff: one/sub/loop: recursive directory loop\n");
+        ts.ucmd()
+            .args(&["-r", "-N", from, to])
+            .fails_with_code(2)
+            .stderr_is("diff: one/sub/loop: recursive directory loop\n");
     }
 
     // Each side is checked against its own ancestors: here the links lead to
     // the top of the other side, and only loop one level further down.
-    std::fs::remove_file(dir.join("one/sub/loop"))?;
-    symlink("../../two", dir.join("one/sub/loop"))?;
-    symlink("../../one", dir.join("two/sub/loop"))?;
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.current_dir(dir)
-        .arg("diff")
-        .arg("-r")
-        .arg("one")
-        .arg("two");
-    cmd.assert()
-        .code(predicate::eq(2))
-        .stderr("diff: one/sub/loop/sub/loop: recursive directory loop\n");
-    Ok(())
+    std::fs::remove_file(at.plus("one/sub/loop")).unwrap();
+    at.relative_symlink_dir("../../two", "one/sub/loop");
+    at.relative_symlink_dir("../../one", "two/sub/loop");
+    ts.ucmd()
+        .args(&["-r", "one", "two"])
+        .fails_with_code(2)
+        .stderr_is("diff: one/sub/loop/sub/loop: recursive directory loop\n");
 }
 
 #[test]
