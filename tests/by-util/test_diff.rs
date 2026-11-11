@@ -526,6 +526,47 @@ fn color() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+// --palette values are written like those of dircolors, with backslash
+// escapes and caret notation.
+#[test]
+fn palette_escapes() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+    let old = tmp_dir.path().join("old");
+    let new = tmp_dir.path().join("new");
+    std::fs::write(&old, "sun\nrain\n")?;
+    std::fs::write(&new, "sun\nsnow\n")?;
+    let diff = |palette: &str| {
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff")
+            .arg("--color=always")
+            .arg(format!("--palette={palette}"))
+            .arg(&old)
+            .arg(&new);
+        cmd.assert().code(predicate::eq(1))
+    };
+
+    for (palette, deleted, added) in [
+        (r"ad=\061;32", "31", "1;32"),
+        (r"ad=\x31;3\X32", "31", "1;32"),
+        // An escaped colon does not end the value.
+        (r"ad=3\:2:de=4", "4", "3:2"),
+        (r"ad=^[\e^a\_\?\q\\:de=\^", "^", "\x1b\x1b\x01 \x7fq\\"),
+    ] {
+        diff(palette).stdout(format!(
+            "\x1b[36m2c2\x1b[0m\n\x1b[{deleted}m< rain\x1b[0m\n---\n\x1b[{added}m> snow\x1b[0m\n"
+        ));
+    }
+
+    // A value cannot end in the middle of an escape, and ^ only takes the
+    // characters from @ to ~ or a question mark.
+    for palette in [r"ad=\", "ad=^", "ad=^1:de=4", "de=4:ad=^:"] {
+        diff(palette)
+            .stdout("2c2\n< rain\n---\n> snow\n")
+            .stderr(predicate::str::contains("unrecognized prefix: ad"));
+    }
+    Ok(())
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn write_error() -> Result<(), Box<dyn std::error::Error>> {
