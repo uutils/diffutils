@@ -72,6 +72,69 @@ fn cmp_incompatible_params() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+// Runs cmp with stdout on /dev/null, which turns the difference output off.
+#[cfg(unix)]
+fn cmp_to_dev_null<I, S>(args: I) -> std::io::Result<std::process::Output>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<std::ffi::OsStr>,
+{
+    std::process::Command::new(assert_cmd::cargo::cargo_bin!("diffutils"))
+        .arg("cmp")
+        .args(args)
+        .stdout(OpenOptions::new().write(true).open("/dev/null")?)
+        .output()
+}
+
+// Unlike -s, sending stdout to /dev/null must not hide error messages.
+#[test]
+#[cfg(unix)]
+fn cmp_dev_null_stdout_still_reports_errors() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+    let a_path = tmp_dir.path().join("a");
+    std::fs::write(&a_path, b"abc")?;
+
+    let output = cmp_to_dev_null([&a_path, &tmp_dir.path().join("missing")])?;
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("No such file or directory"));
+
+    let output = cmp_to_dev_null(["-l".as_ref(), "-s".as_ref(), a_path.as_os_str()])?;
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).ends_with(": options -l and -s are incompatible\n")
+    );
+
+    Ok(())
+}
+
+// The difference and EOF reports stay off when stdout is /dev/null.
+#[test]
+#[cfg(unix)]
+fn cmp_dev_null_stdout_reports_no_difference() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+    let a_path = tmp_dir.path().join("a");
+    std::fs::write(&a_path, b"abcdef")?;
+    let shorter_path = tmp_dir.path().join("shorter");
+    std::fs::write(&shorter_path, b"abc")?;
+    let changed_path = tmp_dir.path().join("changed");
+    std::fs::write(&changed_path, b"abcdeX")?;
+
+    for other in [&shorter_path, &changed_path] {
+        for option in [None, Some("-l"), Some("-b")] {
+            let output = cmp_to_dev_null(
+                option
+                    .iter()
+                    .map(std::ffi::OsStr::new)
+                    .chain([a_path.as_os_str(), other.as_os_str()]),
+            )?;
+            assert_eq!(output.status.code(), Some(1));
+            assert!(output.stderr.is_empty());
+        }
+    }
+
+    Ok(())
+}
+
 #[test]
 fn cmp_stdin() -> Result<(), Box<dyn std::error::Error>> {
     let tmp_dir = tempdir()?;
