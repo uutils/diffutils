@@ -366,7 +366,7 @@ fn cmp_skip_args_parsing() -> Result<(), Box<dyn std::error::Error>> {
         .stderr(predicate::str::is_empty())
         .stdout(predicate::str::is_empty());
 
-    // Positional skips should be ignored
+    // A smaller positional skip does not override -i
     let mut cmd = cargo_bin_cmd!("diffutils");
     cmd.env("LC_ALL", "C");
     cmd.arg("cmp");
@@ -403,6 +403,62 @@ fn cmp_skip_args_parsing() -> Result<(), Box<dyn std::error::Error>> {
         .success()
         .stderr(predicate::str::is_empty())
         .stdout(predicate::str::is_empty());
+
+    Ok(())
+}
+
+#[test]
+fn cmp_skip_uses_larger_of_option_and_positional() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+
+    let a_path = tmp_dir.path().join("a");
+    let mut a = File::create(&a_path).unwrap();
+    a.write_all(b"12345xyz\n").unwrap();
+
+    let b_path = tmp_dir.path().join("b");
+    let mut b = File::create(&b_path).unwrap();
+    b.write_all(b"abcdexyz\n").unwrap();
+
+    // Like GNU cmp, the larger of -i and the positional skip wins.
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.env("LC_ALL", "C");
+    cmd.arg("cmp");
+    cmd.arg("-i");
+    cmd.arg("1");
+    cmd.arg(&a_path).arg(&b_path);
+    cmd.arg("5").arg("5");
+    cmd.assert()
+        .code(predicate::eq(0))
+        .success()
+        .stderr(predicate::str::is_empty())
+        .stdout(predicate::str::is_empty());
+
+    // The same applies when -i is given more than once.
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.env("LC_ALL", "C");
+    cmd.arg("cmp");
+    cmd.arg("-i");
+    cmd.arg("5");
+    cmd.arg("--ignore-initial=1");
+    cmd.arg(&a_path).arg(&b_path);
+    cmd.assert()
+        .code(predicate::eq(0))
+        .success()
+        .stderr(predicate::str::is_empty())
+        .stdout(predicate::str::is_empty());
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.env("LC_ALL", "C");
+    cmd.arg("cmp");
+    cmd.arg("-i");
+    cmd.arg("1");
+    cmd.arg(&a_path).arg(&b_path);
+    cmd.arg("2").arg("2");
+    cmd.assert()
+        .code(predicate::eq(1))
+        .failure()
+        .stderr(predicate::str::is_empty())
+        .stdout(predicate::str::ends_with(" differ: char 1, line 1\n"));
 
     Ok(())
 }
