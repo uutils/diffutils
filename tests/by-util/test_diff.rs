@@ -826,6 +826,11 @@ fn ignore_file_name_case_keeps_exact_dangling_link() -> Result<(), Box<dyn std::
     let tmp_dir = tempdir()?;
     let file = tmp_dir.path().join("foo");
     std::fs::write(&file, "foo\n")?;
+    if tmp_dir.path().join("FOO").exists() {
+        // The file system is not case-sensitive: the variants below would
+        // all be the link itself.
+        return Ok(());
+    }
 
     // Which entry a directory lists first is up to the file system (oldest
     // first, newest first, hashed), so create the link both before and after
