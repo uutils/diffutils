@@ -363,25 +363,23 @@ fn color_bad_option(#[case] option: &str, #[case] error: &str) {
 // carriage return, where the line marker is printed again, and one back for
 // a backspace. Other control characters take no room.
 #[test]
-fn expand_tabs_after_control_characters() -> Result<(), Box<dyn std::error::Error>> {
-    let tmp_dir = tempdir()?;
-    let old = tmp_dir.path().join("old");
-    let new = tmp_dir.path().join("new");
-    std::fs::write(
-        &old,
+fn expand_tabs_after_control_characters() {
+    let (at, ts) = at_and_ts!();
+    at.write(
+        "old",
         "ab\rc\t1\nabc\x08d\t1\n\x08x\t1\na\x01\x1bb\t1\nend\r\n",
-    )?;
-    std::fs::write(
-        &new,
+    );
+    at.write(
+        "new",
         "ab\rc\t2\nabc\x08d\t2\n\x08x\t2\na\x01\x1bb\t2\nend\r\n",
-    )?;
+    );
     let diff = |format: &str| {
-        let mut cmd = cargo_bin_cmd!("diffutils");
-        cmd.arg("diff").arg("-t").arg(format).arg(&old).arg(&new);
-        cmd.assert().code(predicate::eq(1))
+        ts.ucmd()
+            .args(&["-t", format, "old", "new"])
+            .fails_with_code(1)
     };
 
-    diff("--normal").stdout(
+    diff("--normal").stdout_only(
         "1,4c1,4\n\
          < ab\r< c       1\n\
          < abc\x08d     1\n\
@@ -394,8 +392,9 @@ fn expand_tabs_after_control_characters() -> Result<(), Box<dyn std::error::Erro
          > a\x01\x1bb      2\n",
     );
     // The unified format does not repeat its marker.
-    diff("-U0").stdout(predicate::str::ends_with(
-        "@@ -1,4 +1,4 @@\n\
+    diff("-U0").stdout_str_check(|s| {
+        s.ends_with(
+            "@@ -1,4 +1,4 @@\n\
          -ab\rc       1\n\
          -abc\x08d     1\n\
          -x       1\n\
@@ -404,9 +403,11 @@ fn expand_tabs_after_control_characters() -> Result<(), Box<dyn std::error::Erro
          +abc\x08d     2\n\
          +x       2\n\
          +a\x01\x1bb      2\n",
-    ));
-    diff("-C0").stdout(predicate::str::ends_with(
-        "*** 1,4 ****\n\
+        )
+    });
+    diff("-C0").stdout_str_check(|s| {
+        s.ends_with(
+            "*** 1,4 ****\n\
          ! ab\r! c       1\n\
          ! abc\x08d     1\n\
          ! x       1\n\
@@ -416,8 +417,8 @@ fn expand_tabs_after_control_characters() -> Result<(), Box<dyn std::error::Erro
          ! abc\x08d     2\n\
          ! x       2\n\
          ! a\x01\x1bb      2\n",
-    ));
-    Ok(())
+        )
+    });
 }
 
 #[cfg(target_os = "linux")]
