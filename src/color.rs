@@ -87,8 +87,9 @@ enum LineKind {
 ///
 /// Each kind of line is recognizable from its prefix alone, because the text
 /// of the compared files always appears behind a marker such as `< `, `+` or
-/// `! `. In the context format, `! ` lines are deletions until the `--- `
-/// range line of the new file is reached, and additions after it.
+/// `! `. In the context format, `! ` lines and unchanged lines are colored
+/// as deletions until the `--- ` range line of the new file is reached, and
+/// as additions after it.
 #[must_use]
 pub fn colorize(output: &[u8], format: Format, palette: &Palette) -> Vec<u8> {
     let mut colored = Vec::with_capacity(output.len() + output.len() / 4);
@@ -122,7 +123,7 @@ pub fn colorize(output: &[u8], format: Format, palette: &Palette) -> Vec<u8> {
                     LineKind::Deleted
                 } else if line.starts_with(b"+ ") {
                     LineKind::Added
-                } else if line.starts_with(b"! ") {
+                } else if line.starts_with(b"! ") || line.starts_with(b"  ") {
                     if in_new_file_part {
                         LineKind::Added
                     } else {
@@ -198,8 +199,24 @@ mod tests {
         assert_eq!(
             colorize_str(output, Format::Context),
             "\x1b[1m*** left\x1b[0m\n\x1b[1m--- right\x1b[0m\n***************\n\
-             \x1b[36m*** 1,2 ****\x1b[0m\n  cat\n\x1b[31m! dog\x1b[0m\n\
-             \x1b[36m--- 1,3 ----\x1b[0m\n  cat\n\x1b[32m! cow\x1b[0m\n\x1b[32m+ pig\x1b[0m\n"
+             \x1b[36m*** 1,2 ****\x1b[0m\n\x1b[31m  cat\x1b[0m\n\x1b[31m! dog\x1b[0m\n\
+             \x1b[36m--- 1,3 ----\x1b[0m\n\x1b[32m  cat\x1b[0m\n\x1b[32m! cow\x1b[0m\n\x1b[32m+ pig\x1b[0m\n"
+        );
+    }
+
+    #[test]
+    fn context_lines_take_the_color_of_their_part() {
+        // Unchanged lines are colored too, whatever their text looks like,
+        // but not the marker of a missing newline.
+        let output = "*** left\n--- right\n***************\n*** 1,3 ****\n  - ant\n  \n! bee\n\
+                      \\ No newline at end of file\n--- 1,3 ----\n  - ant\n  \n! fly\n";
+        assert_eq!(
+            colorize_str(output, Format::Context),
+            "\x1b[1m*** left\x1b[0m\n\x1b[1m--- right\x1b[0m\n***************\n\
+             \x1b[36m*** 1,3 ****\x1b[0m\n\x1b[31m  - ant\x1b[0m\n\x1b[31m  \x1b[0m\n\
+             \x1b[31m! bee\x1b[0m\n\\ No newline at end of file\n\
+             \x1b[36m--- 1,3 ----\x1b[0m\n\x1b[32m  - ant\x1b[0m\n\x1b[32m  \x1b[0m\n\
+             \x1b[32m! fly\x1b[0m\n"
         );
     }
 
