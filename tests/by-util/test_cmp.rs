@@ -93,13 +93,17 @@ fn cmp_silent_pipe_operand_is_read() -> Result<(), Box<dyn std::error::Error>> {
         cmd.current_dir(tmp_dir.path());
         cmd.arg("cmp").arg("-s").args(args);
         cmd.write_stdin("abcdefghij");
-        cmd.assert().code(predicate::eq(0)).stdout(predicate::str::is_empty());
+        cmd.assert()
+            .code(predicate::eq(0))
+            .stdout(predicate::str::is_empty());
 
         let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.current_dir(tmp_dir.path());
         cmd.arg("cmp").arg("-s").args(args);
         cmd.write_stdin("abcdeXghij");
-        cmd.assert().code(predicate::eq(1)).stdout(predicate::str::is_empty());
+        cmd.assert()
+            .code(predicate::eq(1))
+            .stdout(predicate::str::is_empty());
     }
 
     // A character device on one side: /dev/null is empty, so it equals an empty file and
