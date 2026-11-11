@@ -301,40 +301,73 @@ enum Entry<'a> {
 }
 
 /// Merges two lists of names sorted by `order`, pairing the names that are
-/// equal according to it.
+/// equal according to it. Where several names of a list are equal (names
+/// differing only by case), those that are the same on both sides pair first
+/// and the others pair in order.
 fn pair_entries<'a>(
     from_names: &'a [OsString],
     to_names: &'a [OsString],
     order: impl Fn(&OsStr, &OsStr) -> Ordering,
 ) -> Vec<Entry<'a>> {
     let mut entries = Vec::with_capacity(from_names.len().max(to_names.len()));
-    let mut from_names = from_names.iter().map(OsString::as_os_str).peekable();
-    let mut to_names = to_names.iter().map(OsString::as_os_str).peekable();
+    let (mut from_names, mut to_names) = (from_names, to_names);
     loop {
-        let entry = match (from_names.peek(), to_names.peek()) {
+        match (from_names.first(), to_names.first()) {
             (None, None) => return entries,
-            (Some(&from), Some(&to)) => match order(from, to) {
-                Ordering::Equal => Entry::Both(from, to),
-                Ordering::Less => Entry::FromOnly(from),
-                Ordering::Greater => Entry::ToOnly(to),
+            (Some(from), Some(to)) => match order(from, to) {
+                Ordering::Equal => {
+                    // The names of each list equal to these two.
+                    let run_len = |names: &[OsString]| {
+                        let equal = names.iter().take_while(|name| order(name, from).is_eq());
+                        equal.count()
+                    };
+                    let (from_run, from_rest) = from_names.split_at(run_len(from_names));
+                    let (to_run, to_rest) = to_names.split_at(run_len(to_names));
+                    pair_equal_names(from_run, to_run, &mut entries);
+                    (from_names, to_names) = (from_rest, to_rest);
+                }
+                Ordering::Less => {
+                    entries.push(Entry::FromOnly(from));
+                    from_names = &from_names[1..];
+                }
+                Ordering::Greater => {
+                    entries.push(Entry::ToOnly(to));
+                    to_names = &to_names[1..];
+                }
             },
-            (Some(&from), None) => Entry::FromOnly(from),
-            (None, Some(&to)) => Entry::ToOnly(to),
-        };
-        match entry {
-            Entry::Both(..) => {
-                from_names.next();
-                to_names.next();
+            (Some(from), None) => {
+                entries.push(Entry::FromOnly(from));
+                from_names = &from_names[1..];
             }
-            Entry::FromOnly(_) => {
-                from_names.next();
-            }
-            Entry::ToOnly(_) => {
-                to_names.next();
+            (None, Some(to)) => {
+                entries.push(Entry::ToOnly(to));
+                to_names = &to_names[1..];
             }
         }
-        entries.push(entry);
     }
+}
+
+/// Pairs names that all compare equal: identical names together, then the
+/// remaining ones in order.
+fn pair_equal_names<'a>(
+    from_names: &'a [OsString],
+    to_names: &'a [OsString],
+    entries: &mut Vec<Entry<'a>>,
+) {
+    let is_exact = |name: &OsString, others: &[OsString]| others.contains(name);
+    let mut inexact_to_names = to_names.iter().filter(|to| !is_exact(to, from_names));
+    for from in from_names {
+        let to = if is_exact(from, to_names) {
+            Some(from)
+        } else {
+            inexact_to_names.next()
+        };
+        entries.push(match to {
+            Some(to) => Entry::Both(from, to),
+            None => Entry::FromOnly(from),
+        });
+    }
+    entries.extend(inexact_to_names.map(|to| Entry::ToOnly(to)));
 }
 
 fn report_only_in(dir: &OsStr, name: &OsStr) -> Outcome {
@@ -412,5 +445,48 @@ mod tests {
             ]
         );
         assert_eq!(pair_entries(&[], &[], |a, b| a.cmp(b)), []);
+    }
+
+    #[test]
+    fn names_equal_by_order_pair_exact_matches_first() {
+        let names =
+            |names: &[&str]| -> Vec<OsString> { names.iter().map(OsString::from).collect() };
+        let ignoring_case = |a: &OsStr, b: &OsStr| {
+            let lowercase = |name: &OsStr| name.as_encoded_bytes().to_ascii_lowercase();
+            lowercase(a).cmp(&lowercase(b))
+        };
+        let name = OsStr::new;
+
+        let (from, to) = (names(&["f", "x"]), names(&["F", "f", "y"]));
+        assert_eq!(
+            pair_entries(&from, &to, ignoring_case),
+            [
+                Entry::Both(name("f"), name("f")),
+                Entry::ToOnly(name("F")),
+                Entry::FromOnly(name("x")),
+                Entry::ToOnly(name("y")),
+            ]
+        );
+
+        // What has no exact match pairs in order; the rest is unpaired.
+        let (from, to) = (names(&["Ab", "aB"]), names(&["AB", "aB", "ab"]));
+        assert_eq!(
+            pair_entries(&from, &to, ignoring_case),
+            [
+                Entry::Both(name("Ab"), name("AB")),
+                Entry::Both(name("aB"), name("aB")),
+                Entry::ToOnly(name("ab")),
+            ]
+        );
+        let (from, to) = (names(&["AB", "Ab", "aB", "ab"]), names(&["ab"]));
+        assert_eq!(
+            pair_entries(&from, &to, ignoring_case),
+            [
+                Entry::FromOnly(name("AB")),
+                Entry::FromOnly(name("Ab")),
+                Entry::FromOnly(name("aB")),
+                Entry::Both(name("ab"), name("ab")),
+            ]
+        );
     }
 }
