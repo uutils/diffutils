@@ -16,42 +16,87 @@ use unicode_width::UnicodeWidthStr;
 /// Correctly handle multi-bytes characters.
 /// This assumes that line does not contain any line breaks (if it does, the result is undefined).
 #[must_use]
-pub fn do_expand_tabs(line: &[u8], tabsize: usize) -> Vec<u8> {
-    let tab = b'\t';
-    let ntabs = line.iter().filter(|c| **c == tab).count();
-    if ntabs == 0 {
+///
+/// The column moves the way it would on a terminal: a carriage return goes
+/// back to the start of the line, and `marker` (the `< ` or `! ` in front of
+/// the line) is written again after it when more text follows. A backspace
+/// goes one column back, or is dropped at the start of the line, and other
+/// control characters take no room.
+pub fn do_expand_tabs(line: &[u8], tabsize: usize, marker: &[u8]) -> Vec<u8> {
+    if !line
+        .iter()
+        .any(|byte| matches!(byte, b'\t' | b'\r' | b'\x08'))
+    {
         return line.to_vec();
     }
-    let mut result = Vec::with_capacity(line.len() + ntabs * (tabsize - 1));
-    let mut offset = 0;
-
-    let mut iter = line.split(|c| *c == tab).peekable();
-    while let Some(chunk) = iter.next() {
-        match String::from_utf8(chunk.to_vec()) {
-            Ok(s) => offset += UnicodeWidthStr::width(s.as_str()),
-            Err(_) => offset += chunk.len(),
+    let mut result = Vec::with_capacity(line.len() + tabsize);
+    let mut column = 0;
+    let mut rest = line;
+    while !rest.is_empty() {
+        let text_len = rest
+            .iter()
+            .position(u8::is_ascii_control)
+            .unwrap_or(rest.len());
+        let (text, after) = rest.split_at(text_len);
+        column += text_width(text);
+        result.extend_from_slice(text);
+        let Some((&control, after)) = after.split_first() else {
+            break;
+        };
+        match control {
+            b'\t' => {
+                let spaces = tabsize - column % tabsize;
+                result.resize(result.len() + spaces, b' ');
+                column += spaces;
+            }
+            b'\r' => {
+                column = 0;
+                result.push(control);
+                if !after.is_empty() {
+                    result.extend_from_slice(marker);
+                }
+            }
+            b'\x08' if column == 0 => {}
+            b'\x08' => {
+                column -= 1;
+                result.push(control);
+            }
+            _ => result.push(control),
         }
-        result.extend_from_slice(chunk);
-        if iter.peek().is_some() {
-            result.resize(result.len() + tabsize - offset % tabsize, b' ');
-            offset = 0;
-        }
+        rest = after;
     }
 
     result
 }
 
+/// Number of columns `text` takes, where bytes that are not valid UTF-8 take
+/// one column each and control characters none.
+fn text_width(text: &[u8]) -> usize {
+    text.utf8_chunks()
+        .map(|chunk| {
+            let valid: usize = chunk
+                .valid()
+                .split(char::is_control)
+                .map(UnicodeWidthStr::width)
+                .sum();
+            valid + chunk.invalid().len()
+        })
+        .sum()
+}
+
 /// Write a single line to an output stream, expanding tabs to space if necessary.
 /// This assumes that line does not contain any line breaks
 /// (if it does and tabs are to be expanded to spaces, the result is undefined).
+/// See [`do_expand_tabs`] for `marker`.
 pub fn do_write_line(
     output: &mut Vec<u8>,
     line: &[u8],
     expand_tabs: bool,
     tabsize: usize,
+    marker: &[u8],
 ) -> std::io::Result<()> {
     if expand_tabs {
-        output.write_all(do_expand_tabs(line, tabsize).as_slice())
+        output.write_all(do_expand_tabs(line, tabsize, marker).as_slice())
     } else {
         output.write_all(line)
     }
@@ -395,7 +440,7 @@ mod tests {
 
         fn assert_tab_expansion(line: &str, tabsize: usize, expected: &str) {
             assert_eq!(
-                do_expand_tabs(line.as_bytes(), tabsize),
+                do_expand_tabs(line.as_bytes(), tabsize, b""),
                 expected.as_bytes()
             );
         }
@@ -426,9 +471,31 @@ mod tests {
         fn invalid_utf8() {
             // [240, 240, 152, 137] is an invalid UTF-8 sequence, so it is handled as 4 bytes
             assert_eq!(
-                do_expand_tabs(&[240, 240, 152, 137, 9, 102, 111, 111], 8),
+                do_expand_tabs(&[240, 240, 152, 137, 9, 102, 111, 111], 8, b""),
                 &[240, 240, 152, 137, 32, 32, 32, 32, 102, 111, 111]
             );
+            // Only the invalid byte counts as a column, not the whole chunk.
+            assert_tab_expansion_bytes(b"\xff\xc3\xa9\tx", 4, b"\xff\xc3\xa9  x");
+        }
+
+        fn assert_tab_expansion_bytes(line: &[u8], tabsize: usize, expected: &[u8]) {
+            assert_eq!(do_expand_tabs(line, tabsize, b"< "), expected);
+        }
+
+        #[test]
+        fn control_chars() {
+            // A carriage return restarts the line behind the marker again.
+            assert_tab_expansion_bytes(b"ab\rc\td", 8, b"ab\r< c       d");
+            assert_tab_expansion_bytes(b"ab\r\r\tc", 4, b"ab\r< \r<     c");
+            assert_tab_expansion_bytes(b"ab\r", 8, b"ab\r");
+            assert_tab_expansion_bytes(b"x\r\ty\r", 4, b"x\r<     y\r");
+            // A backspace moves one column back, but not before the start.
+            assert_tab_expansion_bytes(b"abc\x08d\te", 8, b"abc\x08d     e");
+            assert_tab_expansion_bytes(b"\x08\x08x\ty", 8, b"x       y");
+            assert_tab_expansion_bytes(b"\x08x", 8, b"x");
+            // Other control characters, C1 ones included, take no room.
+            assert_tab_expansion_bytes(b"a\x01\x7f\x1bb\tc", 8, b"a\x01\x7f\x1bb      c");
+            assert_tab_expansion_bytes("a\u{80}b\tc".as_bytes(), 4, "a\u{80}b  c".as_bytes());
         }
     }
 
@@ -493,7 +560,7 @@ mod tests {
 
         fn assert_line_written(line: &str, expand_tabs: bool, tabsize: usize, expected: &str) {
             let mut output: Vec<u8> = Vec::new();
-            assert!(do_write_line(&mut output, line.as_bytes(), expand_tabs, tabsize).is_ok());
+            assert!(do_write_line(&mut output, line.as_bytes(), expand_tabs, tabsize, b"").is_ok());
             assert_eq!(output, expected.as_bytes());
         }
 

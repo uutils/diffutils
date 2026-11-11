@@ -203,7 +203,14 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
         }
         for expected in &result.expected {
             write!(&mut output, "< ").unwrap();
-            do_write_line(&mut output, expected, params.expand_tabs, params.tabsize).unwrap();
+            do_write_line(
+                &mut output,
+                expected,
+                params.expand_tabs,
+                params.tabsize,
+                b"< ",
+            )
+            .unwrap();
             writeln!(&mut output).unwrap();
         }
         if result.expected_missing_nl {
@@ -214,7 +221,14 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
         }
         for actual in &result.actual {
             write!(&mut output, "> ").unwrap();
-            do_write_line(&mut output, actual, params.expand_tabs, params.tabsize).unwrap();
+            do_write_line(
+                &mut output,
+                actual,
+                params.expand_tabs,
+                params.tabsize,
+                b"> ",
+            )
+            .unwrap();
             writeln!(&mut output).unwrap();
         }
         if result.actual_missing_nl {

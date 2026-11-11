@@ -158,7 +158,8 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Result<Vec<u8>, 
                     writeln!(&mut output, "..\n.\ns/.//").unwrap();
                     in_text = false;
                 } else {
-                    do_write_line(&mut output, actual, params.expand_tabs, params.tabsize).unwrap();
+                    do_write_line(&mut output, actual, params.expand_tabs, params.tabsize, b"")
+                        .unwrap();
                     writeln!(&mut output).unwrap();
                 }
             }
