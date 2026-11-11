@@ -37,29 +37,37 @@ pub fn compare(params: &Params, option_args: &[OsString]) -> Outcome {
 struct DirectoryWalker<'a> {
     params: &'a Params,
     option_args: &'a [OsString],
-    /// Canonical paths of the directories being compared, from the top, to
-    /// detect symbolic links looping back to one of them.
-    ancestors: Vec<PathBuf>,
+    /// Canonical paths of the pairs of directories being compared, from the
+    /// top, to detect symbolic links looping back to one of them. A directory
+    /// missing on purpose (-N) has none.
+    ancestors: Vec<[Option<PathBuf>; 2]>,
 }
 
 impl DirectoryWalker<'_> {
     fn compare_directories(&mut self, from_dir: &OsStr, to_dir: &OsStr) -> Outcome {
         let mut outcome = Outcome::Identical;
-        let mut canonical_dirs = Vec::new();
-        for dir in [from_dir, to_dir] {
-            let Ok(canonical) = fs::canonicalize(dir) else {
-                // A directory missing on purpose (-N) has no entries.
-                continue;
-            };
-            if self.ancestors.contains(&canonical) {
-                eprintln!(
-                    "{}: {}: recursive directory loop",
-                    self.params.executable.to_string_lossy(),
-                    dir.to_string_lossy()
-                );
-                return Outcome::Trouble;
-            }
-            canonical_dirs.push(canonical);
+        let dirs = [from_dir, to_dir];
+        let canonical_dirs = dirs.map(|dir| fs::canonicalize(dir).ok());
+        // A side is checked against its own ancestors only. As long as the
+        // other side is a directory that is not one of its ancestors, that
+        // side's finite tree ends the recursion.
+        let loops = |side: usize| {
+            canonical_dirs[side].as_ref().is_none_or(|dir| {
+                let mut ancestors = self.ancestors.iter().map(|pair| pair[side].as_ref());
+                ancestors.any(|ancestor| ancestor == Some(dir))
+            })
+        };
+        if let (true, true, Some(side)) = (
+            loops(0),
+            loops(1),
+            canonical_dirs.iter().position(Option::is_some),
+        ) {
+            eprintln!(
+                "{}: {}: recursive directory loop",
+                self.params.executable.to_string_lossy(),
+                dirs[side].to_string_lossy()
+            );
+            return Outcome::Trouble;
         }
         let (Some(mut from_names), Some(mut to_names)) = (self.list(from_dir), self.list(to_dir))
         else {
@@ -71,8 +79,7 @@ impl DirectoryWalker<'_> {
             from_names.retain(|name| *self.name_key(name) >= *start);
             to_names.retain(|name| *self.name_key(name) >= *start);
         }
-        let ancestors_len = self.ancestors.len();
-        self.ancestors.extend(canonical_dirs);
+        self.ancestors.push(canonical_dirs);
 
         let entries = pair_entries(&from_names, &to_names, |from, to| {
             self.name_key(from).cmp(&self.name_key(to))
@@ -95,7 +102,7 @@ impl DirectoryWalker<'_> {
             };
             outcome = outcome.max(entry_outcome);
         }
-        self.ancestors.truncate(ancestors_len);
+        self.ancestors.pop();
         outcome
     }
 
