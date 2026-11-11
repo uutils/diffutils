@@ -748,6 +748,58 @@ fn compare_directories_special_entries() -> Result<(), Box<dyn std::error::Error
     Ok(())
 }
 
+// The POSIX locale only knows the ASCII letters, so --ignore-file-name-case
+// does not make É and é the same name there.
+#[cfg(unix)]
+#[test]
+fn ignore_file_name_case_is_ascii_only_in_posix_locale() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+    let dir = tmp_dir.path();
+    for (side, accented, plain) in [("one", "É", "Plain"), ("two", "é", "plain")] {
+        std::fs::create_dir(dir.join(side))?;
+        std::fs::write(dir.join(side).join(accented), "a\n")?;
+        std::fs::write(dir.join(side).join(plain), "a\n")?;
+    }
+    let diff = |locale: &[(&str, &str)], args: &[&str]| {
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.current_dir(dir)
+            .arg("diff")
+            .arg("--ignore-file-name-case");
+        // LC_ALL overrides LC_CTYPE, which overrides LANG; empty values are unset.
+        for name in ["LC_ALL", "LC_CTYPE", "LANG"] {
+            cmd.env_remove(name);
+        }
+        cmd.envs(locale.iter().copied()).args(args);
+        cmd.assert()
+    };
+
+    for locale in [
+        &[("LC_ALL", "C")][..],
+        &[("LC_ALL", "POSIX"), ("LC_CTYPE", "en_US.UTF-8")],
+        &[("LC_ALL", ""), ("LC_CTYPE", "C"), ("LANG", "en_US.UTF-8")],
+        &[("LANG", "C")],
+        &[],
+    ] {
+        diff(locale, &["-r", "one", "two"])
+            .code(predicate::eq(1))
+            .stdout("Only in one: É\nOnly in two: é\n");
+        diff(locale, &["one/É", "two"])
+            .code(predicate::eq(2))
+            .stderr(predicate::str::contains("No such file or directory"));
+    }
+    for locale in [
+        &[("LC_ALL", "C.UTF-8")][..],
+        &[("LC_CTYPE", "en_US.UTF-8"), ("LANG", "C")],
+        &[("LANG", "fr_FR.UTF-8")],
+    ] {
+        diff(locale, &["-r", "one", "two"])
+            .code(predicate::eq(0))
+            .stdout("");
+        diff(locale, &["one/É", "two"]).code(predicate::eq(0));
+    }
+    Ok(())
+}
+
 #[test]
 fn directory_name_matching() -> Result<(), Box<dyn std::error::Error>> {
     let tmp_dir = tempdir()?;
