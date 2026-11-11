@@ -818,6 +818,42 @@ fn directory_name_matching() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+// An entry with the exact name is used even if it is a dangling symlink; a
+// case variant only stands in for a name that is not there at all.
+#[cfg(unix)]
+#[test]
+fn ignore_file_name_case_keeps_exact_dangling_link() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+    let file = tmp_dir.path().join("foo");
+    std::fs::write(&file, "foo\n")?;
+
+    // Which entry a directory lists first is up to the file system (oldest
+    // first, newest first, hashed), so create the link both before and after
+    // several variants: at least one layout lists a variant first.
+    for link_first in [true, false] {
+        let dir = tmp_dir.path().join(format!("link_first_{link_first}"));
+        std::fs::create_dir(&dir)?;
+        if link_first {
+            std::os::unix::fs::symlink("gone", dir.join("foo"))?;
+        }
+        for variant in ["FOO", "Foo", "fOO", "foO", "FoO"] {
+            std::fs::write(dir.join(variant), "zz\n")?;
+        }
+        if !link_first {
+            std::os::unix::fs::symlink("gone", dir.join("foo"))?;
+        }
+
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.arg("diff").arg("--ignore-file-name-case");
+        cmd.arg(&file).arg(&dir);
+        cmd.assert()
+            .code(predicate::eq(2))
+            .stdout("")
+            .stderr(predicate::str::contains("No such file or directory"));
+    }
+    Ok(())
+}
+
 #[cfg(unix)]
 #[test]
 fn no_dereference() -> Result<(), Box<dyn std::error::Error>> {
