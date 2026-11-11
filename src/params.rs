@@ -301,9 +301,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
             }) => {
                 if is_match {
                     format = Some(Format::Context);
-                    if context_count.is_some() {
-                        context = context_count;
-                    }
+                    context = Some(largest_context(context, context_count));
                     if next_param_consumed {
                         opts.next();
                     }
@@ -320,9 +318,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
             }) => {
                 if is_match {
                     format = Some(Format::Unified);
-                    if context_count.is_some() {
-                        context = context_count;
-                    }
+                    context = Some(largest_context(context, context_count));
                     if next_param_consumed {
                         opts.next();
                     }
@@ -472,6 +468,13 @@ fn push_function_line_pattern(params: &mut Params, pattern: &str) -> Result<(), 
     let bre = Bre::new(pattern).map_err(|error| format!("'{pattern}': {error}"))?;
     params.function_line_patterns.push(bre);
     Ok(())
+}
+
+/// GNU diff uses the largest context length given, and a bare -c or -u
+/// counts as a request for 3 lines.
+fn largest_context(current: Option<usize>, given: Option<usize>) -> usize {
+    let given = given.unwrap_or(3);
+    current.map_or(given, |current| current.max(given))
 }
 
 struct DiffStyleMatch {
