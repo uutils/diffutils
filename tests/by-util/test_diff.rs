@@ -1163,6 +1163,54 @@ fn function_lines() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+// A function line is cut at 40 bytes, even inside a multi-byte character.
+#[test]
+fn function_line_is_cut_at_40_bytes() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+    let old = tmp_dir.path().join("old");
+    let new = tmp_dir.path().join("new");
+    let function_line = format!("func_{}()", "é".repeat(40));
+    std::fs::write(&old, format!("{function_line}\n1\n2\n3\n4\n5\n6\n"))?;
+    std::fs::write(&new, format!("{function_line}\n1\n2\n3\n4\nX\n6\n"))?;
+
+    let mut expected = b"@@ -3,5 +3,5 @@ ".to_vec();
+    expected.extend(&function_line.as_bytes()[..40]);
+    expected.push(b'\n');
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff").arg("-u").arg("-p").arg(&old).arg(&new);
+    let output = cmd.assert().code(predicate::eq(1)).get_output().clone();
+    let header = output.stdout.split_inclusive(|&byte| byte == b'\n').nth(2);
+    assert_eq!(header, Some(expected.as_slice()));
+    Ok(())
+}
+
+// Vertical tabs count as white space around a function line, as they do for
+// C's isspace().
+#[test]
+fn function_line_vertical_tabs_are_trimmed() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+    let old = tmp_dir.path().join("old");
+    let new = tmp_dir.path().join("new");
+    std::fs::write(&old, "\x0b\x0c fg() \t\x0c\r\x0b\n1\n2\n3\n4\n5\n6\n")?;
+    std::fs::write(&new, "\x0b\x0c fg() \t\x0c\r\x0b\n1\n2\n3\n4\nX\n6\n")?;
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff").arg("-u").arg("-F").arg("fg");
+    cmd.arg(&old).arg(&new);
+    cmd.assert()
+        .code(predicate::eq(1))
+        .stdout(predicate::str::contains("\n@@ -3,5 +3,5 @@ fg()\n"));
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff").arg("-c").arg("-F").arg("fg");
+    cmd.arg(&old).arg(&new);
+    cmd.assert()
+        .code(predicate::eq(1))
+        .stdout(predicate::str::contains("\n*************** fg()\n"));
+    Ok(())
+}
+
 #[cfg(unix)]
 #[test]
 fn quoted_file_names() -> Result<(), Box<dyn std::error::Error>> {
