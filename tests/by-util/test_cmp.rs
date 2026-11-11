@@ -72,6 +72,32 @@ fn cmp_incompatible_params() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+// Checking whether the operands are the same file must not open them: a FIFO
+// can only be read once.
+#[cfg(unix)]
+#[test]
+fn cmp_fifo_operands_are_read_once() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+    let mut writers = Vec::new();
+    let mut fifos = Vec::new();
+    for (name, content) in [("one", "a\nb\n"), ("two", "a\nc\n")] {
+        let fifo = tmp_dir.path().join(name);
+        let status = std::process::Command::new("mkfifo").arg(&fifo).status()?;
+        assert!(status.success());
+        fifos.push(fifo.clone());
+        writers.push(std::thread::spawn(move || std::fs::write(fifo, content)));
+    }
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("cmp").arg("-s").args(&fifos);
+    cmd.timeout(std::time::Duration::from_secs(10));
+    cmd.assert().code(predicate::eq(1));
+    for writer in writers {
+        writer.join().unwrap()?;
+    }
+    Ok(())
+}
+
 #[test]
 fn cmp_stdin() -> Result<(), Box<dyn std::error::Error>> {
     let tmp_dir = tempdir()?;

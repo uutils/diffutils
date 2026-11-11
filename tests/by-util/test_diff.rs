@@ -748,6 +748,34 @@ fn compare_directories_special_entries() -> Result<(), Box<dyn std::error::Error
     Ok(())
 }
 
+// A FIFO can only be read once: checking whether the operands are the same
+// file must not open them, or the writer's data is gone before the read.
+#[cfg(unix)]
+#[test]
+fn fifo_operands_are_read_once() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+    let mut writers = Vec::new();
+    let mut fifos = Vec::new();
+    for (name, content) in [("one", "a\nb\n"), ("two", "a\nc\n")] {
+        let fifo = tmp_dir.path().join(name);
+        let status = std::process::Command::new("mkfifo").arg(&fifo).status()?;
+        assert!(status.success());
+        fifos.push(fifo.clone());
+        writers.push(std::thread::spawn(move || std::fs::write(fifo, content)));
+    }
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("diff").args(&fifos);
+    cmd.timeout(std::time::Duration::from_secs(10));
+    cmd.assert()
+        .code(predicate::eq(1))
+        .stdout("2c2\n< b\n---\n> c\n");
+    for writer in writers {
+        writer.join().unwrap()?;
+    }
+    Ok(())
+}
+
 #[test]
 fn directory_name_matching() -> Result<(), Box<dyn std::error::Error>> {
     let tmp_dir = tempdir()?;
