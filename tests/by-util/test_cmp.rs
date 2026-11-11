@@ -56,6 +56,71 @@ fn cmp_verbose_offset_width_after_skip() -> Result<(), Box<dyn std::error::Error
 }
 
 #[test]
+fn cmp_verbose_offset_width_stdin() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_dir = tempdir()?;
+    let b_path = tmp_dir.path().join("b");
+    File::create(&b_path)?.write_all(b"abcdeXghiY")?;
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.env("LC_ALL", "C");
+    cmd.arg("cmp").arg("-l").arg("-").arg(&b_path);
+    cmd.write_stdin("abcdefghij");
+    cmd.assert()
+        .code(predicate::eq(1))
+        .stdout(predicate::eq(" 6 146 130\n10 152 131\n"));
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.env("LC_ALL", "C");
+    cmd.arg("cmp").arg("-l").arg(&b_path).arg("-");
+    cmd.write_stdin("abcdefghij");
+    cmd.assert()
+        .code(predicate::eq(1))
+        .stdout(predicate::eq(" 6 130 146\n10 131 152\n"));
+    Ok(())
+}
+
+#[test]
+#[cfg(unix)]
+fn cmp_silent_pipe_operand_is_read() -> Result<(), Box<dyn std::error::Error>> {
+    // /dev/stdin is a pipe here, so its metadata reports a size of 0. That size must not be
+    // used for the -s early exit, or equal input is reported as different.
+    let tmp_dir = tempdir()?;
+    let b_path = tmp_dir.path().join("b");
+    File::create(&b_path)?.write_all(b"abcdefghij")?;
+
+    for args in [["/dev/stdin", "b"], ["b", "/dev/stdin"]] {
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.current_dir(tmp_dir.path());
+        cmd.arg("cmp").arg("-s").args(args);
+        cmd.write_stdin("abcdefghij");
+        cmd.assert()
+            .code(predicate::eq(0))
+            .stdout(predicate::str::is_empty());
+
+        let mut cmd = cargo_bin_cmd!("diffutils");
+        cmd.current_dir(tmp_dir.path());
+        cmd.arg("cmp").arg("-s").args(args);
+        cmd.write_stdin("abcdeXghij");
+        cmd.assert()
+            .code(predicate::eq(1))
+            .stdout(predicate::str::is_empty());
+    }
+
+    // A character device on one side: /dev/null is empty, so it equals an empty file and
+    // differs from a non-empty one.
+    let empty_path = tmp_dir.path().join("empty");
+    File::create(&empty_path)?;
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("cmp").arg("-s").arg("/dev/null").arg(&empty_path);
+    cmd.assert().code(predicate::eq(0));
+
+    let mut cmd = cargo_bin_cmd!("diffutils");
+    cmd.arg("cmp").arg("-s").arg("/dev/null").arg(&b_path);
+    cmd.assert().code(predicate::eq(1));
+    Ok(())
+}
+
+#[test]
 fn cmp_incompatible_params() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = cargo_bin_cmd!("diffutils");
     cmd.arg("cmp");
