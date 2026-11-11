@@ -65,26 +65,24 @@ fn cmp_stdin(#[case] input: &str, #[case] code: i32, #[case] expected: &str) {
 // can only be read once.
 #[cfg(unix)]
 #[test]
-fn cmp_fifo_operands_are_read_once() -> Result<(), Box<dyn std::error::Error>> {
-    let tmp_dir = tempdir()?;
+fn cmp_fifo_operands_are_read_once() {
+    let (at, ts) = at_and_ts!();
     let mut writers = Vec::new();
-    let mut fifos = Vec::new();
     for (name, content) in [("one", "a\nb\n"), ("two", "a\nc\n")] {
-        let fifo = tmp_dir.path().join(name);
-        let status = std::process::Command::new("mkfifo").arg(&fifo).status()?;
-        assert!(status.success());
-        fifos.push(fifo.clone());
+        at.mkfifo(name);
+        let fifo = at.plus(name);
         writers.push(std::thread::spawn(move || std::fs::write(fifo, content)));
     }
 
-    let mut cmd = cargo_bin_cmd!("diffutils");
-    cmd.arg("cmp").arg("-s").args(&fifos);
-    cmd.timeout(std::time::Duration::from_secs(10));
-    cmd.assert().code(predicate::eq(1));
+    ts.ucmd()
+        .args(&["-s", "one", "two"])
+        .timeout(std::time::Duration::from_secs(10))
+        .run()
+        .code_is(1)
+        .no_output();
     for writer in writers {
-        writer.join().unwrap()?;
+        writer.join().unwrap().unwrap();
     }
-    Ok(())
 }
 
 #[test]
