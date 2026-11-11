@@ -760,6 +760,11 @@ fn ignore_file_name_case_is_ascii_only_in_posix_locale() -> Result<(), Box<dyn s
         std::fs::write(dir.join(side).join(accented), "a\n")?;
         std::fs::write(dir.join(side).join(plain), "a\n")?;
     }
+    if dir.join("two/É").exists() {
+        // The file system is not case-sensitive, so it finds é under
+        // either name whatever the locale.
+        return Ok(());
+    }
     let diff = |locale: &[(&str, &str)], args: &[&str]| {
         let mut cmd = cargo_bin_cmd!("diffutils");
         cmd.current_dir(dir)
