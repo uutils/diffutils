@@ -204,8 +204,8 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
                 let skip = parse_size(&skip_desc, "ignore-initial", &skip_desc)?;
                 (skip, skip)
             };
-            params.skip_a = Some(skip_a);
-            params.skip_b = Some(skip_b);
+            params.skip_a = params.skip_a.max(Some(skip_a));
+            params.skip_b = params.skip_b.max(Some(skip_b));
             continue;
         }
         if param == "-s" || param == "--quiet" || param == "--silent" {
@@ -262,23 +262,22 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
         OsString::from("-")
     };
 
-    // GNU cmp ignores positional skip arguments if -i is provided.
-    if params.skip_a.is_none() {
-        if skip_pos1.is_some() {
-            params.skip_a = skip_pos1;
-        } else if let Some(param) = opts.next() {
+    if skip_pos1.is_none() {
+        if let Some(param) = opts.next() {
             let param_str = param.to_string_lossy().to_string();
-            params.skip_a = Some(parse_size(&param_str, "ignore-initial", &param_str)?);
-        }
-    };
-    if params.skip_b.is_none() {
-        if skip_pos2.is_some() {
-            params.skip_b = skip_pos2;
-        } else if let Some(param) = opts.next() {
-            let param_str = param.to_string_lossy().to_string();
-            params.skip_b = Some(parse_size(&param_str, "ignore-initial", &param_str)?);
+            skip_pos1 = Some(parse_size(&param_str, "ignore-initial", &param_str)?);
         }
     }
+    if skip_pos2.is_none() {
+        if let Some(param) = opts.next() {
+            let param_str = param.to_string_lossy().to_string();
+            skip_pos2 = Some(parse_size(&param_str, "ignore-initial", &param_str)?);
+        }
+    }
+
+    // Like GNU cmp, use the larger of the -i value and the positional skip.
+    params.skip_a = params.skip_a.max(skip_pos1);
+    params.skip_b = params.skip_b.max(skip_pos2);
 
     Ok(params)
 }
@@ -1149,25 +1148,74 @@ mod tests {
             }
         }
 
-        // Ignores positional arguments when -i is provided.
+        // Uses the larger of the -i value and the positional skip, like GNU.
         assert_eq!(
             Ok(Params {
                 executable: os("cmp"),
                 from: os("foo"),
                 to: os("bar"),
-                skip_a: Some(1),
-                skip_b: Some(2),
+                skip_a: Some(5),
+                skip_b: Some(4),
                 ..Default::default()
             }),
             parse_params(
                 [
                     os("cmp"),
                     os("-i"),
-                    os("1:2"),
+                    os("5:2"),
                     os("foo"),
                     os("bar"),
                     os("3"),
                     os("4")
+                ]
+                .iter()
+                .cloned()
+                .peekable()
+            )
+        );
+        assert_eq!(
+            Ok(Params {
+                executable: os("cmp"),
+                from: os("foo"),
+                to: os("bar"),
+                skip_a: Some(6),
+                skip_b: Some(1),
+                ..Default::default()
+            }),
+            parse_params(
+                [
+                    os("cmp"),
+                    os("-i"),
+                    os("1"),
+                    os("--"),
+                    os("foo"),
+                    os("bar"),
+                    os("6")
+                ]
+                .iter()
+                .cloned()
+                .peekable()
+            )
+        );
+
+        // Also the larger value when -i is given more than once.
+        assert_eq!(
+            Ok(Params {
+                executable: os("cmp"),
+                from: os("foo"),
+                to: os("bar"),
+                skip_a: Some(2),
+                skip_b: Some(1),
+                ..Default::default()
+            }),
+            parse_params(
+                [
+                    os("cmp"),
+                    os("-i"),
+                    os("1"),
+                    os("--ignore-initial=2:0"),
+                    os("foo"),
+                    os("bar")
                 ]
                 .iter()
                 .cloned()
