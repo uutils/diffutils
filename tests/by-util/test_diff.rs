@@ -634,41 +634,37 @@ fn directory_name_matching() {
 // case variant only stands in for a name that is not there at all.
 #[cfg(unix)]
 #[test]
-fn ignore_file_name_case_keeps_exact_dangling_link() -> Result<(), Box<dyn std::error::Error>> {
-    let tmp_dir = tempdir()?;
-    let file = tmp_dir.path().join("foo");
-    std::fs::write(&file, "foo\n")?;
-    if tmp_dir.path().join("FOO").exists() {
+fn ignore_file_name_case_keeps_exact_dangling_link() {
+    let (at, ts) = at_and_ts!();
+    at.write("foo", "foo\n");
+    if at.file_exists("FOO") {
         // The file system is not case-sensitive: the variants below would
         // all be the link itself.
-        return Ok(());
+        return;
     }
 
     // Which entry a directory lists first is up to the file system (oldest
     // first, newest first, hashed), so create the link both before and after
     // several variants: at least one layout lists a variant first.
     for link_first in [true, false] {
-        let dir = tmp_dir.path().join(format!("link_first_{link_first}"));
-        std::fs::create_dir(&dir)?;
+        let dir = format!("link_first_{link_first}");
+        at.mkdir(&dir);
         if link_first {
-            std::os::unix::fs::symlink("gone", dir.join("foo"))?;
+            at.relative_symlink_file("gone", &format!("{dir}/foo"));
         }
         for variant in ["FOO", "Foo", "fOO", "foO", "FoO"] {
-            std::fs::write(dir.join(variant), "zz\n")?;
+            at.write(&format!("{dir}/{variant}"), "zz\n");
         }
         if !link_first {
-            std::os::unix::fs::symlink("gone", dir.join("foo"))?;
+            at.relative_symlink_file("gone", &format!("{dir}/foo"));
         }
 
-        let mut cmd = cargo_bin_cmd!("diffutils");
-        cmd.arg("diff").arg("--ignore-file-name-case");
-        cmd.arg(&file).arg(&dir);
-        cmd.assert()
-            .code(predicate::eq(2))
-            .stdout("")
-            .stderr(predicate::str::contains("No such file or directory"));
+        ts.ucmd()
+            .args(&["--ignore-file-name-case", "foo", &dir])
+            .fails_with_code(2)
+            .no_stdout()
+            .stderr_contains("No such file or directory");
     }
-    Ok(())
 }
 
 // Among names differing only by case, the one that is the same on both sides
