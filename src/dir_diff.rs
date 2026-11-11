@@ -37,29 +37,36 @@ pub fn compare(params: &Params, option_args: &[OsString]) -> Outcome {
 struct DirectoryWalker<'a> {
     params: &'a Params,
     option_args: &'a [OsString],
-    /// Canonical paths of the directories being compared, from the top, to
-    /// detect symbolic links looping back to one of them.
-    ancestors: Vec<PathBuf>,
+    /// Canonical paths of the pairs of directories being compared, from the
+    /// top, to detect symbolic links looping back to one of them. A directory
+    /// missing on purpose (-N) has none.
+    ancestors: Vec<[Option<PathBuf>; 2]>,
 }
 
 impl DirectoryWalker<'_> {
     fn compare_directories(&mut self, from_dir: &OsStr, to_dir: &OsStr) -> Outcome {
         let mut outcome = Outcome::Identical;
-        let mut canonical_dirs = Vec::new();
-        for dir in [from_dir, to_dir] {
-            let Ok(canonical) = fs::canonicalize(dir) else {
-                // A directory missing on purpose (-N) has no entries.
-                continue;
-            };
-            if self.ancestors.contains(&canonical) {
+        let dirs = [from_dir, to_dir];
+        let canonical_dirs = dirs.map(|dir| fs::canonicalize(dir).ok());
+        // A side is checked against its own ancestors only. As long as the
+        // other side is a directory that is not one of its ancestors, that
+        // side's finite tree ends the recursion.
+        let loops = |side: usize| {
+            canonical_dirs[side].as_ref().is_none_or(|dir| {
+                let mut ancestors = self.ancestors.iter().map(|pair| pair[side].as_ref());
+                ancestors.any(|ancestor| ancestor == Some(dir))
+            })
+        };
+        if loops(0) && loops(1) {
+            // Named after the first side that exists, as one may be missing (-N)
+            if let Some(side) = canonical_dirs.iter().position(Option::is_some) {
                 eprintln!(
                     "{}: {}: recursive directory loop",
                     self.params.executable.to_string_lossy(),
-                    dir.to_string_lossy()
+                    dirs[side].to_string_lossy()
                 );
                 return Outcome::Trouble;
             }
-            canonical_dirs.push(canonical);
         }
         let (Some(mut from_names), Some(mut to_names)) = (self.list(from_dir), self.list(to_dir))
         else {
@@ -71,8 +78,7 @@ impl DirectoryWalker<'_> {
             from_names.retain(|name| *self.name_key(name) >= *start);
             to_names.retain(|name| *self.name_key(name) >= *start);
         }
-        let ancestors_len = self.ancestors.len();
-        self.ancestors.extend(canonical_dirs);
+        self.ancestors.push(canonical_dirs);
 
         let entries = pair_entries(&from_names, &to_names, |from, to| {
             self.name_key(from).cmp(&self.name_key(to))
@@ -95,7 +101,7 @@ impl DirectoryWalker<'_> {
             };
             outcome = outcome.max(entry_outcome);
         }
-        self.ancestors.truncate(ancestors_len);
+        self.ancestors.pop();
         outcome
     }
 
@@ -301,40 +307,76 @@ enum Entry<'a> {
 }
 
 /// Merges two lists of names sorted by `order`, pairing the names that are
-/// equal according to it.
+/// equal according to it. Where several names of a list are equal (names
+/// differing only by case), those that are the same on both sides pair first
+/// and the others pair in order.
 fn pair_entries<'a>(
     from_names: &'a [OsString],
     to_names: &'a [OsString],
     order: impl Fn(&OsStr, &OsStr) -> Ordering,
 ) -> Vec<Entry<'a>> {
     let mut entries = Vec::with_capacity(from_names.len().max(to_names.len()));
-    let mut from_names = from_names.iter().map(OsString::as_os_str).peekable();
-    let mut to_names = to_names.iter().map(OsString::as_os_str).peekable();
+    let (mut from_names, mut to_names) = (from_names, to_names);
     loop {
-        let entry = match (from_names.peek(), to_names.peek()) {
+        match (from_names.first(), to_names.first()) {
             (None, None) => return entries,
-            (Some(&from), Some(&to)) => match order(from, to) {
-                Ordering::Equal => Entry::Both(from, to),
-                Ordering::Less => Entry::FromOnly(from),
-                Ordering::Greater => Entry::ToOnly(to),
+            (Some(from), Some(to)) => match order(from, to) {
+                Ordering::Equal => {
+                    // The names of each list equal to these two.
+                    let run_len = |names: &[OsString]| {
+                        let equal = names.iter().take_while(|name| order(name, from).is_eq());
+                        equal.count()
+                    };
+                    let (from_run, from_rest) = from_names.split_at(run_len(from_names));
+                    let (to_run, to_rest) = to_names.split_at(run_len(to_names));
+                    pair_equal_names(from_run, to_run, &mut entries);
+                    (from_names, to_names) = (from_rest, to_rest);
+                }
+                Ordering::Less => {
+                    entries.push(Entry::FromOnly(from));
+                    from_names = &from_names[1..];
+                }
+                Ordering::Greater => {
+                    entries.push(Entry::ToOnly(to));
+                    to_names = &to_names[1..];
+                }
             },
-            (Some(&from), None) => Entry::FromOnly(from),
-            (None, Some(&to)) => Entry::ToOnly(to),
-        };
-        match entry {
-            Entry::Both(..) => {
-                from_names.next();
-                to_names.next();
+            (Some(from), None) => {
+                entries.push(Entry::FromOnly(from));
+                from_names = &from_names[1..];
             }
-            Entry::FromOnly(_) => {
-                from_names.next();
-            }
-            Entry::ToOnly(_) => {
-                to_names.next();
+            (None, Some(to)) => {
+                entries.push(Entry::ToOnly(to));
+                to_names = &to_names[1..];
             }
         }
-        entries.push(entry);
     }
+}
+
+/// Pairs names that all compare equal: identical names together, then the
+/// remaining ones in order. Like GNU diff, the names left without a pair come
+/// after the pairs.
+fn pair_equal_names<'a>(
+    from_names: &'a [OsString],
+    to_names: &'a [OsString],
+    entries: &mut Vec<Entry<'a>>,
+) {
+    let is_exact = |name: &OsString, others: &[OsString]| others.contains(name);
+    let mut inexact_to_names = to_names.iter().filter(|to| !is_exact(to, from_names));
+    let mut from_only = Vec::new();
+    for from in from_names {
+        let to = if is_exact(from, to_names) {
+            Some(from)
+        } else {
+            inexact_to_names.next()
+        };
+        match to {
+            Some(to) => entries.push(Entry::Both(from, to)),
+            None => from_only.push(Entry::FromOnly(from)),
+        }
+    }
+    entries.extend(from_only);
+    entries.extend(inexact_to_names.map(|to| Entry::ToOnly(to)));
 }
 
 fn report_only_in(dir: &OsStr, name: &OsStr) -> Outcome {
@@ -412,5 +454,49 @@ mod tests {
             ]
         );
         assert_eq!(pair_entries(&[], &[], |a, b| a.cmp(b)), []);
+    }
+
+    #[test]
+    fn names_equal_by_order_pair_exact_matches_first() {
+        let names =
+            |names: &[&str]| -> Vec<OsString> { names.iter().map(OsString::from).collect() };
+        let ignoring_case = |a: &OsStr, b: &OsStr| {
+            let lowercase = |name: &OsStr| name.as_encoded_bytes().to_ascii_lowercase();
+            lowercase(a).cmp(&lowercase(b))
+        };
+        let name = OsStr::new;
+
+        let (from, to) = (names(&["f", "x"]), names(&["F", "f", "y"]));
+        assert_eq!(
+            pair_entries(&from, &to, ignoring_case),
+            [
+                Entry::Both(name("f"), name("f")),
+                Entry::ToOnly(name("F")),
+                Entry::FromOnly(name("x")),
+                Entry::ToOnly(name("y")),
+            ]
+        );
+
+        // What has no exact match pairs in order; the rest is unpaired, and
+        // comes after the pairs.
+        let (from, to) = (names(&["Ab", "aB"]), names(&["AB", "aB", "ab"]));
+        assert_eq!(
+            pair_entries(&from, &to, ignoring_case),
+            [
+                Entry::Both(name("Ab"), name("AB")),
+                Entry::Both(name("aB"), name("aB")),
+                Entry::ToOnly(name("ab")),
+            ]
+        );
+        let (from, to) = (names(&["AB", "Ab", "aB", "ab"]), names(&["ab"]));
+        assert_eq!(
+            pair_entries(&from, &to, ignoring_case),
+            [
+                Entry::Both(name("ab"), name("ab")),
+                Entry::FromOnly(name("AB")),
+                Entry::FromOnly(name("Ab")),
+                Entry::FromOnly(name("aB")),
+            ]
+        );
     }
 }
