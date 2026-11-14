@@ -399,19 +399,19 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
             match line {
                 DiffLine::Expected(e) => {
                     write!(output, "-").expect("write to Vec is infallible");
-                    do_write_line(&mut output, &e, params.expand_tabs, params.tabsize)
+                    do_write_line(&mut output, &e, params.expand_tabs, params.tabsize, b"")
                         .expect("write to Vec is infallible");
                     writeln!(output).unwrap();
                 }
                 DiffLine::Context(c) => {
                     write!(output, " ").expect("write to Vec is infallible");
-                    do_write_line(&mut output, &c, params.expand_tabs, params.tabsize)
+                    do_write_line(&mut output, &c, params.expand_tabs, params.tabsize, b"")
                         .expect("write to Vec is infallible");
                     writeln!(output).unwrap();
                 }
                 DiffLine::Actual(r) => {
                     write!(output, "+",).expect("write to Vec is infallible");
-                    do_write_line(&mut output, &r, params.expand_tabs, params.tabsize)
+                    do_write_line(&mut output, &r, params.expand_tabs, params.tabsize, b"")
                         .expect("write to Vec is infallible");
                     writeln!(output).unwrap();
                 }

@@ -359,6 +359,68 @@ fn color_bad_option(#[case] option: &str, #[case] error: &str) {
         .stderr_contains(error);
 }
 
+// With -t, the column moves like on a terminal: back to the start after a
+// carriage return, where the line marker is printed again, and one back for
+// a backspace. Other control characters take no room.
+#[test]
+fn expand_tabs_after_control_characters() {
+    let (at, ts) = at_and_ts!();
+    at.write(
+        "old",
+        "ab\rc\t1\nabc\x08d\t1\n\x08x\t1\na\x01\x1bb\t1\nend\r\n",
+    );
+    at.write(
+        "new",
+        "ab\rc\t2\nabc\x08d\t2\n\x08x\t2\na\x01\x1bb\t2\nend\r\n",
+    );
+    let diff = |format: &str| {
+        ts.ucmd()
+            .args(&["-t", format, "old", "new"])
+            .fails_with_code(1)
+    };
+
+    diff("--normal").stdout_only(
+        "1,4c1,4\n\
+         < ab\r< c       1\n\
+         < abc\x08d     1\n\
+         < x       1\n\
+         < a\x01\x1bb      1\n\
+         ---\n\
+         > ab\r> c       2\n\
+         > abc\x08d     2\n\
+         > x       2\n\
+         > a\x01\x1bb      2\n",
+    );
+    // The unified format does not repeat its marker.
+    diff("-U0").stdout_str_check(|s| {
+        s.ends_with(
+            "@@ -1,4 +1,4 @@\n\
+         -ab\rc       1\n\
+         -abc\x08d     1\n\
+         -x       1\n\
+         -a\x01\x1bb      1\n\
+         +ab\rc       2\n\
+         +abc\x08d     2\n\
+         +x       2\n\
+         +a\x01\x1bb      2\n",
+        )
+    });
+    diff("-C0").stdout_str_check(|s| {
+        s.ends_with(
+            "*** 1,4 ****\n\
+         ! ab\r! c       1\n\
+         ! abc\x08d     1\n\
+         ! x       1\n\
+         ! a\x01\x1bb      1\n\
+         --- 1,4 ----\n\
+         ! ab\r! c       2\n\
+         ! abc\x08d     2\n\
+         ! x       2\n\
+         ! a\x01\x1bb      2\n",
+        )
+    });
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn write_error() {
