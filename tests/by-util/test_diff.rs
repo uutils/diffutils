@@ -241,6 +241,37 @@ fn missing_file_as_empty_keeps_stdin_timestamp(
         .stdout_does_not_contain("1970");
 }
 
+// Only the first block of a file, as large as its preferred I/O size, is
+// looked at to decide whether it is binary.
+#[cfg(unix)]
+#[test]
+fn binary_detection_reads_first_block() {
+    use std::os::unix::fs::MetadataExt;
+
+    let (at, ts) = at_and_ts!();
+    let mut data = b"line\n".repeat(2000);
+    at.write_bytes("text", &data);
+    let block_size = usize::try_from(at.metadata("text").blksize()).unwrap();
+    if !(1..data.len()).contains(&block_size) {
+        return;
+    }
+    data[block_size] = 0;
+    at.write_bytes("late_nul", &data);
+    data[block_size - 1] = 0;
+    at.write_bytes("early_nul", &data);
+
+    // Each line is 5 bytes long
+    let line = block_size / 5 + 1;
+    for operands in [["late_nul", "text"], ["text", "late_nul"]] {
+        let result = ts.ucmd().args(&operands).fails_with_code(1);
+        assert!(result.stdout_str().starts_with(&format!("{line}c{line}\n")));
+    }
+    ts.ucmd()
+        .args(&["early_nul", "text"])
+        .fails_with_code(1)
+        .stdout_only("Binary files early_nul and text differ\n");
+}
+
 #[test]
 fn binary_files() {
     let (at, ts) = at_and_ts!();

@@ -87,51 +87,56 @@ pub fn compare_files(params: &Params, header: Option<&[u8]>) -> Outcome {
         return Outcome::Identical;
     }
 
-    // read files
-    fn read_file_contents(filepath: &OsString) -> io::Result<Vec<u8>> {
+    // read files, along with how many leading bytes decide if they are binary
+    fn read_file_contents(filepath: &OsString) -> io::Result<(Vec<u8>, usize)> {
+        let mut content = Vec::new();
         if filepath == "-" {
-            let mut content = Vec::new();
-            io::stdin().read_to_end(&mut content).and(Ok(content))
+            io::stdin().read_to_end(&mut content)?;
+            Ok((content, stdin_binary_probe_len()))
         } else {
-            fs::read(filepath)
+            let mut file = fs::File::open(filepath)?;
+            file.read_to_end(&mut content)?;
+            Ok((content, binary_probe_len(&file)))
         }
     }
     let mut io_error = false;
     let mut from_missing = false;
     let mut to_missing = false;
-    let from_content = match read_file_contents(&params.from) {
+    let (from_content, from_probe_len) = match read_file_contents(&params.from) {
         Ok(from_content) => from_content,
         Err(e)
             if e.kind() == io::ErrorKind::NotFound && params.missing_file != MissingFile::Error =>
         {
             from_missing = true;
-            vec![]
+            (vec![], 0)
         }
         Err(e) => {
             report_failure_to_read_input_file(&params.executable, &params.from, &e);
             io_error = true;
-            vec![]
+            (vec![], 0)
         }
     };
-    let to_content = match read_file_contents(&params.to) {
+    let (to_content, to_probe_len) = match read_file_contents(&params.to) {
         Ok(to_content) => to_content,
         Err(e)
             if e.kind() == io::ErrorKind::NotFound && params.missing_file == MissingFile::Empty =>
         {
             to_missing = true;
-            vec![]
+            (vec![], 0)
         }
         Err(e) => {
             report_failure_to_read_input_file(&params.executable, &params.to, &e);
             io_error = true;
-            vec![]
+            (vec![], 0)
         }
     };
     if io_error {
         return Outcome::Trouble;
     }
 
-    if !params.text && (is_binary(&from_content) || is_binary(&to_content)) {
+    if !params.text
+        && (is_binary(&from_content, from_probe_len) || is_binary(&to_content, to_probe_len))
+    {
         if from_content == to_content {
             maybe_report_identical_files();
             return Outcome::Identical;
@@ -248,12 +253,48 @@ fn output_palette(params: &Params) -> Option<Palette> {
     }
 }
 
-/// Number of leading bytes inspected when deciding whether an input is binary.
-const BINARY_PROBE_LEN: usize = 16 * 1024;
+/// Number of leading bytes inspected when deciding whether an input is binary,
+/// where the file system does not tell its preferred I/O size.
+const DEFAULT_BINARY_PROBE_LEN: usize = 16 * 1024;
 
-/// An input is treated as binary when a NUL byte occurs near its start.
-fn is_binary(content: &[u8]) -> bool {
-    content[..content.len().min(BINARY_PROBE_LEN)].contains(&0)
+/// An input is treated as binary when a NUL byte occurs in its first
+/// `probe_len` bytes.
+fn is_binary(content: &[u8], probe_len: usize) -> bool {
+    content[..content.len().min(probe_len)].contains(&0)
+}
+
+/// Like GNU diff, only the first buffer read from a file decides whether it
+/// is binary, and that buffer is as large as the preferred I/O size of the
+/// file (`st_blksize`).
+#[cfg(unix)]
+fn binary_probe_len(file: &fs::File) -> usize {
+    use std::os::unix::fs::MetadataExt;
+    file.metadata()
+        .ok()
+        .and_then(|metadata| usize::try_from(metadata.blksize()).ok())
+        .filter(|&len| len > 0)
+        .unwrap_or(DEFAULT_BINARY_PROBE_LEN)
+}
+
+#[cfg(not(unix))]
+fn binary_probe_len(_file: &fs::File) -> usize {
+    DEFAULT_BINARY_PROBE_LEN
+}
+
+#[cfg(unix)]
+fn stdin_binary_probe_len() -> usize {
+    use std::os::fd::AsFd;
+    io::stdin()
+        .as_fd()
+        .try_clone_to_owned()
+        .map_or(DEFAULT_BINARY_PROBE_LEN, |fd| {
+            binary_probe_len(&fs::File::from(fd))
+        })
+}
+
+#[cfg(not(unix))]
+fn stdin_binary_probe_len() -> usize {
+    DEFAULT_BINARY_PROBE_LEN
 }
 
 /// Print the one-line summary used instead of the differences, `kind` naming
