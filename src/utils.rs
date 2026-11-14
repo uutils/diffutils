@@ -163,11 +163,13 @@ pub fn quote_shell_argument(arg: &[u8]) -> Cow<'_, [u8]> {
     Cow::Owned(quoted)
 }
 
-/// Returns `name` in lowercase, to match file names ignoring case.
+/// Returns `name` in lowercase, to match file names ignoring case. On Unix,
+/// the POSIX locale only has the ASCII letters.
 pub fn fold_file_name_case(name: &OsStr) -> Vec<u8> {
+    let ascii_only = cfg!(unix) && is_posix_locale("LC_CTYPE");
     match name.to_str() {
-        Some(name) => name.to_lowercase().into_bytes(),
-        None => name.as_encoded_bytes().to_ascii_lowercase(),
+        Some(name) if !ascii_only => name.to_lowercase().into_bytes(),
+        _ => name.as_encoded_bytes().to_ascii_lowercase(),
     }
 }
 

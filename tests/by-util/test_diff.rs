@@ -574,6 +574,57 @@ fn recursive_loop_on_one_side_only() {
         .stderr_is("diff: one/sub/loop/sub/loop: recursive directory loop\n");
 }
 
+// The POSIX locale only knows the ASCII letters, so --ignore-file-name-case
+// does not make É and é the same name there.
+#[cfg(unix)]
+#[test]
+fn ignore_file_name_case_is_ascii_only_in_posix_locale() {
+    let (at, ts) = at_and_ts!();
+    for (side, accented, plain) in [("one", "É", "Plain"), ("two", "é", "plain")] {
+        at.mkdir(side);
+        at.write(&format!("{side}/{accented}"), "a\n");
+        at.write(&format!("{side}/{plain}"), "a\n");
+    }
+    if at.file_exists("two/É") {
+        // The file system is not case-sensitive, so it finds é under
+        // either name whatever the locale.
+        return;
+    }
+    // LC_ALL overrides LC_CTYPE, which overrides LANG; an empty value counts
+    // as unset, which replaces the LC_ALL=C that ucmd sets.
+    let diff = |locale: &[(&str, &str)], args: &[&str]| {
+        ts.ucmd()
+            .env("LC_ALL", "")
+            .envs(locale.iter().copied())
+            .arg("--ignore-file-name-case")
+            .args(args)
+            .run()
+    };
+
+    for locale in [
+        &[("LC_ALL", "C")][..],
+        &[("LC_ALL", "POSIX"), ("LC_CTYPE", "en_US.UTF-8")],
+        &[("LC_CTYPE", "C"), ("LANG", "en_US.UTF-8")],
+        &[("LANG", "C")],
+        &[],
+    ] {
+        diff(locale, &["-r", "one", "two"])
+            .code_is(1)
+            .stdout_only("Only in one: É\nOnly in two: é\n");
+        diff(locale, &["one/É", "two"])
+            .code_is(2)
+            .stderr_contains("No such file or directory");
+    }
+    for locale in [
+        &[("LC_ALL", "C.UTF-8")][..],
+        &[("LC_CTYPE", "en_US.UTF-8"), ("LANG", "C")],
+        &[("LANG", "fr_FR.UTF-8")],
+    ] {
+        diff(locale, &["-r", "one", "two"]).code_is(0).no_output();
+        diff(locale, &["one/É", "two"]).code_is(0);
+    }
+}
+
 #[test]
 fn directory_name_matching() {
     let (at, ts) = at_and_ts!();
