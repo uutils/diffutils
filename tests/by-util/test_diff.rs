@@ -873,6 +873,47 @@ fn function_lines() {
         .stderr_is("'\\(': Unmatched ( or \\(\n");
 }
 
+// A function line is cut at 40 bytes, even inside a multi-byte character.
+#[test]
+fn function_line_is_cut_at_40_bytes() {
+    let (at, ts) = at_and_ts!();
+    let function_line = format!("func_{}()", "é".repeat(40));
+    at.write("old", &format!("{function_line}\n1\n2\n3\n4\n5\n6\n"));
+    at.write("new", &format!("{function_line}\n1\n2\n3\n4\nX\n6\n"));
+
+    let mut expected = b"@@ -3,5 +3,5 @@ ".to_vec();
+    expected.extend(&function_line.as_bytes()[..40]);
+    expected.push(b'\n');
+
+    let result = ts
+        .ucmd()
+        .args(&["-u", "-p", "old", "new"])
+        .fails_with_code(1);
+    let header = result
+        .stdout()
+        .split_inclusive(|&byte| byte == b'\n')
+        .nth(2);
+    assert_eq!(header, Some(expected.as_slice()));
+}
+
+// Vertical tabs count as white space around a function line, as they do for
+// C's isspace().
+#[test]
+fn function_line_vertical_tabs_are_trimmed() {
+    let (at, ts) = at_and_ts!();
+    at.write("old", "\x0b\x0c fg() \t\x0c\r\x0b\n1\n2\n3\n4\n5\n6\n");
+    at.write("new", "\x0b\x0c fg() \t\x0c\r\x0b\n1\n2\n3\n4\nX\n6\n");
+
+    ts.ucmd()
+        .args(&["-u", "-F", "fg", "old", "new"])
+        .fails_with_code(1)
+        .stdout_contains("\n@@ -3,5 +3,5 @@ fg()\n");
+    ts.ucmd()
+        .args(&["-c", "-F", "fg", "old", "new"])
+        .fails_with_code(1)
+        .stdout_contains("\n*************** fg()\n");
+}
+
 #[cfg(unix)]
 #[test]
 fn quoted_file_names() {
@@ -941,4 +982,66 @@ fn trailing_context_without_final_newlines(#[case] format: &str, #[case] hunk: &
         .args(&[format, "file1", "file2"])
         .fails_with_code(1)
         .stdout_str_check(|s| s.ends_with(hunk));
+}
+
+#[rstest]
+#[case::unified(
+    &["-u", "--label", "a/x", "--label=b/x"],
+    "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-foo\n+bar\n"
+)]
+#[case::context(
+    &["-c", "-L", "old", "-Lnew"],
+    "*** old\n--- new\n***************\n*** 1 ****\n! foo\n--- 1 ----\n! bar\n"
+)]
+#[case::brief(&["-q", "-L", "old", "-L", "new"], "Files old and new differ\n")]
+#[case::space(
+    &["-u", "-L", "old name", "-L", "new"],
+    "--- old name\n+++ new\n@@ -1 +1 @@\n-foo\n+bar\n"
+)]
+fn labels_replace_file_names(#[case] options: &[&str], #[case] expected: &str) {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", "foo\n");
+    at.write("file2", "bar\n");
+    ts.ucmd()
+        .args(options)
+        .args(&["file1", "file2"])
+        .fails_with_code(1)
+        .stdout_is(expected);
+}
+
+#[test]
+fn labels_replace_identical_file_names() {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", "foo\n");
+    at.write("file2", "foo\n");
+    ts.ucmd()
+        .args(&["-s", "-L", "old", "-L", "new", "file1", "file2"])
+        .succeeds()
+        .stdout_is("Files old and new are identical\n");
+}
+
+#[test]
+fn labels_replace_file_names_in_directories() {
+    let (at, ts) = at_and_ts!();
+    at.mkdir("a");
+    at.mkdir("b");
+    at.write("a/f", "foo\n");
+    at.write("b/f", "bar\n");
+    ts.ucmd()
+        .args(&["-r", "-u", "-L", "old", "-L", "new", "a", "b"])
+        .fails_with_code(1)
+        .stdout_is("diff -r -u -L old -L new old new\n--- old\n+++ new\n@@ -1 +1 @@\n-foo\n+bar\n");
+}
+
+#[rstest]
+#[case::too_many(&["-L", "a", "-L", "b", "-L", "c", "file1", "file2"], "too many file label options")]
+#[case::missing_argument(&["file1", "file2", "-L"], "option '-L' requires an argument")]
+fn label_errors(#[case] args: &[&str], #[case] error: &str) {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", "foo\n");
+    at.write("file2", "bar\n");
+    ts.ucmd()
+        .args(args)
+        .fails_with_code(2)
+        .stderr_contains(error);
 }
