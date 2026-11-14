@@ -141,10 +141,10 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
     let mut skip_pos1 = None;
     let mut skip_pos2 = None;
 
-    let mut last_arg = executable_str.clone();
+    let mut last_arg = params.executable.clone();
 
     while let Some(param) = opts.next() {
-        last_arg = param.to_string_lossy().to_string();
+        last_arg = param.clone();
 
         if param == "--" {
             break;
@@ -270,7 +270,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
     } else {
         return Err(usage_error(
             &executable_str,
-            &format!("missing operand after '{last_arg}'"),
+            &format!("missing operand after '{}'", last_arg.to_string_lossy()),
         ));
     };
     params.to = if let Some(to) = to {
