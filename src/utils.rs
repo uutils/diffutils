@@ -15,13 +15,13 @@ use unicode_width::UnicodeWidthStr;
 /// Replace tabs by spaces in the input line.
 /// Correctly handle multi-bytes characters.
 /// This assumes that line does not contain any line breaks (if it does, the result is undefined).
-#[must_use]
 ///
 /// The column moves the way it would on a terminal: a carriage return goes
 /// back to the start of the line, and `marker` (the `< ` or `! ` in front of
 /// the line) is written again after it when more text follows. A backspace
 /// goes one column back, or is dropped at the start of the line, and other
 /// control characters take no room.
+#[must_use]
 pub fn do_expand_tabs(line: &[u8], tabsize: usize, marker: &[u8]) -> Vec<u8> {
     if !line
         .iter()
