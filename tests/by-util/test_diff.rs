@@ -630,6 +630,43 @@ fn directory_name_matching() {
         .no_stdout();
 }
 
+// An entry with the exact name is used even if it is a dangling symlink; a
+// case variant only stands in for a name that is not there at all.
+#[cfg(unix)]
+#[test]
+fn ignore_file_name_case_keeps_exact_dangling_link() {
+    let (at, ts) = at_and_ts!();
+    at.write("foo", "foo\n");
+    if at.file_exists("FOO") {
+        // The file system is not case-sensitive: the variants below would
+        // all be the link itself.
+        return;
+    }
+
+    // Which entry a directory lists first is up to the file system (oldest
+    // first, newest first, hashed), so create the link both before and after
+    // several variants: at least one layout lists a variant first.
+    for link_first in [true, false] {
+        let dir = format!("link_first_{link_first}");
+        at.mkdir(&dir);
+        if link_first {
+            at.relative_symlink_file("gone", &format!("{dir}/foo"));
+        }
+        for variant in ["FOO", "Foo", "fOO", "foO", "FoO"] {
+            at.write(&format!("{dir}/{variant}"), "zz\n");
+        }
+        if !link_first {
+            at.relative_symlink_file("gone", &format!("{dir}/foo"));
+        }
+
+        ts.ucmd()
+            .args(&["--ignore-file-name-case", "foo", &dir])
+            .fails_with_code(2)
+            .no_stdout()
+            .stderr_contains("No such file or directory");
+    }
+}
+
 // Among names differing only by case, the one that is the same on both sides
 // is the counterpart, whichever sorts first.
 #[test]

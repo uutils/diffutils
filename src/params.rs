@@ -457,7 +457,8 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
 /// `name`: `name` itself, or with --ignore-file-name-case, an entry whose name
 /// differs only by case when `name` does not exist.
 fn directory_entry(dir: &Path, name: &OsStr, params: &Params) -> OsString {
-    if params.ignore_file_name_case && !dir.join(name).exists() {
+    // symlink_metadata(), as exists() says no for a dangling symlink.
+    if params.ignore_file_name_case && dir.join(name).symlink_metadata().is_err() {
         let wanted = fold_file_name_case(name);
         let entries = std::fs::read_dir(dir).into_iter().flatten().flatten();
         if let Some(entry) = entries
