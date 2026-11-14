@@ -80,9 +80,12 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
 
     // Sizes for --ignore-initial and --bytes, with the same unit suffixes.
     let parse_size = |param: &str, option: &str, desc: &str| -> Result<SkipU64, String> {
-        let suffix_start = param
-            .find(|b: char| !b.is_ascii_digit())
-            .unwrap_or(param.len());
+        let bytes = param.as_bytes();
+        let mut suffix_start = 0;
+
+        while suffix_start < bytes.len() && bytes[suffix_start].is_ascii_digit() {
+            suffix_start += 1;
+        }
         let mut num = match param[..suffix_start].parse::<SkipU64>() {
             Ok(num) => num,
             Err(e) if *e.kind() == std::num::IntErrorKind::PosOverflow => SkipU64::MAX,
@@ -123,13 +126,22 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
                 }
             };
 
-            num = match num.overflowing_mul(multiplier) {
-                (n, false) => n,
-                _ => SkipU64::MAX,
-            }
+            num = num.saturating_mul(multiplier);
         }
 
         Ok(num)
+    };
+
+    let parse_skip = |skip_desc: &str| -> Result<(SkipU64, SkipU64), String> {
+        if let Some((skip_a, skip_b)) = skip_desc.split_once(':') {
+            Ok((
+                parse_size(skip_a, "ignore-initial", skip_desc)?,
+                parse_size(skip_b, "ignore-initial", skip_desc)?,
+            ))
+        } else {
+            let skip = parse_size(skip_desc, "ignore-initial", skip_desc)?;
+            Ok((skip, skip))
+        }
     };
 
     let mut params = Params {
@@ -144,7 +156,9 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
     let mut last_arg = params.executable.clone();
 
     while let Some(param) = opts.next() {
-        last_arg = param.clone();
+        if to.is_none() {
+            last_arg = param.clone();
+        }
 
         if param == "--" {
             break;
@@ -176,7 +190,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
             continue;
         }
 
-        let param_str = param.to_string_lossy().to_string();
+        let param_str = param.to_string_lossy();
         if param == "-n" || param_str.starts_with("--bytes=") {
             let max_bytes = if param == "-n" {
                 opts.next()
@@ -193,26 +207,18 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
             continue;
         }
         if param == "-i" || param_str.starts_with("--ignore-initial=") {
-            let skip_desc = if param == "-i" {
-                opts.next()
-                    .ok_or_else(|| {
-                        usage_error(&executable_str, "option requires an argument -- 'i'")
-                    })?
-                    .to_string_lossy()
-                    .to_string()
+            let (skip_a, skip_b) = if param == "-i" {
+                let value = opts.next().ok_or_else(|| {
+                    usage_error(&executable_str, "option requires an argument -- 'i'")
+                })?;
+
+                let skip_desc = value.to_string_lossy();
+                parse_skip(&skip_desc)?
             } else {
                 let (_, arg) = param_str.split_once('=').unwrap();
-                arg.to_string()
+                parse_skip(arg)?
             };
-            let (skip_a, skip_b) = if let Some((skip_a, skip_b)) = skip_desc.split_once(':') {
-                (
-                    parse_size(skip_a, "ignore-initial", &skip_desc)?,
-                    parse_size(skip_b, "ignore-initial", &skip_desc)?,
-                )
-            } else {
-                let skip = parse_size(&skip_desc, "ignore-initial", &skip_desc)?;
-                (skip, skip)
-            };
+
             params.skip_a = params.skip_a.max(Some(skip_a));
             params.skip_b = params.skip_b.max(Some(skip_b));
             continue;
