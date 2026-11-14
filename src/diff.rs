@@ -72,10 +72,11 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
 pub fn compare_files(params: &Params, header: Option<&[u8]>) -> Outcome {
     let maybe_report_identical_files = || {
         if params.report_identical_files {
+            let (from, to) = params.names();
             println!(
                 "Files {} and {} are identical",
-                params.from.to_string_lossy(),
-                params.to.to_string_lossy(),
+                from.to_string_lossy(),
+                to.to_string_lossy(),
             );
         }
     };
@@ -259,10 +260,11 @@ fn is_binary(content: &[u8]) -> bool {
 /// Print the one-line summary used instead of the differences, `kind` naming
 /// what was compared.
 fn print_files_differ(kind: &str, params: &Params) {
+    let (from, to) = params.names();
     println!(
         "{kind} {} and {} differ",
-        params.from.to_string_lossy(),
-        params.to.to_string_lossy()
+        from.to_string_lossy(),
+        to.to_string_lossy()
     );
 }
 
