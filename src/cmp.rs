@@ -36,6 +36,15 @@ pub struct Params {
     max_bytes: Option<BytesLimitU64>,
     verbose: bool,
     quiet: bool,
+    stdout_is_dev_null: bool,
+}
+
+impl Params {
+    /// Whether the difference and EOF reports are skipped. Error messages
+    /// are only hidden by `quiet`.
+    fn no_report(&self) -> bool {
+        self.quiet || self.stdout_is_dev_null
+    }
 }
 
 #[inline]
@@ -223,19 +232,19 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
         }
     }
 
-    // Do as GNU cmp, and completely disable printing if we are
-    // outputting to /dev/null.
-    #[cfg(not(target_os = "windows"))]
-    if is_stdout_dev_null() {
-        params.quiet = true;
-        params.verbose = false;
-        params.print_bytes = false;
-    }
-
     if params.quiet && params.verbose {
         return Err(format!(
             "{executable_str}: options -l and -s are incompatible"
         ));
+    }
+
+    // Do as GNU cmp, and disable reporting the differences if we are
+    // outputting to /dev/null.
+    #[cfg(not(target_os = "windows"))]
+    if is_stdout_dev_null() {
+        params.stdout_is_dev_null = true;
+        params.verbose = false;
+        params.print_bytes = false;
     }
 
     params.from = if let Some(from) = from {
@@ -316,7 +325,7 @@ pub fn cmp(params: &Params) -> Result<Cmp, String> {
 
         // If the files have different sizes, we already know they are not identical. If we have not
         // been asked to show even the first difference, we can quit early.
-        if params.quiet && a_size != b_size {
+        if params.no_report() && a_size != b_size {
             return Ok(Cmp::Different);
         }
 
@@ -630,7 +639,7 @@ fn report_eof(
     eof_on: &str,
     params: &Params,
 ) {
-    if params.quiet {
+    if params.no_report() {
         return;
     }
 
@@ -674,7 +683,7 @@ fn report_difference(
     at_line: u64,
     params: &Params,
 ) {
-    if params.quiet {
+    if params.no_report() {
         return;
     }
 

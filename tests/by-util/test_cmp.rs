@@ -61,6 +61,52 @@ fn cmp_stdin(#[case] input: &str, #[case] code: i32, #[case] expected: &str) {
         .stdout_only(expected);
 }
 
+// cmp turns the difference output off when its stdout is /dev/null.
+#[cfg(unix)]
+fn dev_null() -> std::fs::File {
+    OpenOptions::new().write(true).open("/dev/null").unwrap()
+}
+
+// Unlike -s, sending stdout to /dev/null must not hide error messages.
+#[test]
+#[cfg(unix)]
+fn cmp_dev_null_stdout_still_reports_errors() {
+    let (at, ts) = at_and_ts!();
+    at.write("a", "abc");
+
+    ts.ucmd()
+        .args(&["a", "missing"])
+        .set_stdout(dev_null())
+        .fails_with_code(2)
+        .stderr_contains("No such file or directory");
+    ts.ucmd()
+        .args(&["-l", "-s", "a"])
+        .set_stdout(dev_null())
+        .fails_with_code(2)
+        .stderr_str_check(|s| s.ends_with(": options -l and -s are incompatible\n"));
+}
+
+// The difference and EOF reports stay off when stdout is /dev/null.
+#[test]
+#[cfg(unix)]
+fn cmp_dev_null_stdout_reports_no_difference() {
+    let (at, ts) = at_and_ts!();
+    at.write("a", "abcdef");
+    at.write("shorter", "abc");
+    at.write("changed", "abcdeX");
+
+    for other in ["shorter", "changed"] {
+        for option in [&[][..], &["-l"], &["-b"]] {
+            ts.ucmd()
+                .args(option)
+                .args(&["a", other])
+                .set_stdout(dev_null())
+                .fails_with_code(1)
+                .no_stderr();
+        }
+    }
+}
+
 #[test]
 fn cmp_equal_files() {
     let (at, ts) = at_and_ts!();
