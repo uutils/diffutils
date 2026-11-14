@@ -71,6 +71,15 @@ fn missing_newline() {
         .stderr_str_check(|s| s.starts_with("No newline at end of file"));
 }
 
+#[test]
+fn huge_tabsize() {
+    new_ucmd!()
+        .args(&["--tabsize=18446744073709551615", "foo", "bar"])
+        .fails_with_code(2)
+        .no_stdout()
+        .stderr_contains("invalid tabsize «18446744073709551615»");
+}
+
 #[rstest]
 #[case::second(&["file1", "-"], "bar\n", "--- file1\tTIMESTAMP\n+++ -\tTIMESTAMP\n")]
 #[case::first(&["-", "file2"], "foo\n", "--- -\tTIMESTAMP\n+++ file2\tTIMESTAMP\n")]
