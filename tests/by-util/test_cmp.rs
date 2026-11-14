@@ -61,6 +61,30 @@ fn cmp_stdin(#[case] input: &str, #[case] code: i32, #[case] expected: &str) {
         .stdout_only(expected);
 }
 
+// Checking whether the operands are the same file must not open them: a FIFO
+// can only be read once.
+#[cfg(unix)]
+#[test]
+fn cmp_fifo_operands_are_read_once() {
+    let (at, ts) = at_and_ts!();
+    let mut writers = Vec::new();
+    for (name, content) in [("one", "a\nb\n"), ("two", "a\nc\n")] {
+        at.mkfifo(name);
+        let fifo = at.plus(name);
+        writers.push(std::thread::spawn(move || std::fs::write(fifo, content)));
+    }
+
+    ts.ucmd()
+        .args(&["-s", "one", "two"])
+        .timeout(std::time::Duration::from_secs(10))
+        .run()
+        .code_is(1)
+        .no_output();
+    for writer in writers {
+        writer.join().unwrap().unwrap();
+    }
+}
+
 #[test]
 fn cmp_equal_files() {
     let (at, ts) = at_and_ts!();

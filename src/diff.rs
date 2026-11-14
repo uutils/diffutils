@@ -5,7 +5,7 @@
 
 use crate::color::{colorize, ColorWhen, Palette, PaletteError};
 use crate::params::{parse_params, Format, MissingFile, Params};
-use crate::utils::report_failure_to_read_input_file;
+use crate::utils::{is_same_file, report_failure_to_read_input_file};
 use crate::{context_diff, dir_diff, ed_diff, normal_diff, side_diff, unified_diff};
 use std::env::ArgsOs;
 use std::ffi::OsString;
@@ -80,9 +80,7 @@ pub fn compare_files(params: &Params, header: Option<&[u8]>) -> Outcome {
         }
     };
     // if from and to are the same file, no need to perform any comparison
-    if params.from == "-" && params.to == "-"
-        || same_file::is_same_file(&params.from, &params.to).unwrap_or(false)
-    {
+    if params.from == "-" && params.to == "-" || is_same_file(&params.from, &params.to) {
         maybe_report_identical_files();
         return Outcome::Identical;
     }

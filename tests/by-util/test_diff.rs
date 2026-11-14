@@ -574,6 +574,30 @@ fn recursive_loop_on_one_side_only() {
         .stderr_is("diff: one/sub/loop/sub/loop: recursive directory loop\n");
 }
 
+// A FIFO can only be read once: checking whether the operands are the same
+// file must not open them, or the writer's data is gone before the read.
+#[cfg(unix)]
+#[test]
+fn fifo_operands_are_read_once() {
+    let (at, ts) = at_and_ts!();
+    let mut writers = Vec::new();
+    for (name, content) in [("one", "a\nb\n"), ("two", "a\nc\n")] {
+        at.mkfifo(name);
+        let fifo = at.plus(name);
+        writers.push(std::thread::spawn(move || std::fs::write(fifo, content)));
+    }
+
+    ts.ucmd()
+        .args(&["one", "two"])
+        .timeout(std::time::Duration::from_secs(10))
+        .run()
+        .code_is(1)
+        .stdout_only("2c2\n< b\n---\n> c\n");
+    for writer in writers {
+        writer.join().unwrap().unwrap();
+    }
+}
+
 #[test]
 fn directory_name_matching() {
     let (at, ts) = at_and_ts!();

@@ -3,7 +3,7 @@
 // For the full copyright and license information, please view the LICENSE-*
 // files that was distributed with this source code.
 
-use crate::utils::{format_failure_to_read_input_file, is_posix_locale};
+use crate::utils::{format_failure_to_read_input_file, is_posix_locale, is_same_file};
 use std::env::ArgsOs;
 use std::ffi::OsString;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
@@ -450,9 +450,7 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
         }
     };
 
-    if params.from == "-" && params.to == "-"
-        || same_file::is_same_file(&params.from, &params.to).unwrap_or(false)
-    {
+    if params.from == "-" && params.to == "-" || is_same_file(&params.from, &params.to) {
         return ExitCode::SUCCESS;
     }
 

@@ -163,6 +163,26 @@ pub fn quote_shell_argument(arg: &[u8]) -> Cow<'_, [u8]> {
     Cow::Owned(quoted)
 }
 
+/// Returns whether both paths lead to the same file.
+///
+/// On Unix this compares what stat() reports and never opens the files:
+/// opening a FIFO just to identify it would take its writer away from the
+/// read that follows.
+pub fn is_same_file(from: &OsStr, to: &OsStr) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        match (std::fs::metadata(from), std::fs::metadata(to)) {
+            (Ok(from), Ok(to)) => from.dev() == to.dev() && from.ino() == to.ino(),
+            _ => false,
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        same_file::is_same_file(from, to).unwrap_or(false)
+    }
+}
+
 /// Returns `name` in lowercase, to match file names ignoring case.
 pub fn fold_file_name_case(name: &OsStr) -> Vec<u8> {
     match name.to_str() {
