@@ -43,7 +43,7 @@ fn cmp_incompatible_params() {
     new_ucmd!()
         .args(&["-l", "-s", "/etc/passwd", "/etc/group"])
         .fails_with_code(2)
-        .stderr_str_check(|s| s.ends_with(": options -l and -s are incompatible\n"));
+        .stderr_str_check(|s| s.contains(": options -l and -s are incompatible\n"));
 }
 
 #[rstest]

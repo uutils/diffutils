@@ -38,6 +38,10 @@ pub struct Params {
     quiet: bool,
 }
 
+fn usage_error(executable: &str, msg: &str) -> String {
+    format!("{executable}: {msg}\n{executable}: Try '{executable} --help' for more information.")
+}
+
 #[inline]
 fn usage_string(executable: &str) -> String {
     format!("Usage: {executable} <from> <to>")
@@ -76,16 +80,20 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
 
     // Sizes for --ignore-initial and --bytes, with the same unit suffixes.
     let parse_size = |param: &str, option: &str, desc: &str| -> Result<SkipU64, String> {
-        let suffix_start = param
-            .find(|b: char| !b.is_ascii_digit())
-            .unwrap_or(param.len());
+        let bytes = param.as_bytes();
+        let mut suffix_start = 0;
+
+        while suffix_start < bytes.len() && bytes[suffix_start].is_ascii_digit() {
+            suffix_start += 1;
+        }
         let mut num = match param[..suffix_start].parse::<SkipU64>() {
             Ok(num) => num,
             Err(e) if *e.kind() == std::num::IntErrorKind::PosOverflow => SkipU64::MAX,
             Err(_) => {
-                return Err(format!(
-                    "{executable_str}: invalid --{option} value '{desc}'"
-                ))
+                return Err(usage_error(
+                    &executable_str,
+                    &format!("invalid --{option} value '{desc}'"),
+                ));
             }
         };
 
@@ -111,19 +119,29 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
                 "YB" => SkipU64::MAX, // 1_000_000_000_000_000_000_000_000,
                 "Y" => SkipU64::MAX,  // 1_208_925_819_614_629_174_706_176,
                 _ => {
-                    return Err(format!(
-                        "{executable_str}: invalid --{option} value '{desc}'"
+                    return Err(usage_error(
+                        &executable_str,
+                        &format!("invalid --{option} value '{desc}'"),
                     ));
                 }
             };
 
-            num = match num.overflowing_mul(multiplier) {
-                (n, false) => n,
-                _ => SkipU64::MAX,
-            }
+            num = num.saturating_mul(multiplier);
         }
 
         Ok(num)
+    };
+
+    let parse_skip = |skip_desc: &str| -> Result<(SkipU64, SkipU64), String> {
+        if let Some((skip_a, skip_b)) = skip_desc.split_once(':') {
+            Ok((
+                parse_size(skip_a, "ignore-initial", skip_desc)?,
+                parse_size(skip_b, "ignore-initial", skip_desc)?,
+            ))
+        } else {
+            let skip = parse_size(skip_desc, "ignore-initial", skip_desc)?;
+            Ok((skip, skip))
+        }
     };
 
     let mut params = Params {
@@ -134,7 +152,14 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
     let mut to = None;
     let mut skip_pos1 = None;
     let mut skip_pos2 = None;
+
+    let mut last_arg = params.executable.clone();
+
     while let Some(param) = opts.next() {
+        if to.is_none() {
+            last_arg = param.clone();
+        }
+
         if param == "--" {
             break;
         }
@@ -144,7 +169,10 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
             } else if to.is_none() {
                 to = Some(param);
             } else {
-                return Err(usage_string(&executable_str));
+                return Err(usage_error(
+                    &executable_str,
+                    "invalid --ignore-initial value '-'",
+                ));
             }
             continue;
         }
@@ -162,11 +190,13 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
             continue;
         }
 
-        let param_str = param.to_string_lossy().to_string();
+        let param_str = param.to_string_lossy();
         if param == "-n" || param_str.starts_with("--bytes=") {
             let max_bytes = if param == "-n" {
                 opts.next()
-                    .ok_or_else(|| usage_string(&executable_str))?
+                    .ok_or_else(|| {
+                        usage_error(&executable_str, "option requires an argument -- 'n'")
+                    })?
                     .to_string_lossy()
                     .to_string()
             } else {
@@ -177,24 +207,18 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
             continue;
         }
         if param == "-i" || param_str.starts_with("--ignore-initial=") {
-            let skip_desc = if param == "-i" {
-                opts.next()
-                    .ok_or_else(|| usage_string(&executable_str))?
-                    .to_string_lossy()
-                    .to_string()
+            let (skip_a, skip_b) = if param == "-i" {
+                let value = opts.next().ok_or_else(|| {
+                    usage_error(&executable_str, "option requires an argument -- 'i'")
+                })?;
+
+                let skip_desc = value.to_string_lossy();
+                parse_skip(&skip_desc)?
             } else {
                 let (_, arg) = param_str.split_once('=').unwrap();
-                arg.to_string()
+                parse_skip(arg)?
             };
-            let (skip_a, skip_b) = if let Some((skip_a, skip_b)) = skip_desc.split_once(':') {
-                (
-                    parse_size(skip_a, "ignore-initial", &skip_desc)?,
-                    parse_size(skip_b, "ignore-initial", &skip_desc)?,
-                )
-            } else {
-                let skip = parse_size(&skip_desc, "ignore-initial", &skip_desc)?;
-                (skip, skip)
-            };
+
             params.skip_a = params.skip_a.max(Some(skip_a));
             params.skip_b = params.skip_b.max(Some(skip_b));
             continue;
@@ -208,7 +232,10 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
             std::process::exit(0);
         }
         if param_str.starts_with('-') {
-            return Err(format!("unrecognized option '{}'", param.to_string_lossy()));
+            return Err(usage_error(
+                &executable_str,
+                &format!("unrecognized option '{}'", param.to_string_lossy()),
+            ));
         }
         if from.is_none() {
             from = Some(param);
@@ -219,7 +246,10 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
         } else if skip_pos2.is_none() {
             skip_pos2 = Some(parse_size(&param_str, "ignore-initial", &param_str)?);
         } else {
-            return Err(usage_string(&executable_str));
+            return Err(usage_error(
+                &executable_str,
+                &format!("extra operand '{param_str}'"),
+            ));
         }
     }
 
@@ -233,8 +263,9 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
     }
 
     if params.quiet && params.verbose {
-        return Err(format!(
-            "{executable_str}: options -l and -s are incompatible"
+        return Err(usage_error(
+            &executable_str,
+            "options -l and -s are incompatible",
         ));
     }
 
@@ -243,7 +274,10 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
     } else if let Some(param) = opts.next() {
         param
     } else {
-        return Err(usage_string(&executable_str));
+        return Err(usage_error(
+            &executable_str,
+            &format!("missing operand after '{}'", last_arg.to_string_lossy()),
+        ));
     };
     params.to = if let Some(to) = to {
         to
@@ -264,6 +298,13 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
             let param_str = param.to_string_lossy().to_string();
             skip_pos2 = Some(parse_size(&param_str, "ignore-initial", &param_str)?);
         }
+    }
+
+    if let Some(extra) = opts.next() {
+        return Err(usage_error(
+            &executable_str,
+            &format!("extra operand '{}'", extra.to_string_lossy()),
+        ));
     }
 
     // Like GNU cmp, use the larger of the -i value and the positional skip.
@@ -782,7 +823,7 @@ mod tests {
 
         // Bad positional arguments.
         assert_eq!(
-            Err("Usage: cmp <from> <to>".to_string()),
+            Err("cmp: extra operand '3'\ncmp: Try 'cmp --help' for more information.".to_string()),
             parse_params(
                 [os("cmp"), os("foo"), os("bar"), os("1"), os("2"), os("3")]
                     .iter()
@@ -791,7 +832,10 @@ mod tests {
             )
         );
         assert_eq!(
-            Err("Usage: cmp <from> <to>".to_string()),
+            Err(
+                "cmp: missing operand after 'cmp'\ncmp: Try 'cmp --help' for more information."
+                    .to_string()
+            ),
             parse_params([os("cmp")].iter().cloned().peekable())
         );
     }
@@ -904,7 +948,7 @@ mod tests {
 
         // Some options do not mix.
         assert_eq!(
-            Err("cmp: options -l and -s are incompatible".to_string()),
+            Err("cmp: options -l and -s are incompatible\ncmp: Try 'cmp --help' for more information.".to_string()),
             parse_params(
                 [os("cmp"), os("-l"), os("-s"), os("foo"), os("bar")]
                     .iter()
@@ -987,7 +1031,10 @@ mod tests {
 
         // Failure case
         assert_eq!(
-            Err("cmp: invalid --bytes value '1x'".to_string()),
+            Err(
+                "cmp: invalid --bytes value '1x'\ncmp: Try 'cmp --help' for more information."
+                    .to_string()
+            ),
             parse_params(
                 [os("cmp"), os("--bytes=1x"), os("foo"), os("bar")]
                     .iter()
@@ -1216,7 +1263,7 @@ mod tests {
 
         // Failure cases
         assert_eq!(
-            Err("cmp: invalid --ignore-initial value '1mb'".to_string()),
+            Err("cmp: invalid --ignore-initial value '1mb'\ncmp: Try 'cmp --help' for more information.".to_string()),
             parse_params(
                 [os("cmp"), os("--ignore-initial=1mb"), os("foo"), os("bar")]
                     .iter()
@@ -1225,7 +1272,7 @@ mod tests {
             )
         );
         assert_eq!(
-            Err("cmp: invalid --ignore-initial value '1:2:3'".to_string()),
+            Err("cmp: invalid --ignore-initial value '1:2:3'\ncmp: Try 'cmp --help' for more information.".to_string()),
             parse_params(
                 [
                     os("cmp"),
@@ -1239,7 +1286,7 @@ mod tests {
             )
         );
         assert_eq!(
-            Err("cmp: invalid --ignore-initial value '-1'".to_string()),
+            Err("cmp: invalid --ignore-initial value '-1'\ncmp: Try 'cmp --help' for more information.".to_string()),
             parse_params(
                 [os("cmp"), os("--ignore-initial=-1"), os("foo"), os("bar")]
                     .iter()
