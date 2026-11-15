@@ -12,8 +12,10 @@ use std::{
 };
 use unicode_width::UnicodeWidthStr;
 
-/// Replace tabs by spaces in the input line.
+/// Write the input line to an output stream, replacing tabs by spaces.
 /// Correctly handle multi-bytes characters.
+/// The spaces are written in small chunks, so a huge tab size does not
+/// need a huge buffer.
 /// This assumes that line does not contain any line breaks (if it does, the result is undefined).
 ///
 /// The column moves the way it would on a terminal: a carriage return goes
@@ -21,15 +23,13 @@ use unicode_width::UnicodeWidthStr;
 /// the line) is written again after it when more text follows. A backspace
 /// goes one column back, or is dropped at the start of the line, and other
 /// control characters take no room.
-#[must_use]
-pub fn do_expand_tabs(line: &[u8], tabsize: usize, marker: &[u8]) -> Vec<u8> {
-    if !line
-        .iter()
-        .any(|byte| matches!(byte, b'\t' | b'\r' | b'\x08'))
-    {
-        return line.to_vec();
-    }
-    let mut result = Vec::with_capacity(line.len() + tabsize);
+pub fn do_expand_tabs<W: Write>(
+    output: &mut W,
+    line: &[u8],
+    tabsize: usize,
+    marker: &[u8],
+) -> std::io::Result<()> {
+    const SPACES: [u8; 64] = [b' '; 64];
     let mut column = 0;
     let mut rest = line;
     while !rest.is_empty() {
@@ -39,34 +39,37 @@ pub fn do_expand_tabs(line: &[u8], tabsize: usize, marker: &[u8]) -> Vec<u8> {
             .unwrap_or(rest.len());
         let (text, after) = rest.split_at(text_len);
         column += text_width(text);
-        result.extend_from_slice(text);
+        output.write_all(text)?;
         let Some((&control, after)) = after.split_first() else {
             break;
         };
         match control {
             b'\t' => {
-                let spaces = tabsize - column % tabsize;
-                result.resize(result.len() + spaces, b' ');
+                let mut spaces = tabsize - column % tabsize;
                 column += spaces;
+                while spaces > 0 {
+                    let n = spaces.min(SPACES.len());
+                    output.write_all(&SPACES[..n])?;
+                    spaces -= n;
+                }
             }
             b'\r' => {
                 column = 0;
-                result.push(control);
+                output.write_all(&[control])?;
                 if !after.is_empty() {
-                    result.extend_from_slice(marker);
+                    output.write_all(marker)?;
                 }
             }
             b'\x08' if column == 0 => {}
             b'\x08' => {
                 column -= 1;
-                result.push(control);
+                output.write_all(&[control])?;
             }
-            _ => result.push(control),
+            _ => output.write_all(&[control])?,
         }
         rest = after;
     }
-
-    result
+    Ok(())
 }
 
 /// Number of columns `text` takes, where bytes that are not valid UTF-8 take
@@ -88,15 +91,15 @@ fn text_width(text: &[u8]) -> usize {
 /// This assumes that line does not contain any line breaks
 /// (if it does and tabs are to be expanded to spaces, the result is undefined).
 /// See [`do_expand_tabs`] for `marker`.
-pub fn do_write_line(
-    output: &mut Vec<u8>,
+pub fn do_write_line<W: Write>(
+    output: &mut W,
     line: &[u8],
     expand_tabs: bool,
     tabsize: usize,
     marker: &[u8],
 ) -> std::io::Result<()> {
     if expand_tabs {
-        output.write_all(do_expand_tabs(line, tabsize, marker).as_slice())
+        do_expand_tabs(output, line, tabsize, marker)
     } else {
         output.write_all(line)
     }
@@ -149,13 +152,24 @@ pub fn quote_file_name(name: &[u8]) -> Cow<'_, [u8]> {
 }
 
 /// Appends a file header line of the context or unified formats, such as
-/// `--- name\ttimestamp`, to `output`.
-pub fn write_file_header(output: &mut Vec<u8>, marker: &str, name: &OsStr, timestamp: &str) {
+/// `--- name\ttimestamp`, to `output`. A label replaces both the name and the
+/// timestamp, and is written as it is, without quoting.
+pub fn write_file_header(
+    output: &mut Vec<u8>,
+    marker: &str,
+    name: &OsStr,
+    label: Option<&OsStr>,
+    timestamp: &str,
+) {
     output.extend_from_slice(marker.as_bytes());
     output.push(b' ');
-    output.extend_from_slice(&quote_file_name(name.as_encoded_bytes()));
-    output.push(b'\t');
-    output.extend_from_slice(timestamp.as_bytes());
+    if let Some(label) = label {
+        output.extend_from_slice(label.as_encoded_bytes());
+    } else {
+        output.extend_from_slice(&quote_file_name(name.as_encoded_bytes()));
+        output.push(b'\t');
+        output.extend_from_slice(timestamp.as_bytes());
+    }
     output.push(b'\n');
 }
 
@@ -227,7 +241,7 @@ pub struct FunctionLineFinder<'a> {
 }
 
 impl<'a> FunctionLineFinder<'a> {
-    /// Maximum number of characters of a function line that are shown.
+    /// Maximum number of bytes of a function line that are shown.
     const MAX_WIDTH: usize = 40;
 
     /// Returns `None` when there are no patterns, so no function lines.
@@ -254,15 +268,20 @@ impl<'a> FunctionLineFinder<'a> {
             }
         }
         self.next_line = self.next_line.max(end);
-        let line = self.last_match?.trim_ascii_start();
-        let end = match std::str::from_utf8(line) {
-            Ok(text) => text
-                .char_indices()
-                .nth(Self::MAX_WIDTH)
-                .map_or(line.len(), |(end, _)| end),
-            Err(_) => line.len().min(Self::MAX_WIDTH),
-        };
-        Some(line[..end].trim_ascii_end().to_vec())
+        // C's isspace(): unlike `is_ascii_whitespace`, it includes vertical tab.
+        let is_space = |byte: &u8| byte.is_ascii_whitespace() || *byte == b'\x0b';
+        let line = self.last_match?;
+        let start = line
+            .iter()
+            .position(|byte| !is_space(byte))
+            .unwrap_or(line.len());
+        let line = &line[start..];
+        let line = &line[..line.len().min(Self::MAX_WIDTH)];
+        let end = line
+            .iter()
+            .rposition(|byte| !is_space(byte))
+            .map_or(0, |last| last + 1);
+        Some(line[..end].to_vec())
     }
 }
 
@@ -438,11 +457,14 @@ mod tests {
         use super::*;
         use pretty_assertions::assert_eq;
 
+        fn expand(line: &[u8], tabsize: usize, marker: &[u8]) -> Vec<u8> {
+            let mut output = Vec::new();
+            assert!(do_expand_tabs(&mut output, line, tabsize, marker).is_ok());
+            output
+        }
+
         fn assert_tab_expansion(line: &str, tabsize: usize, expected: &str) {
-            assert_eq!(
-                do_expand_tabs(line.as_bytes(), tabsize, b""),
-                expected.as_bytes()
-            );
+            assert_eq!(expand(line.as_bytes(), tabsize, b""), expected.as_bytes());
         }
 
         #[test]
@@ -471,7 +493,7 @@ mod tests {
         fn invalid_utf8() {
             // [240, 240, 152, 137] is an invalid UTF-8 sequence, so it is handled as 4 bytes
             assert_eq!(
-                do_expand_tabs(&[240, 240, 152, 137, 9, 102, 111, 111], 8, b""),
+                expand(&[240, 240, 152, 137, 9, 102, 111, 111], 8, b""),
                 &[240, 240, 152, 137, 32, 32, 32, 32, 102, 111, 111]
             );
             // Only the invalid byte counts as a column, not the whole chunk.
@@ -479,7 +501,7 @@ mod tests {
         }
 
         fn assert_tab_expansion_bytes(line: &[u8], tabsize: usize, expected: &[u8]) {
-            assert_eq!(do_expand_tabs(line, tabsize, b"< "), expected);
+            assert_eq!(expand(line, tabsize, b"< "), expected);
         }
 
         #[test]
@@ -496,6 +518,20 @@ mod tests {
             // Other control characters, C1 ones included, take no room.
             assert_tab_expansion_bytes(b"a\x01\x7f\x1bb\tc", 8, b"a\x01\x7f\x1bb      c");
             assert_tab_expansion_bytes("a\u{80}b\tc".as_bytes(), 4, "a\u{80}b  c".as_bytes());
+        }
+
+        #[test]
+        fn huge_tabsize() {
+            // The spaces are streamed to the writer, so the largest accepted
+            // tab size neither overflows nor needs a huge buffer up front.
+            let mut buf = [0u8; 1000];
+            let mut output = &mut buf[..];
+            assert!(
+                do_expand_tabs(&mut output, b"a\tb\tc", crate::params::MAX_TABSIZE, b"").is_err()
+            );
+            let mut expected = b"a".to_vec();
+            expected.resize(1000, b' ');
+            assert_eq!(buf[..], expected[..]);
         }
     }
 

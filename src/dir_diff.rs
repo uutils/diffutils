@@ -261,9 +261,10 @@ impl DirectoryWalker<'_> {
             header.push(b' ');
             header.extend_from_slice(&quote_shell_argument(arg.as_encoded_bytes()));
         }
-        for path in [from, to] {
+        let (from_name, to_name) = params.names();
+        for name in [from_name, to_name] {
             header.push(b' ');
-            header.extend_from_slice(&quote_file_name(path.as_encoded_bytes()));
+            header.extend_from_slice(&quote_file_name(name.as_encoded_bytes()));
         }
         header.push(b'\n');
         compare_files(&params, Some(&header))

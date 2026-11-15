@@ -8,6 +8,12 @@ use crate::bre::Bre;
 use crate::color::ColorWhen;
 use crate::utils::fold_file_name_case;
 
+/// Largest value accepted for `--tabsize`.
+/// Side-by-side mode computes `tabsize + GUTTER_WIDTH_MIN` (3) as an
+/// `isize` in `side_diff::Config::new`, so anything larger would overflow.
+/// GNU diff accepts the same maximum.
+pub(crate) const MAX_TABSIZE: usize = isize::MAX as usize - 3;
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum Format {
     #[default]
@@ -62,6 +68,19 @@ pub struct Params {
     pub from_missing: bool,
     /// Set when `to` did not exist and was compared as an empty file.
     pub to_missing: bool,
+    pub from_label: Option<OsString>,
+    pub to_label: Option<OsString>,
+}
+
+impl Params {
+    /// The names to show for the from-file and the to-file: their labels if
+    /// given, else their paths.
+    pub fn names(&self) -> (&OsString, &OsString) {
+        (
+            self.from_label.as_ref().unwrap_or(&self.from),
+            self.to_label.as_ref().unwrap_or(&self.to),
+        )
+    }
 }
 
 /// The pattern of `-p`, matching the first line of C functions.
@@ -92,6 +111,8 @@ impl Default for Params {
             no_dereference: false,
             from_missing: false,
             to_missing: false,
+            from_label: None,
+            to_label: None,
         }
     }
 }
@@ -129,6 +150,32 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
     let tabsize_re = Regex::new(r"^--tabsize=(?<num>\d+)$").unwrap();
     let width_re = Regex::new(r"^--width=(?P<long>\d+)$").unwrap();
     while let Some((position, param)) = opts.next() {
+        // -L LABEL, -LLABEL, --label LABEL or --label=LABEL: the first names
+        // the from-file in headers and messages, the second the to-file.
+        // The label may be any bytes, so match on those, not on a str.
+        let bytes = param.as_encoded_bytes();
+        let label = if bytes == b"-L" || bytes == b"--label" {
+            Some(opts.next().map(|(_, label)| label).ok_or_else(|| {
+                format!("option '{}' requires an argument", param.to_string_lossy())
+            })?)
+        } else {
+            bytes
+                .strip_prefix(b"--label=")
+                .or_else(|| bytes.strip_prefix(b"-L"))
+                // SAFETY: the bytes come from an OsStr and are split right
+                // after an ASCII prefix.
+                .map(|rest| unsafe { OsStr::from_encoded_bytes_unchecked(rest) }.to_os_string())
+        };
+        if let Some(label) = label {
+            if params.from_label.is_none() {
+                params.from_label = Some(label);
+            } else if params.to_label.is_none() {
+                params.to_label = Some(label);
+            } else {
+                return Err("too many file label options".to_string());
+            }
+            continue;
+        }
         let next_param = opts.peek().map(|(_, next_param)| next_param);
         if param == "--" {
             break;
@@ -281,14 +328,8 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
                 .unwrap()
                 .as_str();
             params.tabsize = match tabsize_str.parse::<usize>() {
-                Ok(num) => {
-                    if num == 0 {
-                        return Err("invalid tabsize «0»".to_string());
-                    }
-
-                    num
-                }
-                Err(_) => return Err(format!("invalid tabsize «{tabsize_str}»")),
+                Ok(num) if num != 0 && num <= MAX_TABSIZE => num,
+                _ => return Err(format!("invalid tabsize «{tabsize_str}»")),
             };
 
             continue;
@@ -1060,6 +1101,42 @@ mod tests {
             .peekable()
         )
         .is_err());
+        for too_large in [(MAX_TABSIZE + 1).to_string(), usize::MAX.to_string()] {
+            assert_eq!(
+                Err(format!("invalid tabsize «{too_large}»")),
+                parse_params(
+                    [
+                        os("diff"),
+                        os(&format!("--tabsize={too_large}")),
+                        os("foo"),
+                        os("bar")
+                    ]
+                    .iter()
+                    .cloned()
+                    .peekable()
+                )
+            );
+        }
+        assert_eq!(
+            Ok(Params {
+                executable: os("diff"),
+                from: os("foo"),
+                to: os("bar"),
+                tabsize: MAX_TABSIZE,
+                ..Default::default()
+            }),
+            parse_params(
+                [
+                    os("diff"),
+                    os(&format!("--tabsize={MAX_TABSIZE}")),
+                    os("foo"),
+                    os("bar")
+                ]
+                .iter()
+                .cloned()
+                .peekable()
+            )
+        );
     }
     #[test]
     fn width() {
@@ -1076,6 +1153,49 @@ mod tests {
                     .iter()
                     .cloned()
                     .peekable()
+            )
+        );
+    }
+    #[test]
+    fn labels() {
+        assert_eq!(
+            Ok(Params {
+                executable: os("diff"),
+                from: os("foo"),
+                to: os("bar"),
+                from_label: Some(os("old")),
+                to_label: Some(os("new")),
+                ..Default::default()
+            }),
+            parse_params(
+                [
+                    os("diff"),
+                    os("--label"),
+                    os("old"),
+                    os("-Lnew"),
+                    os("foo"),
+                    os("bar")
+                ]
+                .iter()
+                .cloned()
+                .peekable()
+            )
+        );
+        assert_eq!(
+            Err("too many file label options".to_string()),
+            parse_params(
+                [
+                    os("diff"),
+                    os("--label=a"),
+                    os("-L"),
+                    os("b"),
+                    os("-Lc"),
+                    os("foo"),
+                    os("bar")
+                ]
+                .iter()
+                .cloned()
+                .peekable()
             )
         );
     }
@@ -1110,6 +1230,29 @@ mod tests {
         )
         .unwrap();
         assert_eq!(params.from, bad);
+    }
+    #[cfg(unix)]
+    #[test]
+    fn labels_non_utf8() {
+        use std::os::unix::ffi::OsStringExt;
+        let bytes = |b: &[u8]| OsString::from_vec(b.to_vec());
+        let params = parse_params(
+            [
+                os("diff"),
+                bytes(b"-L\xffold"),
+                bytes(b"--label=\xfenew"),
+                os("foo"),
+                os("bar"),
+            ]
+            .iter()
+            .cloned()
+            .peekable(),
+        )
+        .unwrap();
+        assert_eq!(params.from_label, Some(bytes(b"\xffold")));
+        assert_eq!(params.to_label, Some(bytes(b"\xfenew")));
+        assert_eq!(params.from, os("foo"));
+        assert_eq!(params.to, os("bar"));
     }
     #[test]
     fn double_dash() {
