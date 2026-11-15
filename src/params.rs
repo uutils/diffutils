@@ -148,7 +148,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
     let mut context = None;
     let mut show_c_function = false;
     let tabsize_re = Regex::new(r"^--tabsize=(?<num>\d+)$").unwrap();
-    let width_re = Regex::new(r"^--width=(?P<long>\d+)$").unwrap();
+
     while let Some((position, param)) = opts.next() {
         // -L LABEL, -LLABEL, --label LABEL or --label=LABEL: the first names
         // the from-file in headers and messages, the second the to-file.
@@ -296,27 +296,18 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
             format = Some(Format::SideBySide);
             continue;
         }
-        if width_re.is_match(param.to_string_lossy().as_ref()) {
-            let param = param.into_string().unwrap();
-            let width_str: &str = width_re
-                .captures(param.as_str())
-                .unwrap()
-                .name("long")
-                .unwrap()
-                .as_str();
+        if let Some(argument) = option_argument(&param, "-W", "--width") {
+            let width = argument_value(argument, &param, &mut opts)?;
+            let width_str = width.to_string_lossy();
 
             params.width = match width_str.parse::<usize>() {
-                Ok(num) => {
-                    if num == 0 {
-                        return Err("invalid width «0»".to_string());
-                    }
-
-                    num
-                }
-                Err(_) => return Err(format!("invalid width «{width_str}»")),
+                Ok(num) if num != 0 => num,
+                _ => return Err(format!("invalid width «{}»", width_str)),
             };
+
             continue;
         }
+
         if tabsize_re.is_match(param.to_string_lossy().as_ref()) {
             // Because param matches the regular expression,
             // it is safe to assume it is valid UTF-8.
@@ -1140,21 +1131,60 @@ mod tests {
     }
     #[test]
     fn width() {
-        assert_eq!(
-            Ok(Params {
-                executable: os("diff"),
-                from: os("foo"),
-                to: os("bar"),
-                width: 100,
-                ..Default::default()
-            }),
-            parse_params(
-                [os("diff"), os("--width=100"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
+        let parse = |args: &[&str]| {
+            let args = std::iter::once("diff")
+                .chain(args.iter().copied())
+                .chain(["foo", "bar"]);
+
+            parse_params(args.map(os).peekable()).map(|params| params.width)
+        };
+
+        // All supported forms of the width option.
+        for args in [
+            &["-W", "100"][..],
+            &["-W100"][..],
+            &["--width=100"][..],
+            &["--width", "100"][..],
+        ] {
+            assert_eq!(Ok(100), parse(args), "{args:?}");
+        }
+
+        // Zero is not a valid width.
+        for args in [
+            &["-W", "0"][..],
+            &["-W0"][..],
+            &["--width=0"][..],
+            &["--width", "0"][..],
+        ] {
+            assert_eq!(
+                Err("invalid width «0»".to_string()),
+                parse(args),
+                "{args:?}"
+            );
+        }
+
+        // Non-numeric values are rejected.
+        for args in [
+            &["-W", "abc"][..],
+            &["-Wabc"][..],
+            &["--width=abc"][..],
+            &["--width", "abc"][..],
+        ] {
+            assert_eq!(
+                Err("invalid width «abc»".to_string()),
+                parse(args),
+                "{args:?}"
+            );
+        }
+
+        // Missing option arguments are rejected.
+        for option in ["-W", "--width"] {
+            assert_eq!(
+                Err(format!("option '{option}' requires an argument")),
+                parse_params([os("diff"), os(option)].into_iter().peekable())
+                    .map(|params| params.width)
+            );
+        }
     }
     #[test]
     fn labels() {
