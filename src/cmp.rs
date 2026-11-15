@@ -144,7 +144,9 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
     let mut last_arg = params.executable.clone();
 
     while let Some(param) = opts.next() {
-        last_arg = param.clone();
+        if from.is_none() {
+            last_arg = param.clone();
+        }
 
         if param == "--" {
             break;
@@ -155,10 +157,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
             } else if to.is_none() {
                 to = Some(param);
             } else {
-                return Err(usage_error(
-                    &executable_str,
-                    "invalid --ignore-initial value '-'",
-                ));
+                return Err(usage_error(&executable_str, "extra operand '-'"));
             }
             continue;
         }
