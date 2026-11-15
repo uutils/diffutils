@@ -22,3 +22,6 @@ mod test_cmp;
 
 #[path = "by-util/test_diff.rs"]
 mod test_diff;
+
+#[path = "by-util/test_sdiff.rs"]
+mod test_sdiff;

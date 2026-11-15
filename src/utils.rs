@@ -8,7 +8,8 @@ use regex::Regex;
 use std::{
     borrow::Cow,
     ffi::{OsStr, OsString},
-    io::Write,
+    fs,
+    io::{Read, Write},
 };
 use unicode_width::UnicodeWidthStr;
 
@@ -312,6 +313,24 @@ pub fn report_failure_to_read_input_file(
         "{}",
         format_failure_to_read_input_file(executable, filepath, error)
     );
+}
+
+/// Number of leading bytes inspected when deciding whether an input is binary.
+pub const BINARY_PROBE_LEN: usize = 16 * 1024;
+
+/// An input is treated as binary when a NUL byte occurs near its start.
+pub fn is_binary(content: &[u8]) -> bool {
+    content[..content.len().min(BINARY_PROBE_LEN)].contains(&0)
+}
+
+/// Reads the entire contents of a file, or standard input if `filepath` is `"-"`.
+pub fn read_file_contents(filepath: &OsStr) -> std::io::Result<Vec<u8>> {
+    if filepath == "-" {
+        let mut content = Vec::new();
+        std::io::stdin().read_to_end(&mut content).and(Ok(content))
+    } else {
+        fs::read(filepath)
+    }
 }
 
 #[cfg(test)]

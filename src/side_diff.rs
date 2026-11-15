@@ -5,7 +5,7 @@
 
 use core::cmp::{max, min};
 use diff::Result;
-use std::{io::Write, vec};
+use std::io::Write;
 use unicode_width::UnicodeWidthStr;
 
 use crate::params::Params;
@@ -22,6 +22,8 @@ struct Config {
     tab_size: usize,
     expanded: bool,
     separator_pos: usize,
+    left_column: bool,
+    suppress_common_lines: bool,
 }
 
 impl<'a> From<&'a [u8]> for CharIter<'a> {
@@ -73,7 +75,13 @@ impl<'a> Iterator for CharIter<'a> {
 }
 
 impl Config {
-    pub fn new(full_width: usize, tab_size: usize, expanded: bool) -> Self {
+    pub fn new(
+        full_width: usize,
+        tab_size: usize,
+        expanded: bool,
+        left_column: bool,
+        suppress_common_lines: bool,
+    ) -> Self {
         // diff uses this calculation to calculate the size of a half line
         // based on the options passed (like -w, -t, etc.). It's actually
         // pretty useless, because we (actually) don't have any size modifiers
@@ -94,6 +102,8 @@ impl Config {
             tab_size,
             sdiff_half_width: hw,
             separator_pos: ((hw + c2o - 1) >> 1),
+            left_column,
+            suppress_common_lines,
         }
     }
 }
@@ -308,17 +318,18 @@ fn push_output<T: Write>(
     Ok(())
 }
 
-pub fn diff<T: Write>(
-    from_file: &[u8],
-    to_file: &[u8],
-    output: &mut T,
-    params: &Params,
-) -> Vec<u8> {
+pub fn diff<T: Write>(from_file: &[u8], to_file: &[u8], output: &mut T, params: &Params) -> bool {
     //      ^ The left file  ^ The right file
 
     let mut left_lines: Vec<&[u8]> = from_file.split_inclusive(|&c| c == b'\n').collect();
     let mut right_lines: Vec<&[u8]> = to_file.split_inclusive(|&c| c == b'\n').collect();
-    let config = Config::new(params.width, params.tabsize, params.expand_tabs);
+    let config = Config::new(
+        params.width,
+        params.tabsize,
+        params.expand_tabs,
+        params.left_column,
+        params.suppress_common_lines,
+    );
 
     if left_lines.last() == Some(&&b""[..]) {
         left_lines.pop();
@@ -350,17 +361,33 @@ pub fn diff<T: Write>(
     More studies are needed to cover GNU diff side by side with 100% accuracy, which is one of
     the goals of this project : )
     */
+
+    let mut has_diff = false;
+
     for result in diff::slice(&left_lines, &right_lines) {
         match result {
-            Result::Left(left_ln) => push_output(left_ln, b"", b'<', output, &config).unwrap(),
-            Result::Right(right_ln) => push_output(b"", right_ln, b'>', output, &config).unwrap(),
+            Result::Left(left_ln) => {
+                has_diff = true;
+                push_output(left_ln, b"", b'<', output, &config).unwrap()
+            }
+            Result::Right(right_ln) => {
+                has_diff = true;
+                push_output(b"", right_ln, b'>', output, &config).unwrap()
+            }
             Result::Both(left_ln, right_ln) => {
-                push_output(left_ln, right_ln, b' ', output, &config).unwrap()
+                if config.suppress_common_lines {
+                    continue;
+                }
+                if config.left_column {
+                    push_output(left_ln, b"", b'(', output, &config).unwrap();
+                } else {
+                    push_output(left_ln, right_ln, b' ', output, &config).unwrap();
+                }
             }
         }
     }
 
-    vec![]
+    has_diff
 }
 
 #[cfg(test)]
@@ -378,6 +405,8 @@ mod tests {
             expanded: true,
             sdiff_column_two_offset: 0,
             separator_pos: 0,
+            left_column: false,
+            suppress_common_lines: false,
         };
 
         const CONFIG_E_F: Config = Config {
@@ -386,6 +415,8 @@ mod tests {
             expanded: false,
             sdiff_column_two_offset: 0,
             separator_pos: 0,
+            left_column: false,
+            suppress_common_lines: false,
         };
 
         #[test]
@@ -476,6 +507,8 @@ mod tests {
                 tab_size,
                 expanded,
                 separator_pos: 15,
+                left_column: false,
+                suppress_common_lines: false,
             }
         }
 
@@ -825,7 +858,7 @@ mod tests {
 
         impl Default for Config {
             fn default() -> Self {
-                Config::new(130, 8, false)
+                Config::new(130, 8, false, false, false)
             }
         }
 
@@ -1112,10 +1145,10 @@ mod tests {
             let params = generate_params();
             let from_file = b"";
             let to_file = b"";
-            let mut output = vec![];
+            let mut output: Vec<u8> = vec![];
             diff(from_file, to_file, &mut output, &params);
 
-            assert_eq!(output, vec![]);
+            assert!(output.is_empty());
         }
 
         #[test]
@@ -1223,7 +1256,7 @@ mod tests {
         use super::*;
 
         fn create_config(full_width: usize, tab_size: usize, expanded: bool) -> Config {
-            Config::new(full_width, tab_size, expanded)
+            Config::new(full_width, tab_size, expanded, false, false)
         }
 
         #[test]
@@ -1288,6 +1321,75 @@ mod tests {
             assert_eq!(config.sdiff_half_width, 0);
             assert_eq!(config.sdiff_column_two_offset, 5);
             assert_eq!(config.separator_pos, 2);
+        }
+    }
+
+    mod sdiff_feature_tests {
+        use super::*;
+
+        #[test]
+        fn test_suppress_common_lines_omits_identical_lines() {
+            let left = b"common header\nleft unique\ncommon footer\n";
+            let right = b"common header\nright unique\ncommon footer\n";
+            let mut out = Vec::new();
+            let params = Params {
+                width: 80,
+                suppress_common_lines: true,
+                ..Default::default()
+            };
+            let result = diff(left, right, &mut out, &params);
+            assert!(result, "Differences should be reported (true)");
+            let text = String::from_utf8(out).unwrap();
+            assert!(
+                !text.contains("common header"),
+                "Common lines must be suppressed"
+            );
+            assert!(
+                !text.contains("common footer"),
+                "Common lines must be suppressed"
+            );
+            assert!(text.contains("<"), "Left difference must be displayed");
+            assert!(text.contains(">"), "Right difference must be displayed");
+        }
+
+        #[test]
+        fn test_left_column_prints_gutter_marker_on_match() {
+            let left = b"common line\n";
+            let right = b"common line\n";
+            let mut out = Vec::new();
+            let params = Params {
+                width: 80,
+                left_column: true,
+                expand_tabs: true,
+                ..Default::default()
+            };
+            let result = diff(left, right, &mut out, &params);
+            assert!(!result, "Identical files should return false");
+            let text = String::from_utf8(out).unwrap();
+            // With width 80 and expand_tabs, half-width is 38 and separator '(' sits at col 39
+            assert_eq!(
+                text, "common line                           (\n",
+                "GNU sdiff/diff -y --left-column formats common lines with '(' in the gutter"
+            );
+        }
+
+        #[test]
+        fn test_identical_files_reports_false() {
+            let content = b"line 1\nline 2\n";
+            let mut out = Vec::new();
+            let params = Params::default();
+            let result = diff(content, content, &mut out, &params);
+            assert!(!result, "Identical files must return false");
+        }
+
+        #[test]
+        fn test_differing_files_reports_true() {
+            let left = b"line a\n";
+            let right = b"line b\n";
+            let mut out = Vec::new();
+            let params = Params::default();
+            let result = diff(left, right, &mut out, &params);
+            assert!(result, "Differing files must return true");
         }
     }
 }

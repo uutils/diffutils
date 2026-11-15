@@ -5,12 +5,13 @@
 
 use crate::color::{colorize, ColorWhen, Palette, PaletteError};
 use crate::params::{parse_params, Format, MissingFile, Params};
-use crate::utils::report_failure_to_read_input_file;
+use crate::utils::{is_binary, read_file_contents, report_failure_to_read_input_file};
 use crate::{context_diff, dir_diff, ed_diff, normal_diff, side_diff, unified_diff};
 use std::env::ArgsOs;
 use std::ffi::OsString;
+#[cfg(any(target_os = "linux", target_os = "android"))]
 use std::fs;
-use std::io::{self, stdout, IsTerminal, Read, Write};
+use std::io::{self, stdout, IsTerminal, Write};
 use std::iter::Peekable;
 use std::path::Path;
 use std::process::ExitCode;
@@ -88,15 +89,6 @@ pub fn compare_files(params: &Params, header: Option<&[u8]>) -> Outcome {
         return Outcome::Identical;
     }
 
-    // read files
-    fn read_file_contents(filepath: &OsString) -> io::Result<Vec<u8>> {
-        if filepath == "-" {
-            let mut content = Vec::new();
-            io::stdin().read_to_end(&mut content).and(Ok(content))
-        } else {
-            fs::read(filepath)
-        }
-    }
     let mut io_error = false;
     let mut from_missing = false;
     let mut to_missing = false;
@@ -154,6 +146,32 @@ pub fn compare_files(params: &Params, header: Option<&[u8]>) -> Outcome {
         ..params.clone()
     };
 
+    if params.format == Format::SideBySide {
+        let has_diff = match header {
+            None => side_diff::diff(&from_content, &to_content, &mut stdout().lock(), params),
+            Some(header) => {
+                let mut output = Vec::new();
+                let has_diff = side_diff::diff(&from_content, &to_content, &mut output, params);
+                if has_diff {
+                    output.splice(0..0, header.iter().copied());
+                }
+                if stdout().write_all(&output).is_err() {
+                    return Outcome::Trouble;
+                }
+                has_diff
+            }
+        };
+        return if has_diff {
+            if params.brief {
+                print_files_differ("Files", params);
+            }
+            Outcome::Different
+        } else {
+            maybe_report_identical_files();
+            Outcome::Identical
+        };
+    }
+
     // run diff
     let result: Vec<u8> = match params.format {
         Format::Normal => normal_diff::diff(&from_content, &to_content, params),
@@ -166,26 +184,11 @@ pub fn compare_files(params: &Params, header: Option<&[u8]>) -> Outcome {
                 return Outcome::Trouble;
             }
         },
-        // Side by side output is streamed, unless a header may have to come
-        // first.
-        Format::SideBySide => match header {
-            None => side_diff::diff(&from_content, &to_content, &mut stdout().lock(), params),
-            Some(header) => {
-                let mut output = Vec::new();
-                let result = side_diff::diff(&from_content, &to_content, &mut output, params);
-                if !result.is_empty() {
-                    output.splice(0..0, header.iter().copied());
-                }
-                if stdout().write_all(&output).is_err() {
-                    return Outcome::Trouble;
-                }
-                result
-            }
-        },
+        Format::SideBySide => unreachable!(),
     };
     if params.brief && !result.is_empty() {
         print_files_differ("Files", params);
-    } else if params.format != Format::SideBySide {
+    } else {
         let header = if result.is_empty() {
             &[][..]
         } else {
@@ -247,14 +250,6 @@ fn output_palette(params: &Params) -> Option<Palette> {
             None
         }
     }
-}
-
-/// Number of leading bytes inspected when deciding whether an input is binary.
-const BINARY_PROBE_LEN: usize = 16 * 1024;
-
-/// An input is treated as binary when a NUL byte occurs near its start.
-fn is_binary(content: &[u8]) -> bool {
-    content[..content.len().min(BINARY_PROBE_LEN)].contains(&0)
 }
 
 /// Print the one-line summary used instead of the differences, `kind` naming

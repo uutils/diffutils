@@ -1054,3 +1054,24 @@ fn label_errors(#[case] args: &[&str], #[case] error: &str) {
         .fails_with_code(2)
         .stderr_contains(error);
 }
+
+#[test]
+fn side_by_side_different_files_exit_code_and_directory_headers() {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", "foo\n");
+    at.write("file2", "bar\n");
+    ts.ucmd().args(&["-y", "file1", "file2"]).fails_with_code(1);
+
+    at.mkdir("a");
+    at.mkdir("b");
+    at.write("a/f", "left\n");
+    at.write("b/f", "right\n");
+    ts.ucmd()
+        .args(&["-y", "-r", "a", "b"])
+        .fails_with_code(1)
+        .stdout_contains("diff -y -r a/f b/f\n");
+
+    at.write("file3", "same\n");
+    at.write("file4", "same\n");
+    ts.ucmd().args(&["-y", "file3", "file4"]).succeeds();
+}

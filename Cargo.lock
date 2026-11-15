@@ -309,6 +309,7 @@ dependencies = [
  "rstest",
  "same-file",
  "tempfile",
+ "thiserror",
  "unicode-width",
  "uutests",
 ]

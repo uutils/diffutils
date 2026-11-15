@@ -70,6 +70,10 @@ pub struct Params {
     pub to_missing: bool,
     pub from_label: Option<OsString>,
     pub to_label: Option<OsString>,
+    /// Print only the left column of two common lines.
+    pub left_column: bool,
+    /// Do not print common lines
+    pub suppress_common_lines: bool,
 }
 
 impl Params {
@@ -113,6 +117,8 @@ impl Default for Params {
             to_missing: false,
             from_label: None,
             to_label: None,
+            left_column: false,
+            suppress_common_lines: false,
         }
     }
 }
