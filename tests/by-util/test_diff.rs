@@ -802,6 +802,33 @@ fn sdiff_gutter_marker_column(#[case] options: &[&str], #[case] expected: &str) 
         .stdout_is(expected);
 }
 
+// Regression for #396: -W must accept a separate argument.
+#[test]
+fn sdiff_width_separate_argument() {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", "aa\n");
+    at.write("file2", "bb\n");
+
+    ts.ucmd()
+        .args(&["-y", "-W", "20", "file1", "file2"])
+        .run()
+        .stdout_is("aa    <\n      >\tbb\n");
+}
+
+// Regression for #396: --tabsize must accept a separate argument.
+#[test]
+fn tabsize_separate_argument() {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", "same\n");
+    at.write("file2", "same\n");
+
+    ts.ucmd()
+        .args(&["--tabsize", "4", "file1", "file2"])
+        .succeeds()
+        .no_stdout()
+        .no_stderr();
+}
+
 #[rstest]
 #[case::delete_and_append(
     "north\neast\nsouth\nwest\n",
