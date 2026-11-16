@@ -5,6 +5,7 @@
 
 use std::io::Write;
 
+use crate::bre::Bre;
 use crate::params::Params;
 use crate::utils::do_write_line;
 
@@ -28,6 +29,20 @@ impl Mismatch {
             expected_missing_nl: false,
             actual_missing_nl: false,
         }
+    }
+}
+
+impl Mismatch {
+    /// Whether every inserted and deleted line matches at least one `-I`
+    /// pattern. A mismatch with no changed lines is never ignored.
+    fn is_ignored(&self, patterns: &[Bre]) -> bool {
+        if patterns.is_empty() {
+            return false;
+        }
+        self.expected
+            .iter()
+            .chain(self.actual.iter())
+            .all(|line| patterns.iter().any(|pattern| pattern.is_match(line)))
     }
 }
 
@@ -127,6 +142,9 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
         return output;
     }
     for result in diff_results {
+        if result.is_ignored(&params.ignore_matching_lines) {
+            continue;
+        }
         let line_number_expected = result.line_number_expected;
         let line_number_actual = result.line_number_actual;
         let expected_count = result.expected.len();
@@ -605,5 +623,49 @@ mod tests {
             },
         );
         assert!(nodiff_brief.is_empty());
+    }
+
+    #[test]
+    fn test_ignore_matching_lines() {
+        use crate::bre::Bre;
+        use crate::params::Params;
+
+        let params = |patterns: &[&str]| Params {
+            ignore_matching_lines: patterns
+                .iter()
+                .map(|pattern| Bre::new(pattern).unwrap())
+                .collect(),
+            ..Default::default()
+        };
+
+        let from = b"1a\n2\n3a\n";
+        let to = b"1b\n2\n3b\n";
+
+        // No -I: both hunks.
+        assert_eq!(
+            diff(from, to, &Params::default()),
+            b"1c1\n< 1a\n---\n> 1b\n3c3\n< 3a\n---\n> 3b\n".to_vec()
+        );
+
+        // -I 3: only the first hunk, because 3a/3b match 3.
+        assert_eq!(
+            diff(from, to, &params(&["3"])),
+            b"1c1\n< 1a\n---\n> 1b\n".to_vec()
+        );
+
+        // -I 1: only the second hunk.
+        assert_eq!(
+            diff(from, to, &params(&["1"])),
+            b"3c3\n< 3a\n---\n> 3b\n".to_vec()
+        );
+
+        // Multiple patterns are ORed: 1a/1b match 1, 3a/3b match 3.
+        assert_eq!(diff(from, to, &params(&["1", "3"])), Vec::<u8>::new());
+
+        // A hunk with one non-matching changed line is kept.
+        assert_eq!(
+            diff(from, to, &params(&["3", "x"])),
+            b"1c1\n< 1a\n---\n> 1b\n".to_vec()
+        );
     }
 }
