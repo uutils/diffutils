@@ -211,8 +211,15 @@ pub fn compare_files(params: &Params, header: Option<&[u8]>) -> Outcome {
         }
     }
     if result.is_empty() {
-        maybe_report_identical_files();
-        Outcome::Identical
+        if params.format == Format::Normal
+            && !params.ignore_matching_lines.is_empty()
+            && from_content != to_content
+        {
+            Outcome::Different
+        } else {
+            maybe_report_identical_files();
+            Outcome::Identical
+        }
     } else {
         Outcome::Different
     }
