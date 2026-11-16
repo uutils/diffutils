@@ -882,6 +882,49 @@ fn function_lines() {
         .stderr_is("'\\(': Unmatched ( or \\(\n");
 }
 
+#[rstest]
+fn ignore_matching_lines(
+    #[values(
+        &["-I", "3"][..],
+        &["-I3"],
+        &["--ignore-matching-lines", "3"],
+        &["--ignore-matching-lines=3"]
+    )]
+    args: &[&str],
+) {
+    let (at, ts) = at_and_ts!();
+    at.write("a", "1a\n2\n3a\n");
+    at.write("b", "1b\n2\n3b\n");
+    ts.ucmd()
+        .args(args)
+        .args(&["a", "b"])
+        .fails_with_code(1)
+        .stdout_is("1c1\n< 1a\n---\n> 1b\n");
+}
+
+#[test]
+fn ignore_matching_lines_invalid_re() {
+    let (at, ts) = at_and_ts!();
+    at.write("a", "1a\n2\n3a\n");
+    at.write("b", "1b\n2\n3b\n");
+    ts.ucmd()
+        .args(&["-Ix", "-I\\", "a", "b"])
+        .fails_with_code(2)
+        .no_stdout()
+        .stderr_contains("'\\': Trailing backslash");
+}
+
+#[test]
+fn ignore_matching_lines_all_filtered() {
+    let (at, ts) = at_and_ts!();
+    at.write("a", "1a\n2\n3a\n");
+    at.write("b", "1b\n2\n3b\n");
+    ts.ucmd()
+        .args(&["-I", "1", "-I", "3", "a", "b"])
+        .fails_with_code(1)
+        .no_stdout();
+}
+
 // A function line is cut at 40 bytes, even inside a multi-byte character.
 #[test]
 fn function_line_is_cut_at_40_bytes() {
