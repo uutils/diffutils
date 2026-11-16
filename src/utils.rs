@@ -12,46 +12,52 @@ use std::{
 };
 use unicode_width::UnicodeWidthStr;
 
-/// Replace tabs by spaces in the input line.
+/// Write the input line to an output stream, replacing tabs by spaces.
 /// Correctly handle multi-bytes characters.
+/// The spaces are written in small chunks, so a huge tab size does not
+/// need a huge buffer.
 /// This assumes that line does not contain any line breaks (if it does, the result is undefined).
-#[must_use]
-pub fn do_expand_tabs(line: &[u8], tabsize: usize) -> Vec<u8> {
+pub fn do_expand_tabs<W: Write>(
+    output: &mut W,
+    line: &[u8],
+    tabsize: usize,
+) -> std::io::Result<()> {
+    const SPACES: [u8; 64] = [b' '; 64];
     let tab = b'\t';
-    let ntabs = line.iter().filter(|c| **c == tab).count();
-    if ntabs == 0 {
-        return line.to_vec();
-    }
-    let mut result = Vec::with_capacity(line.len() + ntabs * (tabsize - 1));
     let mut offset = 0;
 
     let mut iter = line.split(|c| *c == tab).peekable();
     while let Some(chunk) = iter.next() {
-        match String::from_utf8(chunk.to_vec()) {
-            Ok(s) => offset += UnicodeWidthStr::width(s.as_str()),
+        match std::str::from_utf8(chunk) {
+            Ok(s) => offset += UnicodeWidthStr::width(s),
             Err(_) => offset += chunk.len(),
         }
-        result.extend_from_slice(chunk);
+        output.write_all(chunk)?;
         if iter.peek().is_some() {
-            result.resize(result.len() + tabsize - offset % tabsize, b' ');
+            let mut spaces = tabsize - offset % tabsize;
+            while spaces > 0 {
+                let n = spaces.min(SPACES.len());
+                output.write_all(&SPACES[..n])?;
+                spaces -= n;
+            }
             offset = 0;
         }
     }
 
-    result
+    Ok(())
 }
 
 /// Write a single line to an output stream, expanding tabs to space if necessary.
 /// This assumes that line does not contain any line breaks
 /// (if it does and tabs are to be expanded to spaces, the result is undefined).
-pub fn do_write_line(
-    output: &mut Vec<u8>,
+pub fn do_write_line<W: Write>(
+    output: &mut W,
     line: &[u8],
     expand_tabs: bool,
     tabsize: usize,
 ) -> std::io::Result<()> {
     if expand_tabs {
-        output.write_all(do_expand_tabs(line, tabsize).as_slice())
+        do_expand_tabs(output, line, tabsize)
     } else {
         output.write_all(line)
     }
@@ -104,13 +110,24 @@ pub fn quote_file_name(name: &[u8]) -> Cow<'_, [u8]> {
 }
 
 /// Appends a file header line of the context or unified formats, such as
-/// `--- name\ttimestamp`, to `output`.
-pub fn write_file_header(output: &mut Vec<u8>, marker: &str, name: &OsStr, timestamp: &str) {
+/// `--- name\ttimestamp`, to `output`. A label replaces both the name and the
+/// timestamp, and is written as it is, without quoting.
+pub fn write_file_header(
+    output: &mut Vec<u8>,
+    marker: &str,
+    name: &OsStr,
+    label: Option<&OsStr>,
+    timestamp: &str,
+) {
     output.extend_from_slice(marker.as_bytes());
     output.push(b' ');
-    output.extend_from_slice(&quote_file_name(name.as_encoded_bytes()));
-    output.push(b'\t');
-    output.extend_from_slice(timestamp.as_bytes());
+    if let Some(label) = label {
+        output.extend_from_slice(label.as_encoded_bytes());
+    } else {
+        output.extend_from_slice(&quote_file_name(name.as_encoded_bytes()));
+        output.push(b'\t');
+        output.extend_from_slice(timestamp.as_bytes());
+    }
     output.push(b'\n');
 }
 
@@ -182,7 +199,7 @@ pub struct FunctionLineFinder<'a> {
 }
 
 impl<'a> FunctionLineFinder<'a> {
-    /// Maximum number of characters of a function line that are shown.
+    /// Maximum number of bytes of a function line that are shown.
     const MAX_WIDTH: usize = 40;
 
     /// Returns `None` when there are no patterns, so no function lines.
@@ -209,15 +226,20 @@ impl<'a> FunctionLineFinder<'a> {
             }
         }
         self.next_line = self.next_line.max(end);
-        let line = self.last_match?.trim_ascii_start();
-        let end = match std::str::from_utf8(line) {
-            Ok(text) => text
-                .char_indices()
-                .nth(Self::MAX_WIDTH)
-                .map_or(line.len(), |(end, _)| end),
-            Err(_) => line.len().min(Self::MAX_WIDTH),
-        };
-        Some(line[..end].trim_ascii_end().to_vec())
+        // C's isspace(): unlike `is_ascii_whitespace`, it includes vertical tab.
+        let is_space = |byte: &u8| byte.is_ascii_whitespace() || *byte == b'\x0b';
+        let line = self.last_match?;
+        let start = line
+            .iter()
+            .position(|byte| !is_space(byte))
+            .unwrap_or(line.len());
+        let line = &line[start..];
+        let line = &line[..line.len().min(Self::MAX_WIDTH)];
+        let end = line
+            .iter()
+            .rposition(|byte| !is_space(byte))
+            .map_or(0, |last| last + 1);
+        Some(line[..end].to_vec())
     }
 }
 
@@ -393,11 +415,14 @@ mod tests {
         use super::*;
         use pretty_assertions::assert_eq;
 
+        fn expand(line: &[u8], tabsize: usize) -> Vec<u8> {
+            let mut output = Vec::new();
+            assert!(do_expand_tabs(&mut output, line, tabsize).is_ok());
+            output
+        }
+
         fn assert_tab_expansion(line: &str, tabsize: usize, expected: &str) {
-            assert_eq!(
-                do_expand_tabs(line.as_bytes(), tabsize),
-                expected.as_bytes()
-            );
+            assert_eq!(expand(line.as_bytes(), tabsize), expected.as_bytes());
         }
 
         #[test]
@@ -426,9 +451,21 @@ mod tests {
         fn invalid_utf8() {
             // [240, 240, 152, 137] is an invalid UTF-8 sequence, so it is handled as 4 bytes
             assert_eq!(
-                do_expand_tabs(&[240, 240, 152, 137, 9, 102, 111, 111], 8),
+                expand(&[240, 240, 152, 137, 9, 102, 111, 111], 8),
                 &[240, 240, 152, 137, 32, 32, 32, 32, 102, 111, 111]
             );
+        }
+
+        #[test]
+        fn huge_tabsize() {
+            // The spaces are streamed to the writer, so the largest accepted
+            // tab size neither overflows nor needs a huge buffer up front.
+            let mut buf = [0u8; 1000];
+            let mut output = &mut buf[..];
+            assert!(do_expand_tabs(&mut output, b"a\tb\tc", crate::params::MAX_TABSIZE).is_err());
+            let mut expected = b"a".to_vec();
+            expected.resize(1000, b' ');
+            assert_eq!(buf[..], expected[..]);
         }
     }
 

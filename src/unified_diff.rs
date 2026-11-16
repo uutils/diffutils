@@ -133,17 +133,12 @@ fn make_diff(
                 if (line_number_actual > actual_lines_count)
                     && (line_number_expected > expected_lines_count)
                 {
-                    if context_queue.len() < context_size {
-                        while let Some(line) = context_queue.pop_front() {
-                            debug_assert!(mismatch.lines.last() != Some(&DiffLine::MissingNL));
-                            mismatch.lines.push(DiffLine::Context(line.to_vec()));
-                        }
-                        if lines_since_mismatch < context_size {
-                            mismatch.lines.push(DiffLine::Context(str.to_vec()));
-                            mismatch.lines.push(DiffLine::MissingNL);
-                        }
+                    // this is the last line: lines still in the queue are past
+                    // the trailing context and there is no next hunk to lead into
+                    if lines_since_mismatch < context_size {
+                        mismatch.lines.push(DiffLine::Context(str.to_vec()));
+                        mismatch.lines.push(DiffLine::MissingNL);
                     }
-                    lines_since_mismatch = 0;
                 } else if line_number_actual > actual_lines_count {
                     if lines_since_mismatch > max_gap {
                         results.push(mismatch);
@@ -253,8 +248,20 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
         params.to_missing,
     );
     let mut output = Vec::new();
-    write_file_header(&mut output, "---", &params.from, &from_modified_time);
-    write_file_header(&mut output, "+++", &params.to, &to_modified_time);
+    write_file_header(
+        &mut output,
+        "---",
+        &params.from,
+        params.from_label.as_deref(),
+        &from_modified_time,
+    );
+    write_file_header(
+        &mut output,
+        "+++",
+        &params.to,
+        params.to_label.as_deref(),
+        &to_modified_time,
+    );
     let diff_results = make_diff(expected, actual, params.context_count, params.brief);
     if diff_results.is_empty() {
         return Vec::new();

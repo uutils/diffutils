@@ -51,6 +51,11 @@ $ cargo run -- diff -u fruits_old.txt fruits_new.txt
  Cherry
 
 ```
+## GNU test suite compatibility
+
+Below is the evolution of how many GNU tests uutils passes.
+
+![Evolution over time](https://github.com/uutils/diffutils-tracking/blob/main/gnu-results.svg?raw=true)
 
 ## License
 
