@@ -314,43 +314,32 @@ pub fn diff<T: Write>(
     output: &mut T,
     params: &Params,
 ) -> Vec<u8> {
-    //      ^ The left file  ^ The right file
+    diff_with_status(from_file, to_file, output, params);
+    vec![]
+}
 
+pub(crate) fn diff_with_status<T: Write>(
+    from_file: &[u8],
+    to_file: &[u8],
+    output: &mut T,
+    params: &Params,
+) -> bool {
+    //      ^ The left file  ^ The right file
     let mut left_lines: Vec<&[u8]> = from_file.split_inclusive(|&c| c == b'\n').collect();
     let mut right_lines: Vec<&[u8]> = to_file.split_inclusive(|&c| c == b'\n').collect();
     let config = Config::new(params.width, params.tabsize, params.expand_tabs);
-
     if left_lines.last() == Some(&&b""[..]) {
         left_lines.pop();
     }
-
     if right_lines.last() == Some(&&b""[..]) {
         right_lines.pop();
     }
+    let results = diff::slice(&left_lines, &right_lines);
+    let different = results
+        .iter()
+        .any(|result| matches!(result, Result::Left(_) | Result::Right(_)));
 
-    /*
-    DISCLAIMER:
-    Currently the diff engine does not produce results like the diff engine used in GNU diff,
-    so some results may be inaccurate. For example, the line difference marker "|", according
-    to the GNU documentation, appears when the same lines (only the actual line, although the
-    relative line may change the result, so occasionally '|' markers appear with the same lines)
-    are different but exist in both files. In the current solution the same result cannot be
-    obtained because the diff engine does not return Both if both exist but are different,
-    but instead returns a Left and a Right for each one, implying that two lines were added
-    and deleted. Furthermore, the GNU diff program apparently stores some internal state
-    (this internal state is just a note about how the diff engine works) about the lines.
-    For example, an added or removed line directly counts in the line query of the original
-    lines to be printed in the output. Because of this imbalance caused by additions and
-    deletions, the characters ( and ) are introduced. They basically represent lines without
-    context, which have lost their pair in the other file due to additions or deletions. Anyway,
-    my goal with this disclaimer is to warn that for some reason, whether it's the diff engine's
-    inability to determine and predict/precalculate the result of GNU's sdiff, with this software it's
-    not possible to reproduce results that are 100% faithful to GNU's, however, the basic premise
-    e of side diff of showing added and removed lines and creating edit scripts is totally possible.
-    More studies are needed to cover GNU diff side by side with 100% accuracy, which is one of
-    the goals of this project : )
-    */
-    for result in diff::slice(&left_lines, &right_lines) {
+    for result in results {
         match result {
             Result::Left(left_ln) => push_output(left_ln, b"", b'<', output, &config).unwrap(),
             Result::Right(right_ln) => push_output(b"", right_ln, b'>', output, &config).unwrap(),
@@ -359,8 +348,7 @@ pub fn diff<T: Write>(
             }
         }
     }
-
-    vec![]
+    different
 }
 
 #[cfg(test)]
