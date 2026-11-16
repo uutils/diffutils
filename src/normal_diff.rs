@@ -202,7 +202,6 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
             .unwrap(),
         }
         for expected in &result.expected {
-            write!(&mut output, "< ").unwrap();
             do_write_line(
                 &mut output,
                 expected,
@@ -220,7 +219,6 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
             writeln!(&mut output, "---").unwrap();
         }
         for actual in &result.actual {
-            write!(&mut output, "> ").unwrap();
             do_write_line(
                 &mut output,
                 actual,

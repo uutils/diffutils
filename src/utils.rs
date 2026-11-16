@@ -87,10 +87,10 @@ fn text_width(text: &[u8]) -> usize {
         .sum()
 }
 
-/// Write a single line to an output stream, expanding tabs to space if necessary.
+/// Write `marker` (the `< ` or `! ` in front of the line, possibly empty) and
+/// then a single line to an output stream, expanding tabs to space if necessary.
 /// This assumes that line does not contain any line breaks
 /// (if it does and tabs are to be expanded to spaces, the result is undefined).
-/// See [`do_expand_tabs`] for `marker`.
 pub fn do_write_line<W: Write>(
     output: &mut W,
     line: &[u8],
@@ -98,6 +98,7 @@ pub fn do_write_line<W: Write>(
     tabsize: usize,
     marker: &[u8],
 ) -> std::io::Result<()> {
+    output.write_all(marker)?;
     if expand_tabs {
         do_expand_tabs(output, line, tabsize, marker)
     } else {
