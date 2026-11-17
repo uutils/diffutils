@@ -308,7 +308,6 @@ fn push_output<T: Write>(
     Ok(())
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn diff<T: Write>(
     from_file: &[u8],
     to_file: &[u8],
