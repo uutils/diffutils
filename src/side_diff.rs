@@ -1116,7 +1116,7 @@ mod tests {
             let mut output = vec![];
             diff(from_file, to_file, &mut output, &params);
 
-            assert_eq!(output, Vec::<u8>::new());
+            assert_eq!(output, vec![]);
         }
 
         #[test]
