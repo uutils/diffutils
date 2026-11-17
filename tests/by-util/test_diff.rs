@@ -864,6 +864,15 @@ fn sdiff_gutter_marker_column(#[case] options: &[&str], #[case] expected: &str) 
         .stdout_is(expected);
 }
 
+#[test]
+fn sdiff_different_files_exit_failure() {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", "first\n");
+    at.write("file2", "second\n");
+
+    ts.ucmd().args(&["-y", "file1", "file2"]).fails_with_code(1);
+}
+
 // Regression test: identical files must return exit code 0 in side-by-side mode.
 #[test]
 fn sdiff_identical_files_exit_success() {
