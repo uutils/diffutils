@@ -864,6 +864,19 @@ fn sdiff_gutter_marker_column(#[case] options: &[&str], #[case] expected: &str) 
         .stdout_is(expected);
 }
 
+// Regression test: identical files must return exit code 0 in side-by-side mode.
+#[test]
+fn sdiff_identical_files_exit_success() {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", "same\n");
+    at.write("file2", "same\n");
+
+    ts.ucmd()
+        .args(&["-y", "file1", "file2"])
+        .succeeds()
+        .no_stderr();
+}
+
 #[rstest]
 #[case::delete_and_append(
     "north\neast\nsouth\nwest\n",
