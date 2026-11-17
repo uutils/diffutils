@@ -32,7 +32,7 @@ impl Mismatch {
 }
 
 // Produces a diff between the expected output and actual output.
-fn make_diff(expected: &[u8], actual: &[u8], stop_early: bool) -> Vec<Mismatch> {
+fn make_diff(expected: &[u8], actual: &[u8], stop_early: bool, ignore_case: bool) -> Vec<Mismatch> {
     let mut line_number_expected = 1;
     let mut line_number_actual = 1;
     let mut results = Vec::new();
@@ -54,7 +54,7 @@ fn make_diff(expected: &[u8], actual: &[u8], stop_early: bool) -> Vec<Mismatch> 
         actual_lines.pop();
     }
 
-    for result in diff::slice(&expected_lines, &actual_lines) {
+    for result in crate::utils::diff_lines(&expected_lines, &actual_lines, ignore_case) {
         match result {
             diff::Result::Left(str) => {
                 if !mismatch.actual.is_empty() && !mismatch.actual_missing_nl {
@@ -121,7 +121,7 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
     // See https://www.gnu.org/software/diffutils/manual/html_node/Detailed-Normal.html
     // for details on the syntax of the normal format.
     let mut output = Vec::new();
-    let diff_results = make_diff(expected, actual, params.brief);
+    let diff_results = make_diff(expected, actual, params.brief, params.ignore_case);
     if params.brief && !diff_results.is_empty() {
         write!(&mut output, "\0").unwrap();
         return output;
