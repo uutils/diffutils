@@ -334,7 +334,7 @@ pub fn cmp(params: &Params) -> Result<Cmp, String> {
     // count from the end of the skipped bytes.
     for (size, skip) in [(a_size, params.skip_a), (b_size, params.skip_b)] {
         if let Some(size) = size {
-            let left = size.saturating_sub(skip.unwrap_or(0)) as BytesLimitU64;
+            let left = size.saturating_sub(skip.unwrap_or(0));
             offset_width = cmp::min(left, offset_width);
         }
     }
