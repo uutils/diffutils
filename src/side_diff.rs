@@ -334,6 +334,28 @@ pub(crate) fn diff_with_status<T: Write>(
     if right_lines.last() == Some(&&b""[..]) {
         right_lines.pop();
     }
+    /*
+    DISCLAIMER:
+    Currently the diff engine does not produce results like the diff engine used in GNU diff,
+    so some results may be inaccurate. For example, the line difference marker "|", according
+    to the GNU documentation, appears when the same lines (only the actual line, although the
+    relative line may change the result, so occasionally '|' markers appear with the same lines)
+    are different but exist in both files. In the current solution the same result cannot be
+    obtained because the diff engine does not return Both if both exist but are different,
+    but instead returns a Left and a Right for each one, implying that two lines were added
+    and deleted. Furthermore, the GNU diff program apparently stores some internal state
+    (this internal state is just a note about how the diff engine works) about the lines.
+    For example, an added or removed line directly counts in the line query of the original
+    lines to be printed in the output. Because of this imbalance caused by additions and
+    deletions, the characters ( and ) are introduced. They basically represent lines without
+    context, which have lost their pair in the other file due to additions or deletions. Anyway,
+    my goal with this disclaimer is to warn that for some reason, whether it's the diff engine's
+    inability to determine and predict/precalculate the result of GNU's sdiff, with this software it's
+    not possible to reproduce results that are 100% faithful to GNU's, however, the basic premise
+    e of side diff of showing added and removed lines and creating edit scripts is totally possible.
+    More studies are needed to cover GNU diff side by side with 100% accuracy, which is one of
+    the goals of this project : )
+    */
     let results = diff::slice(&left_lines, &right_lines);
     let different = results
         .iter()
