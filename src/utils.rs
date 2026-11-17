@@ -180,14 +180,51 @@ pub fn quote_shell_argument(arg: &[u8]) -> Cow<'_, [u8]> {
     Cow::Owned(quoted)
 }
 
-/// Diffs two lists of lines. With `ignore_case` the lines are compared after
-/// folding their case (`-i`), but the results hold the original lines.
+/// How lines are compared: as they are, or as `-i` and `-E` ask.
+#[derive(Clone, Copy, Default)]
+pub struct LineCompare {
+    /// `-i`: fold the case of letters.
+    pub ignore_case: bool,
+    /// `-E`: expand tabs with this tab size.
+    pub tab_expansion: Option<usize>,
+}
+
+impl LineCompare {
+    pub fn from_params(params: &crate::params::Params) -> Self {
+        Self {
+            ignore_case: params.ignore_case,
+            tab_expansion: params.ignore_tab_expansion.then_some(params.tabsize),
+        }
+    }
+
+    /// The form of `line` that is compared.
+    fn key(self, line: &[u8]) -> Vec<u8> {
+        let mut key = line.to_vec();
+        if let Some(tabsize) = self.tab_expansion {
+            let mut expanded = Vec::with_capacity(line.len());
+            // Writing to a Vec cannot fail, short of an absurd tab size.
+            if do_expand_tabs(&mut expanded, line, tabsize).is_ok() {
+                key = expanded;
+            }
+        }
+        if self.ignore_case {
+            key = match std::str::from_utf8(&key) {
+                Ok(text) if !is_posix_locale("LC_CTYPE") => text.to_lowercase().into_bytes(),
+                _ => key.to_ascii_lowercase(),
+            };
+        }
+        key
+    }
+}
+
+/// Diffs two lists of lines, compared as `compare` says. The results hold the
+/// original lines.
 pub fn diff_lines<'a>(
     left: &[&'a [u8]],
     right: &[&'a [u8]],
-    ignore_case: bool,
+    compare: LineCompare,
 ) -> Vec<diff::Result<&'a [u8]>> {
-    if !ignore_case {
+    if !compare.ignore_case && compare.tab_expansion.is_none() {
         return diff::slice(left, right)
             .into_iter()
             .map(|result| match result {
@@ -197,15 +234,8 @@ pub fn diff_lines<'a>(
             })
             .collect();
     }
-    let posix = is_posix_locale("LC_CTYPE");
-    let fold = |line: &&[u8]| -> Vec<u8> {
-        match std::str::from_utf8(line) {
-            Ok(text) if !posix => text.to_lowercase().into_bytes(),
-            _ => line.to_ascii_lowercase(),
-        }
-    };
-    let left_keys: Vec<Vec<u8>> = left.iter().map(fold).collect();
-    let right_keys: Vec<Vec<u8>> = right.iter().map(fold).collect();
+    let left_keys: Vec<Vec<u8>> = left.iter().map(|line| compare.key(line)).collect();
+    let right_keys: Vec<Vec<u8>> = right.iter().map(|line| compare.key(line)).collect();
     // The results come in order, so they can be mapped back by position.
     let (mut i, mut j) = (0, 0);
     diff::slice(&left_keys, &right_keys)

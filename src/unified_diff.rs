@@ -41,7 +41,7 @@ fn make_diff(
     actual: &[u8],
     context_size: usize,
     stop_early: bool,
-    ignore_case: bool,
+    compare: crate::utils::LineCompare,
 ) -> Vec<Mismatch> {
     let mut line_number_expected = 1;
     let mut line_number_actual = 1;
@@ -69,7 +69,7 @@ fn make_diff(
         actual_lines.pop();
     }
 
-    for result in crate::utils::diff_lines(&expected_lines, &actual_lines, ignore_case) {
+    for result in crate::utils::diff_lines(&expected_lines, &actual_lines, compare) {
         match result {
             diff::Result::Left(str) => {
                 if lines_since_mismatch > max_gap {
@@ -268,7 +268,7 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
         actual,
         params.context_count,
         params.brief,
-        params.ignore_case,
+        crate::utils::LineCompare::from_params(params),
     );
     if diff_results.is_empty() {
         return Vec::new();

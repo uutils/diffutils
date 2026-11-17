@@ -1101,3 +1101,35 @@ fn ignore_case_folds_non_ascii_only_in_a_utf8_locale() {
         .args(&["-i", "a", "b"])
         .fails_with_code(1);
 }
+
+#[rstest]
+fn ignore_tab_expansion(
+    #[values(&[][..], &["-u"], &["-c"], &["-e"], &["-q"])] format: &[&str],
+    #[values("-E", "--ignore-tab-expansion")] option: &str,
+) {
+    let (at, ts) = at_and_ts!();
+    at.write("e1", "a\tb\n");
+    at.write("e2", "a       b\n");
+    ts.ucmd()
+        .args(format)
+        .args(&[option, "e1", "e2"])
+        .succeeds()
+        .no_stdout();
+    ts.ucmd()
+        .args(format)
+        .args(&["e1", "e2"])
+        .fails_with_code(1);
+}
+
+#[test]
+fn ignore_tab_expansion_follows_tabsize_and_combines_with_ignore_case() {
+    let (at, ts) = at_and_ts!();
+    at.write("e1", "a\tb\n");
+    at.write("e2", "a   B\n");
+    ts.ucmd()
+        .args(&["-E", "--tabsize=4", "-i", "e1", "e2"])
+        .succeeds()
+        .no_stdout();
+    // With the default tab size of 8 the columns differ.
+    ts.ucmd().args(&["-E", "-i", "e1", "e2"]).fails_with_code(1);
+}
