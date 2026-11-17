@@ -337,7 +337,7 @@ pub fn cmp(params: &Params) -> Result<Cmp, String> {
     let mut start_of_line = true;
     let mut stdout = BufWriter::new(io::stdout().lock());
     let mut compare = Cmp::Equal;
-    loop {
+    'compare: loop {
         // Fill up our buffers.
         let from_buf = from
             .fill_buf()
@@ -421,9 +421,11 @@ pub fn cmp(params: &Params) -> Result<Cmp, String> {
 
             at_byte += 1;
 
+            // Stop comparing, not just this buffer: the rest of it is past the
+            // limit, and a shorter file must not be reported as an early EOF.
             if let Some(max_bytes) = params.max_bytes {
                 if at_byte > max_bytes {
-                    break;
+                    break 'compare;
                 }
             }
         }
