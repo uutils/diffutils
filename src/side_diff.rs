@@ -4,7 +4,6 @@
 // files that was distributed with this source code.
 
 use core::cmp::{max, min};
-use diff::Result;
 use std::{io::Write, vec};
 use unicode_width::UnicodeWidthStr;
 
@@ -350,11 +349,17 @@ pub fn diff<T: Write>(
     More studies are needed to cover GNU diff side by side with 100% accuracy, which is one of
     the goals of this project : )
     */
-    for result in diff::slice(&left_lines, &right_lines) {
-        match result {
-            Result::Left(left_ln) => push_output(left_ln, b"", b'<', output, &config).unwrap(),
-            Result::Right(right_ln) => push_output(b"", right_ln, b'>', output, &config).unwrap(),
-            Result::Both(left_ln, right_ln) => {
+    let differences = ses::diff_slices(&left_lines, &right_lines);
+
+    for change in differences.iter_changes() {
+        match change {
+            ses::Change::Delete(left_ln) => {
+                push_output(left_ln, b"", b'<', output, &config).unwrap()
+            }
+            ses::Change::Insert(right_ln) => {
+                push_output(b"", right_ln, b'>', output, &config).unwrap()
+            }
+            ses::Change::Equal(left_ln, right_ln) => {
                 push_output(left_ln, right_ln, b' ', output, &config).unwrap()
             }
         }

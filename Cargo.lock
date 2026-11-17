@@ -301,13 +301,13 @@ dependencies = [
  "chrono",
  "codspeed-divan-compat",
  "ctor",
- "diff",
  "itoa",
  "pretty_assertions",
  "rand",
  "regex",
  "rstest",
  "same-file",
+ "ses",
  "tempfile",
  "unicode-width",
  "uutests",
@@ -973,6 +973,12 @@ dependencies = [
  "serde_core",
  "zmij",
 ]
+
+[[package]]
+name = "ses"
+version = "0.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b2e023ba18d7a09e2d8e01822d9dbd1c5f4710f0a47f9eabd51b1cb8bdf0ccdc"
 
 [[package]]
 name = "shlex"

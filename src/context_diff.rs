@@ -129,9 +129,10 @@ fn make_diff(
 
     let mut block: Option<ChangeBlock> = None;
 
-    for result in diff::slice(&expected_lines, &actual_lines) {
+    let differences = ses::diff_slices(&expected_lines, &actual_lines);
+    for result in differences.iter_changes() {
         match result {
-            diff::Result::Left(str) => {
+            ses::Change::Delete(str) => {
                 if lines_since_mismatch > max_gap {
                     results.push(mismatch);
                     mismatch = Mismatch::new(
@@ -153,7 +154,7 @@ fn make_diff(
                 line_number_expected += 1;
                 lines_since_mismatch = 0;
             }
-            diff::Result::Right(str) => {
+            ses::Change::Insert(str) => {
                 if lines_since_mismatch > max_gap {
                     results.push(mismatch);
                     mismatch = Mismatch::new(
@@ -175,7 +176,7 @@ fn make_diff(
                 line_number_actual += 1;
                 lines_since_mismatch = 0;
             }
-            diff::Result::Both(str, _) => {
+            ses::Change::Equal(str, _) => {
                 // if one of them is missing a newline and the other isn't, then they don't actually match
                 if (line_number_actual > actual_lines_count)
                     && (line_number_expected > expected_lines_count)
