@@ -5,6 +5,7 @@
 
 use crate::color::{colorize, ColorWhen, Palette, PaletteError};
 use crate::params::{parse_params, Format, MissingFile, Params};
+pub use crate::utils::Outcome;
 use crate::utils::{is_binary, read_file_contents, report_failure_to_read_input_file};
 use crate::{context_diff, dir_diff, ed_diff, normal_diff, side_diff, unified_diff};
 use std::env::ArgsOs;
@@ -122,6 +123,20 @@ pub fn compare_files(params: &Params, header: Option<&[u8]>) -> Outcome {
         ..params.clone()
     };
 
+    if params.brief {
+        let has_diff = from_content != to_content;
+        // NOTE: If features with content normalization (such as --ignore-case (-i),
+        // --ignore-all-space (-w), --ignore-blank-lines (-B), or are implemented in the future,
+        // extra checks will be needed here as `has_diff` only checks if the bytes are same for now
+        return if has_diff {
+            print_files_differ("Files", params);
+            Outcome::Different
+        } else {
+            maybe_report_identical_files();
+            Outcome::Identical
+        };
+    }
+
     if params.format == Format::SideBySide {
         let has_diff = match header {
             None => side_diff::diff(&from_content, &to_content, &mut stdout().lock(), params),
@@ -138,9 +153,6 @@ pub fn compare_files(params: &Params, header: Option<&[u8]>) -> Outcome {
             }
         };
         return if has_diff {
-            if params.brief {
-                print_files_differ("Files", params);
-            }
             Outcome::Different
         } else {
             maybe_report_identical_files();
@@ -162,32 +174,27 @@ pub fn compare_files(params: &Params, header: Option<&[u8]>) -> Outcome {
         },
         Format::SideBySide => unreachable!(),
     };
-    if params.brief && !result.is_empty() {
-        print_files_differ("Files", params);
+    let header = if result.is_empty() {
+        &[][..]
     } else {
-        let header = if result.is_empty() {
-            &[][..]
-        } else {
-            header.unwrap_or_default()
-        };
-        let colored =
-            output_palette(params).map(|palette| colorize(&result, params.format, &palette));
-        let mut stdout = stdout().lock();
-        let written = stdout
-            .write_all(header)
-            .and_then(|()| stdout.write_all(colored.as_deref().unwrap_or(&result)))
-            .and_then(|()| stdout.flush());
-        if let Err(error) = written {
-            // A reader that went away, as with `| head`, is not worth a message.
-            if error.kind() != io::ErrorKind::BrokenPipe {
-                report_failure_to_read_input_file(
-                    &params.executable,
-                    &OsString::from("standard output"),
-                    &error,
-                );
-            }
-            return Outcome::Trouble;
+        header.unwrap_or_default()
+    };
+    let colored = output_palette(params).map(|palette| colorize(&result, params.format, &palette));
+    let mut stdout = stdout().lock();
+    let written = stdout
+        .write_all(header)
+        .and_then(|()| stdout.write_all(colored.as_deref().unwrap_or(&result)))
+        .and_then(|()| stdout.flush());
+    if let Err(error) = written {
+        // A reader that went away, as with `| head`, is not worth a message.
+        if error.kind() != io::ErrorKind::BrokenPipe {
+            report_failure_to_read_input_file(
+                &params.executable,
+                &OsString::from("standard output"),
+                &error,
+            );
         }
+        return Outcome::Trouble;
     }
     if result.is_empty() {
         maybe_report_identical_files();
