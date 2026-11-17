@@ -47,6 +47,7 @@ pub struct Params {
     pub report_identical_files: bool,
     pub brief: bool,
     pub expand_tabs: bool,
+    pub suppress_blank_empty: bool,
     pub tabsize: usize,
     pub width: usize,
     pub missing_file: MissingFile,
@@ -97,6 +98,7 @@ impl Default for Params {
             report_identical_files: false,
             brief: false,
             expand_tabs: false,
+            suppress_blank_empty: false,
             tabsize: 8,
             width: 130,
             missing_file: MissingFile::default(),
@@ -273,6 +275,10 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
         }
         if param == "-t" || param == "--expand-tabs" {
             params.expand_tabs = true;
+            continue;
+        }
+        if param == "--suppress-blank-empty" {
+            params.suppress_blank_empty = true;
             continue;
         }
         if param == "--normal" {
