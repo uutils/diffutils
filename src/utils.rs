@@ -4,6 +4,7 @@
 // files that was distributed with this source code.
 
 use crate::bre::Bre;
+use crate::params::Params;
 use regex::Regex;
 use std::{
     borrow::Cow,
@@ -60,6 +61,17 @@ pub fn do_write_line<W: Write>(
         do_expand_tabs(output, line, tabsize)
     } else {
         output.write_all(line)
+    }
+}
+
+/// The marker to write before a line of the normal, context or unified
+/// format: `prefix`, without its trailing blanks if `line` is empty and
+/// `--suppress-blank-empty` is given.
+pub fn line_prefix<'a>(prefix: &'a [u8], line: &[u8], params: &Params) -> &'a [u8] {
+    if params.suppress_blank_empty && line.is_empty() {
+        prefix.trim_ascii_end()
+    } else {
+        prefix
     }
 }
 
