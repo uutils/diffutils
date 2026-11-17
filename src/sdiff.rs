@@ -5,7 +5,7 @@
 
 use crate::params::Params;
 use crate::side_diff;
-use crate::utils::{is_binary, read_file_contents, report_failure_to_read_input_file};
+use crate::utils::{is_binary, read_file_contents, report_failure_to_read_input_file, Outcome};
 use std::env::ArgsOs;
 use std::ffi::OsString;
 use std::io::{stdout, Write};
@@ -133,23 +133,6 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
     params.to = operands.remove(0);
 
     Ok(params)
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Outcome {
-    Identical,
-    Different,
-    Trouble,
-}
-
-impl From<Outcome> for ExitCode {
-    fn from(outcome: Outcome) -> Self {
-        match outcome {
-            Outcome::Identical => Self::SUCCESS,
-            Outcome::Different => Self::from(1),
-            Outcome::Trouble => Self::from(2),
-        }
-    }
 }
 
 pub fn compare_files(params: &Params) -> Outcome {

@@ -10,8 +10,33 @@ use std::{
     ffi::{OsStr, OsString},
     fs,
     io::{Read, Write},
+    process::ExitCode,
 };
 use unicode_width::UnicodeWidthStr;
+
+/// The result of a comparison, from best to worst, so that the outcome of
+/// several comparisons is their maximum.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum Outcome {
+    Identical,
+    Different,
+    Trouble,
+}
+
+// Exit codes are documented at
+// https://www.gnu.org/software/diffutils/manual/html_node/Invoking-diff.html.
+//     An exit status of 0 means no differences were found,
+//     1 means some differences were found,
+//     and 2 means trouble.
+impl From<Outcome> for ExitCode {
+    fn from(outcome: Outcome) -> Self {
+        match outcome {
+            Outcome::Identical => Self::SUCCESS,
+            Outcome::Different => Self::from(1),
+            Outcome::Trouble => Self::from(2),
+        }
+    }
+}
 
 /// Write the input line to an output stream, replacing tabs by spaces.
 /// Correctly handle multi-bytes characters.

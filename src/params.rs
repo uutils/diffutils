@@ -297,7 +297,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
         }
         if param == "-y" || param == "--side-by-side" {
             if format.is_some() && format != Some(Format::SideBySide) {
-                return Err("Conflicting output style option".to_string());
+                return Err("Conflicting output style options".to_string());
             }
             format = Some(Format::SideBySide);
             continue;
