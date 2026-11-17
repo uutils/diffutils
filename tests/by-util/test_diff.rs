@@ -49,7 +49,7 @@ fn differences(#[values(&[][..], &["-u"], &["-c"], &["-e"])] format: &[&str]) {
 }
 
 #[rstest]
-fn differences_brief(#[values(&[][..], &["-u"], &["-c"], &["-e"])] format: &[&str]) {
+fn differences_brief(#[values(&[][..], &["-u"], &["-c"], &["-e"], &["-y"])] format: &[&str]) {
     let (at, ts) = at_and_ts!();
     at.write("file1", "foo\n");
     at.write("file2", "bar\n");
@@ -1057,6 +1057,7 @@ fn label_errors(#[case] args: &[&str], #[case] error: &str) {
 
 #[test]
 fn side_by_side_different_files_exit_code_and_directory_headers() {
+    let s = std::path::MAIN_SEPARATOR;
     let (at, ts) = at_and_ts!();
     at.write("file1", "foo\n");
     at.write("file2", "bar\n");
@@ -1069,7 +1070,7 @@ fn side_by_side_different_files_exit_code_and_directory_headers() {
     ts.ucmd()
         .args(&["-y", "-r", "a", "b"])
         .fails_with_code(1)
-        .stdout_contains("diff -y -r a/f b/f\n");
+        .stdout_contains(format!("diff -y -r a{s}f b{s}f\n"));
 
     at.write("file3", "same\n");
     at.write("file4", "same\n");
