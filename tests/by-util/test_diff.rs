@@ -993,6 +993,36 @@ fn trailing_context_without_final_newlines(#[case] format: &str, #[case] hunk: &
         .stdout_str_check(|s| s.ends_with(hunk));
 }
 
+#[test]
+fn unified_missing_newline_deletions_first() -> Result<(), Box<dyn std::error::Error>> {
+    let (at, ts) = at_and_ts!();
+    let cases = [
+        (
+            "1\n",
+            "0\n1",
+            "@@ -1 +1,2 @@\n-1\n+0\n+1\n\\ No newline at end of file\n",
+        ),
+        (
+            "1",
+            "0\n1\n",
+            "@@ -1 +1,2 @@\n-1\n\\ No newline at end of file\n+0\n+1\n",
+        ),
+    ];
+
+    for (index, (old, new, hunk)) in cases.into_iter().enumerate() {
+        let old_path = format!("old-{index}");
+        let new_path = format!("new-{index}");
+        at.write(&old_path, old);
+        at.write(&new_path, new);
+        ts.ucmd()
+            .args(&["-u", &old_path, &new_path])
+            .fails_with_code(1)
+            .stdout_str_check(|s| s.ends_with(hunk));
+    }
+
+    Ok(())
+}
+
 #[rstest]
 #[case::unified(
     &["-u", "--label", "a/x", "--label=b/x"],
