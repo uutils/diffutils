@@ -896,7 +896,10 @@ fn sdiff_recursive_header() {
     ts.ucmd()
         .args(&["-r", "-y", "left", "right"])
         .fails_with_code(1)
-        .stdout_contains("diff -r -y left/file right/file\n");
+        .stdout_contains(format!(
+            "diff -r -y left{0}file right{0}file\n",
+            std::path::MAIN_SEPARATOR
+        ));
 }
 
 // Regression test: identical files must return exit code 0 in side-by-side mode.
