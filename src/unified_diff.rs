@@ -7,7 +7,7 @@ use std::collections::VecDeque;
 use std::io::Write;
 
 use crate::params::Params;
-use crate::utils::do_write_line;
+use crate::utils::{do_write_line, line_prefix};
 use crate::utils::{get_modification_time, write_file_header, FunctionLineFinder, TimestampStyle};
 
 #[derive(Debug, PartialEq)]
@@ -248,8 +248,20 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
         params.to_missing,
     );
     let mut output = Vec::new();
-    write_file_header(&mut output, "---", &params.from, &from_modified_time);
-    write_file_header(&mut output, "+++", &params.to, &to_modified_time);
+    write_file_header(
+        &mut output,
+        "---",
+        &params.from,
+        params.from_label.as_deref(),
+        &from_modified_time,
+    );
+    write_file_header(
+        &mut output,
+        "+++",
+        &params.to,
+        params.to_label.as_deref(),
+        &to_modified_time,
+    );
     let diff_results = make_diff(expected, actual, params.context_count, params.brief);
     if diff_results.is_empty() {
         return Vec::new();
@@ -386,19 +398,19 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
         for line in result.lines {
             match line {
                 DiffLine::Expected(e) => {
-                    write!(output, "-").expect("write to Vec is infallible");
+                    output.extend_from_slice(line_prefix(b"-", &e, params));
                     do_write_line(&mut output, &e, params.expand_tabs, params.tabsize)
                         .expect("write to Vec is infallible");
                     writeln!(output).unwrap();
                 }
                 DiffLine::Context(c) => {
-                    write!(output, " ").expect("write to Vec is infallible");
+                    output.extend_from_slice(line_prefix(b" ", &c, params));
                     do_write_line(&mut output, &c, params.expand_tabs, params.tabsize)
                         .expect("write to Vec is infallible");
                     writeln!(output).unwrap();
                 }
                 DiffLine::Actual(r) => {
-                    write!(output, "+",).expect("write to Vec is infallible");
+                    output.extend_from_slice(line_prefix(b"+", &r, params));
                     do_write_line(&mut output, &r, params.expand_tabs, params.tabsize)
                         .expect("write to Vec is infallible");
                     writeln!(output).unwrap();

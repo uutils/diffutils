@@ -75,7 +75,7 @@ fn translate(pattern: &str) -> Result<String, String> {
                 match escaped {
                     '(' => {
                         open_groups += 1;
-                        translated.push('(');
+                        translated.push_str("(?:");
                         opens_expression = true;
                     }
                     ')' => {
@@ -275,6 +275,16 @@ mod tests {
         // Unescaped operators of extended expressions are ordinary characters.
         assert!(matches(r"f(x)|y+?", "f(x)|y+?"));
         assert!(!matches(r"f(x)|y+?", "fx"));
+    }
+
+    // Only is_match() is used and back references are rejected, so a group
+    // has nothing to capture; capturing would cost memory for each of them.
+    #[test]
+    fn groups_do_not_capture() {
+        let bre = Bre::new(r"^\(a\(b\)\)\{2\}\(c\|d\)$").unwrap();
+        assert_eq!(bre.regex.captures_len(), 1);
+        assert!(bre.is_match(b"ababd"));
+        assert!(!bre.is_match(b"abd"));
     }
 
     #[test]
