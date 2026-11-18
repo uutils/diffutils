@@ -7,7 +7,7 @@ use std::collections::VecDeque;
 use std::io::Write;
 
 use crate::params::Params;
-use crate::utils::{do_write_line, line_prefix};
+use crate::utils::{do_write_line, is_blank_line, line_prefix};
 use crate::utils::{
     get_modification_time, is_posix_locale, write_file_header, FunctionLineFinder, TimestampStyle,
 };
@@ -337,7 +337,28 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
         params.to_label.as_deref(),
         &to_modified_time,
     );
-    let diff_results = make_diff(expected, actual, params.context_count, params.brief);
+    let mut diff_results = make_diff(
+        expected,
+        actual,
+        params.context_count,
+        params.brief && !params.ignore_blank_lines,
+    );
+    if params.ignore_blank_lines {
+        diff_results.retain(|mismatch| {
+            if mismatch.expected_missing_nl || mismatch.actual_missing_nl {
+                return true;
+            }
+            let expected_has_non_blank = mismatch.expected.iter().any(|line| match line {
+                DiffLine::Change(l) | DiffLine::Add(l) => !is_blank_line(l),
+                DiffLine::Context(_) => false,
+            });
+            let actual_has_non_blank = mismatch.actual.iter().any(|line| match line {
+                DiffLine::Change(l) | DiffLine::Add(l) => !is_blank_line(l),
+                DiffLine::Context(_) => false,
+            });
+            expected_has_non_blank || actual_has_non_blank
+        });
+    }
     if diff_results.is_empty() {
         return Vec::new();
     }

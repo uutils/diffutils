@@ -75,6 +75,12 @@ pub fn line_prefix<'a>(prefix: &'a [u8], line: &[u8], params: &Params) -> &'a [u
     }
 }
 
+/// Returns true if a line contains only ASCII spaces, tabs or carriage returns, or is empty.
+#[inline]
+pub fn is_blank_line(line: &[u8]) -> bool {
+    line.iter().all(|&c| c == b' ' || c == b'\t' || c == b'\r')
+}
+
 /// Quotes a file name for the headers of the diff output: a name containing
 /// spaces, double quotes, backslashes, control characters or non-ASCII bytes
 /// is written between double quotes with C-style escapes, other names are
@@ -551,6 +557,17 @@ mod tests {
             assert_line_written("foo bar baz", false, 8, "foo bar baz");
             assert_line_written("foo bar\tbaz", false, 8, "foo bar\tbaz");
             assert_line_written("foo bar\tbaz", true, 8, "foo bar baz");
+        }
+
+        #[test]
+        fn blank_lines() {
+            assert!(is_blank_line(b""));
+            assert!(is_blank_line(b"\r"));
+            assert!(is_blank_line(b" "));
+            assert!(is_blank_line(b"\t"));
+            assert!(is_blank_line(b"  \t  \r"));
+            assert!(!is_blank_line(b"a"));
+            assert!(!is_blank_line(b" a "));
         }
     }
 

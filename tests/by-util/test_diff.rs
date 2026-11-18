@@ -1069,3 +1069,30 @@ fn label_errors(#[case] args: &[&str], #[case] error: &str) {
         .fails_with_code(2)
         .stderr_contains(error);
 }
+
+#[test]
+fn ignore_blank_lines() {
+    let (at, ts) = at_and_ts!();
+    at.write("a", "a\n\nb\n");
+    at.write("b", "a\nb\n");
+    for option in ["-B", "--ignore-blank-lines"] {
+        for format in [&[][..], &["-u"], &["-c"], &["-e"], &["-q"]] {
+            ts.ucmd()
+                .arg(option)
+                .args(format)
+                .args(&["a", "b"])
+                .succeeds()
+                .no_stdout();
+        }
+    }
+    // Bug#18402: non-blank changes without a final newline are still reported.
+    at.write("c", "a");
+    at.write("d", "b");
+    ts.ucmd()
+        .arg("-B")
+        .args(&["c", "d"])
+        .fails_with_code(1)
+        .stdout_is(
+            "1c1\n< a\n\\ No newline at end of file\n---\n> b\n\\ No newline at end of file\n",
+        );
+}

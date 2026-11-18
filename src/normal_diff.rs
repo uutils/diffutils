@@ -6,7 +6,7 @@
 use std::io::Write;
 
 use crate::params::Params;
-use crate::utils::{do_write_line, line_prefix};
+use crate::utils::{do_write_line, is_blank_line, line_prefix};
 
 #[derive(Debug, PartialEq)]
 struct Mismatch {
@@ -121,7 +121,15 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
     // See https://www.gnu.org/software/diffutils/manual/html_node/Detailed-Normal.html
     // for details on the syntax of the normal format.
     let mut output = Vec::new();
-    let diff_results = make_diff(expected, actual, params.brief);
+    let mut diff_results = make_diff(expected, actual, params.brief && !params.ignore_blank_lines);
+    if params.ignore_blank_lines {
+        diff_results.retain(|mismatch| {
+            let expected_blank = mismatch.expected.iter().all(|l| is_blank_line(l));
+            let actual_blank = mismatch.actual.iter().all(|l| is_blank_line(l));
+            let missing_nl = mismatch.expected_missing_nl || mismatch.actual_missing_nl;
+            !(expected_blank && actual_blank && !missing_nl)
+        });
+    }
     if params.brief && !diff_results.is_empty() {
         write!(&mut output, "\0").unwrap();
         return output;
