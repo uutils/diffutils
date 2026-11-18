@@ -21,7 +21,6 @@ mod ed_diff;
 mod macros;
 mod normal_diff;
 mod params;
-#[allow(dead_code)]
 mod side_diff;
 mod unified_diff;
 mod utils;

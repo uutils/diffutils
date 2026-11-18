@@ -309,12 +309,15 @@ fn push_output<T: Write>(
 }
 
 pub fn diff<T: Write>(from_file: &[u8], to_file: &[u8], output: &mut T, params: &Params) -> bool {
+    //      ^ The left file  ^ The right file
     let mut left_lines: Vec<&[u8]> = from_file.split_inclusive(|&c| c == b'\n').collect();
     let mut right_lines: Vec<&[u8]> = to_file.split_inclusive(|&c| c == b'\n').collect();
     let config = Config::new(params.width, params.tabsize, params.expand_tabs);
+
     if left_lines.last() == Some(&&b""[..]) {
         left_lines.pop();
     }
+
     if right_lines.last() == Some(&&b""[..]) {
         right_lines.pop();
     }
@@ -342,6 +345,7 @@ pub fn diff<T: Write>(from_file: &[u8], to_file: &[u8], output: &mut T, params: 
     */
     let results = diff::slice(&left_lines, &right_lines);
     let mut different = false;
+
     for result in results {
         match result {
             Result::Left(left_ln) => {
@@ -357,6 +361,7 @@ pub fn diff<T: Write>(from_file: &[u8], to_file: &[u8], output: &mut T, params: 
             }
         }
     }
+
     different
 }
 
