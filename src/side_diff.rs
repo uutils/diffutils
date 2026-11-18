@@ -341,16 +341,19 @@ pub fn diff<T: Write>(from_file: &[u8], to_file: &[u8], output: &mut T, params: 
     the goals of this project : )
     */
     let results = diff::slice(&left_lines, &right_lines);
-    let different = results
-        .iter()
-        .any(|result| matches!(result, Result::Left(_) | Result::Right(_)));
-
+    let mut different = false;
     for result in results {
         match result {
-            Result::Left(left_ln) => push_output(left_ln, b"", b'<', output, &config).unwrap(),
-            Result::Right(right_ln) => push_output(b"", right_ln, b'>', output, &config).unwrap(),
+            Result::Left(left_ln) => {
+                different = true;
+                push_output(left_ln, b"", b'<', output, &config).unwrap();
+            }
+            Result::Right(right_ln) => {
+                different = true;
+                push_output(b"", right_ln, b'>', output, &config).unwrap();
+            }
             Result::Both(left_ln, right_ln) => {
-                push_output(left_ln, right_ln, b' ', output, &config).unwrap()
+                push_output(left_ln, right_ln, b' ', output, &config).unwrap();
             }
         }
     }
