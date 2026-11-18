@@ -5,7 +5,7 @@
 
 use core::cmp::{max, min};
 use diff::Result;
-use std::{io::Write, vec};
+use std::io::Write;
 use unicode_width::UnicodeWidthStr;
 
 use crate::params::Params;
@@ -308,23 +308,7 @@ fn push_output<T: Write>(
     Ok(())
 }
 
-pub fn diff<T: Write>(
-    from_file: &[u8],
-    to_file: &[u8],
-    output: &mut T,
-    params: &Params,
-) -> Vec<u8> {
-    diff_with_status(from_file, to_file, output, params);
-    vec![]
-}
-
-pub(crate) fn diff_with_status<T: Write>(
-    from_file: &[u8],
-    to_file: &[u8],
-    output: &mut T,
-    params: &Params,
-) -> bool {
-    //      ^ The left file  ^ The right file
+pub fn diff<T: Write>(from_file: &[u8], to_file: &[u8], output: &mut T, params: &Params) -> bool {
     let mut left_lines: Vec<&[u8]> = from_file.split_inclusive(|&c| c == b'\n').collect();
     let mut right_lines: Vec<&[u8]> = to_file.split_inclusive(|&c| c == b'\n').collect();
     let config = Config::new(params.width, params.tabsize, params.expand_tabs);
