@@ -1056,6 +1056,21 @@ fn trailing_context_without_final_newlines(#[case] format: &str, #[case] hunk: &
 }
 
 #[rstest]
+#[case::normal("--normal", "1d0\n<\n4c3,4\n< b\n---\n> c\n>\n")]
+#[case::unified("-u", "@@ -1,4 +1,4 @@\n-\n a\n\n-b\n+c\n+\n")]
+#[case::context("-c", "*** 1,4 ****\n-\n  a\n\n! b\n--- 1,4 ----\n  a\n\n! c\n!\n")]
+fn suppress_blank_empty(#[case] format: &str, #[case] hunk: &str) {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", "\na\n\nb\n");
+    at.write("file2", "a\n\nc\n\n");
+
+    ts.ucmd()
+        .args(&[format, "--suppress-blank-empty", "file1", "file2"])
+        .fails_with_code(1)
+        .stdout_str_check(|s| s.ends_with(hunk));
+}
+
+#[rstest]
 #[case::unified(
     &["-u", "--label", "a/x", "--label=b/x"],
     "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-foo\n+bar\n"

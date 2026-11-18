@@ -6,7 +6,7 @@
 use std::io::Write;
 
 use crate::params::Params;
-use crate::utils::do_write_line;
+use crate::utils::{do_write_line, line_prefix};
 
 #[derive(Debug, PartialEq)]
 struct Mismatch {
@@ -207,7 +207,7 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
                 expected,
                 params.expand_tabs,
                 params.tabsize,
-                b"< ",
+                line_prefix(b"< ", expected, params),
             )
             .unwrap();
             writeln!(&mut output).unwrap();
@@ -224,7 +224,7 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
                 actual,
                 params.expand_tabs,
                 params.tabsize,
-                b"> ",
+                line_prefix(b"> ", actual, params),
             )
             .unwrap();
             writeln!(&mut output).unwrap();
