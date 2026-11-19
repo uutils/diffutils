@@ -18,6 +18,7 @@ mod context_diff;
 mod diff;
 mod dir_diff;
 mod ed_diff;
+mod ifdef_diff;
 mod macros;
 mod normal_diff;
 mod params;

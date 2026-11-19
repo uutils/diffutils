@@ -22,6 +22,7 @@ pub enum Format {
     Context,
     Ed,
     SideBySide,
+    Ifdef,
 }
 
 /// How to handle an operand that does not exist (`-N` and
@@ -71,6 +72,7 @@ pub struct Params {
     pub to_missing: bool,
     pub from_label: Option<OsString>,
     pub to_label: Option<OsString>,
+    pub ifdef_name: Option<String>,
 }
 
 impl Params {
@@ -115,6 +117,7 @@ impl Default for Params {
             to_missing: false,
             from_label: None,
             to_label: None,
+            ifdef_name: None,
         }
     }
 }
@@ -300,6 +303,15 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
                 return Err("Conflicting output style option".to_string());
             }
             format = Some(Format::SideBySide);
+            continue;
+        }
+        if let Some(argument) = option_argument(&param, "-D", "--ifdef") {
+            if format.is_some() && format != Some(Format::Ifdef) {
+                return Err("Conflicting output style options".to_string());
+            }
+            format = Some(Format::Ifdef);
+            let val = argument_value(argument, &param, &mut opts)?;
+            params.ifdef_name = Some(val.to_string_lossy().into_owned());
             continue;
         }
         if width_re.is_match(param.to_string_lossy().as_ref()) {
