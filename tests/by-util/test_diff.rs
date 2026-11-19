@@ -1131,3 +1131,69 @@ fn label_errors(#[case] args: &[&str], #[case] error: &str) {
         .fails_with_code(2)
         .stderr_contains(error);
 }
+
+#[test]
+fn ignore_tab_expansion() {
+    let (at, ts) = at_and_ts!();
+    at.write("a", "a\tb\n");
+    at.write("b", "a       b\n");
+
+    // Without -E, they differ
+    ts.ucmd().args(&["a", "b"]).fails_with_code(1);
+
+    // With -E / --ignore-tab-expansion, treated as equal
+    for option in ["-E", "--ignore-tab-expansion"] {
+        ts.ucmd().args(&[option, "a", "b"]).succeeds().no_stdout();
+        ts.ucmd()
+            .args(&["-s", option, "a", "b"])
+            .succeeds()
+            .stdout_is("Files a and b are identical\n");
+    }
+
+    // Supported in multiple output formats
+    for format in ["-u", "-c", "-e"] {
+        ts.ucmd()
+            .args(&["-E", format, "a", "b"])
+            .succeeds()
+            .no_stdout();
+    }
+
+    // Side-by-side format prints common lines with space gutter and exits 0
+    ts.ucmd()
+        .args(&["-E", "-y", "a", "b"])
+        .succeeds()
+        .stdout_contains("a\tb");
+}
+
+#[test]
+fn ignore_tab_expansion_custom_tabsize() {
+    let (at, ts) = at_and_ts!();
+    at.write("a", "a\tb\n");
+    at.write("b_tab4", "a   b\n");
+    at.write("b_tab8", "a       b\n");
+
+    // With default tabsize 8, matches b_tab8
+    ts.ucmd()
+        .args(&["-E", "a", "b_tab8"])
+        .succeeds()
+        .no_stdout();
+
+    // With --tabsize=4, matches b_tab4
+    ts.ucmd()
+        .args(&["-E", "--tabsize=4", "a", "b_tab4"])
+        .succeeds()
+        .no_stdout();
+
+    ts.ucmd()
+        .args(&["-E", "--tabsize=4", "a", "b_tab8"])
+        .fails_with_code(1);
+}
+
+#[test]
+fn ignore_tab_expansion_control_and_wide_chars() {
+    let (at, ts) = at_and_ts!();
+    at.write("old", "ab\rc\t1\n\x08x\t1\n中\t2\n");
+    at.write("new", "ab\rc       1\nx       1\n中      2\n");
+
+    ts.ucmd().args(&["-E", "old", "new"]).succeeds().no_stdout();
+}
