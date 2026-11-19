@@ -33,6 +33,15 @@ impl Mismatch {
             lines: Vec::new(),
         }
     }
+
+    /// Returns the index where expected (deletion) lines should be inserted so that
+    /// all deletions in the current change block precede insertions.
+    fn expected_insert_pos(&self) -> usize {
+        self.lines
+            .iter()
+            .rposition(|line| !matches!(line, DiffLine::Actual(_) | DiffLine::MissingNL))
+            .map_or(0, |pos| pos + 1)
+    }
 }
 
 // Produces a diff between the expected output and actual output.
@@ -83,26 +92,12 @@ fn make_diff(
                     mismatch.lines.push(DiffLine::Context(line.to_vec()));
                 }
 
-                if mismatch.lines.last() == Some(&DiffLine::MissingNL) {
-                    mismatch.lines.pop();
-                    match mismatch.lines.pop() {
-                        Some(DiffLine::Actual(res)) => {
-                            // We have to make sure that Actual (the + lines)
-                            // always come after Expected (the - lines)
-                            mismatch.lines.push(DiffLine::Expected(str.to_vec()));
-                            if line_number_expected > expected_lines_count {
-                                mismatch.lines.push(DiffLine::MissingNL);
-                            }
-                            mismatch.lines.push(DiffLine::Actual(res));
-                            mismatch.lines.push(DiffLine::MissingNL);
-                        }
-                        _ => unreachable!("unterminated Left and Common lines shouldn't be followed by more Left lines"),
-                    }
-                } else {
-                    mismatch.lines.push(DiffLine::Expected(str.to_vec()));
-                    if line_number_expected > expected_lines_count {
-                        mismatch.lines.push(DiffLine::MissingNL);
-                    }
+                let insert_pos = mismatch.expected_insert_pos();
+                mismatch
+                    .lines
+                    .insert(insert_pos, DiffLine::Expected(str.to_vec()));
+                if line_number_expected > expected_lines_count {
+                    mismatch.lines.insert(insert_pos + 1, DiffLine::MissingNL);
                 }
                 line_number_expected += 1;
                 lines_since_mismatch = 0;
@@ -151,7 +146,10 @@ fn make_diff(
                         debug_assert!(mismatch.lines.last() != Some(&DiffLine::MissingNL));
                         mismatch.lines.push(DiffLine::Context(line.to_vec()));
                     }
-                    mismatch.lines.push(DiffLine::Expected(str.to_vec()));
+                    let insert_pos = mismatch.expected_insert_pos();
+                    mismatch
+                        .lines
+                        .insert(insert_pos, DiffLine::Expected(str.to_vec()));
                     mismatch.lines.push(DiffLine::Actual(str.to_vec()));
                     mismatch.lines.push(DiffLine::MissingNL);
                     lines_since_mismatch = 0;
@@ -167,8 +165,11 @@ fn make_diff(
                         debug_assert!(mismatch.lines.last() != Some(&DiffLine::MissingNL));
                         mismatch.lines.push(DiffLine::Context(line.to_vec()));
                     }
-                    mismatch.lines.push(DiffLine::Expected(str.to_vec()));
-                    mismatch.lines.push(DiffLine::MissingNL);
+                    let insert_pos = mismatch.expected_insert_pos();
+                    mismatch
+                        .lines
+                        .insert(insert_pos, DiffLine::Expected(str.to_vec()));
+                    mismatch.lines.insert(insert_pos + 1, DiffLine::MissingNL);
                     mismatch.lines.push(DiffLine::Actual(str.to_vec()));
                     lines_since_mismatch = 0;
                 } else {
