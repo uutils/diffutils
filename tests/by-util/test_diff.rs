@@ -71,6 +71,15 @@ fn missing_newline() {
         .stderr_str_check(|s| s.starts_with("No newline at end of file"));
 }
 
+#[test]
+fn huge_tabsize() {
+    new_ucmd!()
+        .args(&["--tabsize=18446744073709551615", "foo", "bar"])
+        .fails_with_code(2)
+        .no_stdout()
+        .stderr_contains("invalid tabsize «18446744073709551615»");
+}
+
 #[rstest]
 #[case::second(&["file1", "-"], "bar\n", "--- file1\tTIMESTAMP\n+++ -\tTIMESTAMP\n")]
 #[case::first(&["-", "file2"], "foo\n", "--- -\tTIMESTAMP\n+++ file2\tTIMESTAMP\n")]
@@ -393,6 +402,68 @@ fn palette_escapes() {
             .stdout_is("2c2\n< rain\n---\n> snow\n")
             .stderr_contains("unrecognized prefix: ad");
     }
+}
+
+// With -t, the column moves like on a terminal: back to the start after a
+// carriage return, where the line marker is printed again, and one back for
+// a backspace. Other control characters take no room.
+#[test]
+fn expand_tabs_after_control_characters() {
+    let (at, ts) = at_and_ts!();
+    at.write(
+        "old",
+        "ab\rc\t1\nabc\x08d\t1\n\x08x\t1\na\x01\x1bb\t1\nend\r\n",
+    );
+    at.write(
+        "new",
+        "ab\rc\t2\nabc\x08d\t2\n\x08x\t2\na\x01\x1bb\t2\nend\r\n",
+    );
+    let diff = |format: &str| {
+        ts.ucmd()
+            .args(&["-t", format, "old", "new"])
+            .fails_with_code(1)
+    };
+
+    diff("--normal").stdout_only(
+        "1,4c1,4\n\
+         < ab\r< c       1\n\
+         < abc\x08d     1\n\
+         < x       1\n\
+         < a\x01\x1bb      1\n\
+         ---\n\
+         > ab\r> c       2\n\
+         > abc\x08d     2\n\
+         > x       2\n\
+         > a\x01\x1bb      2\n",
+    );
+    // The unified format does not repeat its marker.
+    diff("-U0").stdout_str_check(|s| {
+        s.ends_with(
+            "@@ -1,4 +1,4 @@\n\
+         -ab\rc       1\n\
+         -abc\x08d     1\n\
+         -x       1\n\
+         -a\x01\x1bb      1\n\
+         +ab\rc       2\n\
+         +abc\x08d     2\n\
+         +x       2\n\
+         +a\x01\x1bb      2\n",
+        )
+    });
+    diff("-C0").stdout_str_check(|s| {
+        s.ends_with(
+            "*** 1,4 ****\n\
+         ! ab\r! c       1\n\
+         ! abc\x08d     1\n\
+         ! x       1\n\
+         ! a\x01\x1bb      1\n\
+         --- 1,4 ----\n\
+         ! ab\r! c       2\n\
+         ! abc\x08d     2\n\
+         ! x       2\n\
+         ! a\x01\x1bb      2\n",
+        )
+    });
 }
 
 #[cfg(target_os = "linux")]
@@ -909,6 +980,47 @@ fn function_lines() {
         .stderr_is("'\\(': Unmatched ( or \\(\n");
 }
 
+// A function line is cut at 40 bytes, even inside a multi-byte character.
+#[test]
+fn function_line_is_cut_at_40_bytes() {
+    let (at, ts) = at_and_ts!();
+    let function_line = format!("func_{}()", "é".repeat(40));
+    at.write("old", &format!("{function_line}\n1\n2\n3\n4\n5\n6\n"));
+    at.write("new", &format!("{function_line}\n1\n2\n3\n4\nX\n6\n"));
+
+    let mut expected = b"@@ -3,5 +3,5 @@ ".to_vec();
+    expected.extend(&function_line.as_bytes()[..40]);
+    expected.push(b'\n');
+
+    let result = ts
+        .ucmd()
+        .args(&["-u", "-p", "old", "new"])
+        .fails_with_code(1);
+    let header = result
+        .stdout()
+        .split_inclusive(|&byte| byte == b'\n')
+        .nth(2);
+    assert_eq!(header, Some(expected.as_slice()));
+}
+
+// Vertical tabs count as white space around a function line, as they do for
+// C's isspace().
+#[test]
+fn function_line_vertical_tabs_are_trimmed() {
+    let (at, ts) = at_and_ts!();
+    at.write("old", "\x0b\x0c fg() \t\x0c\r\x0b\n1\n2\n3\n4\n5\n6\n");
+    at.write("new", "\x0b\x0c fg() \t\x0c\r\x0b\n1\n2\n3\n4\nX\n6\n");
+
+    ts.ucmd()
+        .args(&["-u", "-F", "fg", "old", "new"])
+        .fails_with_code(1)
+        .stdout_contains("\n@@ -3,5 +3,5 @@ fg()\n");
+    ts.ucmd()
+        .args(&["-c", "-F", "fg", "old", "new"])
+        .fails_with_code(1)
+        .stdout_contains("\n*************** fg()\n");
+}
+
 #[cfg(unix)]
 #[test]
 fn quoted_file_names() {
@@ -977,4 +1089,81 @@ fn trailing_context_without_final_newlines(#[case] format: &str, #[case] hunk: &
         .args(&[format, "file1", "file2"])
         .fails_with_code(1)
         .stdout_str_check(|s| s.ends_with(hunk));
+}
+
+#[rstest]
+#[case::normal("--normal", "1d0\n<\n4c3,4\n< b\n---\n> c\n>\n")]
+#[case::unified("-u", "@@ -1,4 +1,4 @@\n-\n a\n\n-b\n+c\n+\n")]
+#[case::context("-c", "*** 1,4 ****\n-\n  a\n\n! b\n--- 1,4 ----\n  a\n\n! c\n!\n")]
+fn suppress_blank_empty(#[case] format: &str, #[case] hunk: &str) {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", "\na\n\nb\n");
+    at.write("file2", "a\n\nc\n\n");
+
+    ts.ucmd()
+        .args(&[format, "--suppress-blank-empty", "file1", "file2"])
+        .fails_with_code(1)
+        .stdout_str_check(|s| s.ends_with(hunk));
+}
+
+#[rstest]
+#[case::unified(
+    &["-u", "--label", "a/x", "--label=b/x"],
+    "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-foo\n+bar\n"
+)]
+#[case::context(
+    &["-c", "-L", "old", "-Lnew"],
+    "*** old\n--- new\n***************\n*** 1 ****\n! foo\n--- 1 ----\n! bar\n"
+)]
+#[case::brief(&["-q", "-L", "old", "-L", "new"], "Files old and new differ\n")]
+#[case::space(
+    &["-u", "-L", "old name", "-L", "new"],
+    "--- old name\n+++ new\n@@ -1 +1 @@\n-foo\n+bar\n"
+)]
+fn labels_replace_file_names(#[case] options: &[&str], #[case] expected: &str) {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", "foo\n");
+    at.write("file2", "bar\n");
+    ts.ucmd()
+        .args(options)
+        .args(&["file1", "file2"])
+        .fails_with_code(1)
+        .stdout_is(expected);
+}
+
+#[test]
+fn labels_replace_identical_file_names() {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", "foo\n");
+    at.write("file2", "foo\n");
+    ts.ucmd()
+        .args(&["-s", "-L", "old", "-L", "new", "file1", "file2"])
+        .succeeds()
+        .stdout_is("Files old and new are identical\n");
+}
+
+#[test]
+fn labels_replace_file_names_in_directories() {
+    let (at, ts) = at_and_ts!();
+    at.mkdir("a");
+    at.mkdir("b");
+    at.write("a/f", "foo\n");
+    at.write("b/f", "bar\n");
+    ts.ucmd()
+        .args(&["-r", "-u", "-L", "old", "-L", "new", "a", "b"])
+        .fails_with_code(1)
+        .stdout_is("diff -r -u -L old -L new old new\n--- old\n+++ new\n@@ -1 +1 @@\n-foo\n+bar\n");
+}
+
+#[rstest]
+#[case::too_many(&["-L", "a", "-L", "b", "-L", "c", "file1", "file2"], "too many file label options")]
+#[case::missing_argument(&["file1", "file2", "-L"], "option '-L' requires an argument")]
+fn label_errors(#[case] args: &[&str], #[case] error: &str) {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", "foo\n");
+    at.write("file2", "bar\n");
+    ts.ucmd()
+        .args(args)
+        .fails_with_code(2)
+        .stderr_contains(error);
 }

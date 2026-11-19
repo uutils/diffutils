@@ -201,11 +201,15 @@ pub fn colorize(output: &[u8], format: Format, palette: &Palette) -> Vec<u8> {
                 } else if line.starts_with(b"--- ") {
                     in_new_file_part = true;
                     LineKind::LineNumbers
-                } else if line.starts_with(b"- ") {
+                } else if line.starts_with(b"- ") || line == b"-\n" {
                     LineKind::Deleted
-                } else if line.starts_with(b"+ ") {
+                } else if line.starts_with(b"+ ") || line == b"+\n" {
                     LineKind::Added
-                } else if line.starts_with(b"! ") || line.starts_with(b"  ") {
+                } else if line.starts_with(b"! ")
+                    || line.starts_with(b"  ")
+                    || line == b"!\n"
+                    || line == b"\n"
+                {
                     if in_new_file_part {
                         LineKind::Added
                     } else {
@@ -299,6 +303,20 @@ mod tests {
              \x1b[31m! bee\x1b[0m\n\\ No newline at end of file\n\
              \x1b[36m--- 1,3 ----\x1b[0m\n\x1b[32m  - ant\x1b[0m\n\x1b[32m  \x1b[0m\n\
              \x1b[32m! fly\x1b[0m\n"
+        );
+    }
+
+    #[test]
+    fn context_lines_without_blank_after_the_marker() {
+        let output = "*** left\n--- right\n***************\n*** 1,3 ****\n-\n\n! bee\n\
+                      --- 1,3 ----\n\n! fly\n!\n+\n";
+        assert_eq!(
+            colorize_str(output, Format::Context),
+            "\x1b[1m*** left\x1b[0m\n\x1b[1m--- right\x1b[0m\n***************\n\
+             \x1b[36m*** 1,3 ****\x1b[0m\n\x1b[31m-\x1b[0m\n\x1b[31m\x1b[0m\n\
+             \x1b[31m! bee\x1b[0m\n\
+             \x1b[36m--- 1,3 ----\x1b[0m\n\x1b[32m\x1b[0m\n\x1b[32m! fly\x1b[0m\n\
+             \x1b[32m!\x1b[0m\n\x1b[32m+\x1b[0m\n"
         );
     }
 
