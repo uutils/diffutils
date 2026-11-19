@@ -129,7 +129,7 @@ fn make_diff(
 
     let mut block: Option<ChangeBlock> = None;
 
-    let differences = ses::diff_slices(&expected_lines, &actual_lines);
+    let differences = ses::diff_lines(&expected_lines, &actual_lines);
     for result in differences.iter_changes() {
         match result {
             ses::Change::Delete(str) => {

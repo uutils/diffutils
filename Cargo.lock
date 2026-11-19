@@ -976,9 +976,12 @@ dependencies = [
 
 [[package]]
 name = "ses"
-version = "0.0.3"
+version = "0.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce129eaeb085b1818a876f6c8b30122db30e4a5d1e75cb474d6b65b6a3e40f7d"
+checksum = "5ffac46567485eaeccaa5970d135dc1e5b4b9bb4af308d6964d4a4666cf1e96f"
+dependencies = [
+ "rustc-hash",
+]
 
 [[package]]
 name = "shlex"

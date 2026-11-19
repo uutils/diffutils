@@ -56,7 +56,7 @@ fn make_diff(expected: &[u8], actual: &[u8], stop_early: bool) -> Vec<Mismatch> 
         actual_lines.pop();
     }
 
-    let differences = ses::diff_slices(&expected_lines, &actual_lines);
+    let differences = ses::diff_lines(&expected_lines, &actual_lines);
     for result in differences.iter_changes() {
         match result {
             Change::Delete(str) => {

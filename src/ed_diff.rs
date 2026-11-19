@@ -71,7 +71,7 @@ fn make_diff(expected: &[u8], actual: &[u8], stop_early: bool) -> Result<Vec<Mis
         return Err(DiffError::MissingNL);
     }
 
-    let differences = ses::diff_slices(&expected_lines, &actual_lines);
+    let differences = ses::diff_lines(&expected_lines, &actual_lines);
     for result in differences.iter_changes() {
         match result {
             ses::Change::Delete(str) => {

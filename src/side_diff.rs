@@ -349,7 +349,7 @@ pub fn diff<T: Write>(
     More studies are needed to cover GNU diff side by side with 100% accuracy, which is one of
     the goals of this project : )
     */
-    let differences = ses::diff_slices(&left_lines, &right_lines);
+    let differences = ses::diff_lines(&left_lines, &right_lines);
 
     for change in differences.iter_changes() {
         match change {
