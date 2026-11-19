@@ -6,7 +6,7 @@
 use std::io::Write;
 
 use crate::params::Params;
-use crate::utils::{do_write_line, line_prefix};
+use crate::utils::{do_write_line, line_prefix, DiffLineRef};
 
 #[derive(Debug, PartialEq)]
 struct Mismatch {
@@ -32,25 +32,31 @@ impl Mismatch {
 }
 
 // Produces a diff between the expected output and actual output.
-fn make_diff(expected: &[u8], actual: &[u8], stop_early: bool) -> Vec<Mismatch> {
+fn make_diff(expected: &[u8], actual: &[u8], stop_early: bool, ignore_case: bool) -> Vec<Mismatch> {
     let mut line_number_expected = 1;
     let mut line_number_actual = 1;
     let mut results = Vec::new();
     let mut mismatch = Mismatch::new(line_number_expected, line_number_actual);
 
-    let mut expected_lines: Vec<&[u8]> = expected.split(|&c| c == b'\n').collect();
-    let mut actual_lines: Vec<&[u8]> = actual.split(|&c| c == b'\n').collect();
+    let mut expected_lines: Vec<DiffLineRef> = expected
+        .split(|&c| c == b'\n')
+        .map(|raw| DiffLineRef { raw, ignore_case })
+        .collect();
+    let mut actual_lines: Vec<DiffLineRef> = actual
+        .split(|&c| c == b'\n')
+        .map(|raw| DiffLineRef { raw, ignore_case })
+        .collect();
 
     debug_assert_eq!(b"".split(|&c| c == b'\n').count(), 1);
     // ^ means that underflow here is impossible
     let expected_lines_count = expected_lines.len() - 1;
     let actual_lines_count = actual_lines.len() - 1;
 
-    if expected_lines.last() == Some(&&b""[..]) {
+    if expected_lines.last().is_some_and(|l| l.raw.is_empty()) {
         expected_lines.pop();
     }
 
-    if actual_lines.last() == Some(&&b""[..]) {
+    if actual_lines.last().is_some_and(|l| l.raw.is_empty()) {
         actual_lines.pop();
     }
 
@@ -70,7 +76,7 @@ fn make_diff(expected: &[u8], actual: &[u8], stop_early: bool) -> Vec<Mismatch> 
                 mismatch.actual_missing_nl = line_number_actual > actual_lines_count;
                 line_number_actual += 1;
             }
-            diff::Result::Both(str, _) => {
+            diff::Result::Both(str1, str2) => {
                 match (
                     line_number_expected > expected_lines_count,
                     line_number_actual > actual_lines_count,
@@ -78,16 +84,16 @@ fn make_diff(expected: &[u8], actual: &[u8], stop_early: bool) -> Vec<Mismatch> 
                     (true, false) => {
                         line_number_expected += 1;
                         line_number_actual += 1;
-                        mismatch.expected.push(str.to_vec());
+                        mismatch.expected.push(str1.to_vec());
                         mismatch.expected_missing_nl = true;
-                        mismatch.actual.push(str.to_vec());
+                        mismatch.actual.push(str2.to_vec());
                     }
                     (false, true) => {
                         line_number_expected += 1;
                         line_number_actual += 1;
-                        mismatch.actual.push(str.to_vec());
+                        mismatch.actual.push(str2.to_vec());
                         mismatch.actual_missing_nl = true;
-                        mismatch.expected.push(str.to_vec());
+                        mismatch.expected.push(str1.to_vec());
                     }
                     (true, true) | (false, false) => {
                         line_number_expected += 1;
@@ -121,7 +127,7 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
     // See https://www.gnu.org/software/diffutils/manual/html_node/Detailed-Normal.html
     // for details on the syntax of the normal format.
     let mut output = Vec::new();
-    let diff_results = make_diff(expected, actual, params.brief);
+    let diff_results = make_diff(expected, actual, params.brief, params.ignore_case);
     if params.brief && !diff_results.is_empty() {
         write!(&mut output, "\0").unwrap();
         return output;
@@ -617,5 +623,23 @@ mod tests {
             },
         );
         assert!(nodiff_brief.is_empty());
+    }
+
+    #[test]
+    fn test_ignore_case() {
+        let from = b"Hello World\nLine 2\n";
+        let to = b"hello world\nline 2\n";
+        let res = diff(
+            from,
+            to,
+            &Params {
+                ignore_case: true,
+                ..Default::default()
+            },
+        );
+        assert!(res.is_empty());
+
+        let res_diff = diff(from, to, &Params::default());
+        assert!(!res_diff.is_empty());
     }
 }

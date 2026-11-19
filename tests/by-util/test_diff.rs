@@ -1131,3 +1131,45 @@ fn label_errors(#[case] args: &[&str], #[case] error: &str) {
         .fails_with_code(2)
         .stderr_contains(error);
 }
+
+#[test]
+fn ignore_case() {
+    let (at, ts) = at_and_ts!();
+    at.write("i1", "Funky Stuff\n");
+    at.write("i2", "fUNKy stuFf\n");
+    for option in ["-i", "--ignore-case"] {
+        ts.ucmd()
+            .args(&[option, "i1", "i2"])
+            .succeeds()
+            .stdout_is("");
+    }
+    // Without -i the files still differ.
+    ts.ucmd().args(&["i1", "i2"]).fails_with_code(1);
+
+    // Overriding with --no-ignore-case
+    ts.ucmd()
+        .args(&["-i", "--no-ignore-case", "i1", "i2"])
+        .fails_with_code(1);
+
+    // Formats: unified, context, ed, side-by-side
+    ts.ucmd()
+        .args(&["-i", "-u", "i1", "i2"])
+        .succeeds()
+        .stdout_is("");
+    ts.ucmd()
+        .args(&["-i", "-c", "i1", "i2"])
+        .succeeds()
+        .stdout_is("");
+    ts.ucmd()
+        .args(&["-i", "-e", "i1", "i2"])
+        .succeeds()
+        .stdout_is("");
+    ts.ucmd().args(&["-i", "-y", "i1", "i2"]).succeeds();
+
+    // Unicode case folding (from GNU diff test ignore-case)
+    let (at, ts) = at_and_ts!();
+    at.write("u1", "AĀȀΆΑАӐḀἈＡ𐐀-Δ\n");
+    at.write("u2", "aāȁάαаӑḁἀａ𐐨-δ\n");
+    ts.ucmd().args(&["-i", "u1", "u2"]).succeeds().stdout_is("");
+    ts.ucmd().args(&["u1", "u2"]).fails_with_code(1);
+}

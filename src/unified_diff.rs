@@ -7,7 +7,7 @@ use std::collections::VecDeque;
 use std::io::Write;
 
 use crate::params::Params;
-use crate::utils::{do_write_line, line_prefix};
+use crate::utils::{do_write_line, line_prefix, DiffLineRef};
 use crate::utils::{get_modification_time, write_file_header, FunctionLineFinder, TimestampStyle};
 
 #[derive(Debug, PartialEq)]
@@ -41,6 +41,7 @@ fn make_diff(
     actual: &[u8],
     context_size: usize,
     stop_early: bool,
+    ignore_case: bool,
 ) -> Vec<Mismatch> {
     let mut line_number_expected = 1;
     let mut line_number_actual = 1;
@@ -52,19 +53,25 @@ fn make_diff(
     let mut results = Vec::new();
     let mut mismatch = Mismatch::new(0, 0);
 
-    let mut expected_lines: Vec<&[u8]> = expected.split(|&c| c == b'\n').collect();
-    let mut actual_lines: Vec<&[u8]> = actual.split(|&c| c == b'\n').collect();
+    let mut expected_lines: Vec<DiffLineRef> = expected
+        .split(|&c| c == b'\n')
+        .map(|raw| DiffLineRef { raw, ignore_case })
+        .collect();
+    let mut actual_lines: Vec<DiffLineRef> = actual
+        .split(|&c| c == b'\n')
+        .map(|raw| DiffLineRef { raw, ignore_case })
+        .collect();
 
     debug_assert_eq!(b"".split(|&c| c == b'\n').count(), 1);
     // ^ means that underflow here is impossible
     let expected_lines_count = expected_lines.len() as u32 - 1;
     let actual_lines_count = actual_lines.len() as u32 - 1;
 
-    if expected_lines.last() == Some(&&b""[..]) {
+    if expected_lines.last().is_some_and(|l| l.raw.is_empty()) {
         expected_lines.pop();
     }
 
-    if actual_lines.last() == Some(&&b""[..]) {
+    if actual_lines.last().is_some_and(|l| l.raw.is_empty()) {
         actual_lines.pop();
     }
 
@@ -128,7 +135,7 @@ fn make_diff(
                 line_number_actual += 1;
                 lines_since_mismatch = 0;
             }
-            diff::Result::Both(str, _) => {
+            diff::Result::Both(str1, str2) => {
                 // if one of them is missing a newline and the other isn't, then they don't actually match
                 if (line_number_actual > actual_lines_count)
                     && (line_number_expected > expected_lines_count)
@@ -136,7 +143,7 @@ fn make_diff(
                     // this is the last line: lines still in the queue are past
                     // the trailing context and there is no next hunk to lead into
                     if lines_since_mismatch < context_size {
-                        mismatch.lines.push(DiffLine::Context(str.to_vec()));
+                        mismatch.lines.push(DiffLine::Context(str1.to_vec()));
                         mismatch.lines.push(DiffLine::MissingNL);
                     }
                 } else if line_number_actual > actual_lines_count {
@@ -151,8 +158,8 @@ fn make_diff(
                         debug_assert!(mismatch.lines.last() != Some(&DiffLine::MissingNL));
                         mismatch.lines.push(DiffLine::Context(line.to_vec()));
                     }
-                    mismatch.lines.push(DiffLine::Expected(str.to_vec()));
-                    mismatch.lines.push(DiffLine::Actual(str.to_vec()));
+                    mismatch.lines.push(DiffLine::Expected(str1.to_vec()));
+                    mismatch.lines.push(DiffLine::Actual(str2.to_vec()));
                     mismatch.lines.push(DiffLine::MissingNL);
                     lines_since_mismatch = 0;
                 } else if line_number_expected > expected_lines_count {
@@ -167,9 +174,9 @@ fn make_diff(
                         debug_assert!(mismatch.lines.last() != Some(&DiffLine::MissingNL));
                         mismatch.lines.push(DiffLine::Context(line.to_vec()));
                     }
-                    mismatch.lines.push(DiffLine::Expected(str.to_vec()));
+                    mismatch.lines.push(DiffLine::Expected(str1.to_vec()));
                     mismatch.lines.push(DiffLine::MissingNL);
-                    mismatch.lines.push(DiffLine::Actual(str.to_vec()));
+                    mismatch.lines.push(DiffLine::Actual(str2.to_vec()));
                     lines_since_mismatch = 0;
                 } else {
                     debug_assert!(context_queue.len() <= context_size);
@@ -177,9 +184,9 @@ fn make_diff(
                         let _ = context_queue.pop_front();
                     }
                     if lines_since_mismatch < context_size {
-                        mismatch.lines.push(DiffLine::Context(str.to_vec()));
+                        mismatch.lines.push(DiffLine::Context(str1.to_vec()));
                     } else if context_size > 0 {
-                        context_queue.push_back(str);
+                        context_queue.push_back(str1.raw);
                     }
                     lines_since_mismatch += 1;
                 }
@@ -262,7 +269,13 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
         params.to_label.as_deref(),
         &to_modified_time,
     );
-    let diff_results = make_diff(expected, actual, params.context_count, params.brief);
+    let diff_results = make_diff(
+        expected,
+        actual,
+        params.context_count,
+        params.brief,
+        params.ignore_case,
+    );
     if diff_results.is_empty() {
         return Vec::new();
     }

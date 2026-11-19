@@ -9,6 +9,7 @@ use std::{io::Write, vec};
 use unicode_width::UnicodeWidthStr;
 
 use crate::params::Params;
+use crate::utils::DiffLineRef;
 
 const GUTTER_WIDTH_MIN: usize = 3;
 
@@ -316,15 +317,27 @@ pub fn diff<T: Write>(
 ) -> Vec<u8> {
     //      ^ The left file  ^ The right file
 
-    let mut left_lines: Vec<&[u8]> = from_file.split_inclusive(|&c| c == b'\n').collect();
-    let mut right_lines: Vec<&[u8]> = to_file.split_inclusive(|&c| c == b'\n').collect();
+    let mut left_lines: Vec<DiffLineRef> = from_file
+        .split_inclusive(|&c| c == b'\n')
+        .map(|raw| DiffLineRef {
+            raw,
+            ignore_case: params.ignore_case,
+        })
+        .collect();
+    let mut right_lines: Vec<DiffLineRef> = to_file
+        .split_inclusive(|&c| c == b'\n')
+        .map(|raw| DiffLineRef {
+            raw,
+            ignore_case: params.ignore_case,
+        })
+        .collect();
     let config = Config::new(params.width, params.tabsize, params.expand_tabs);
 
-    if left_lines.last() == Some(&&b""[..]) {
+    if left_lines.last().is_some_and(|l| l.raw.is_empty()) {
         left_lines.pop();
     }
 
-    if right_lines.last() == Some(&&b""[..]) {
+    if right_lines.last().is_some_and(|l| l.raw.is_empty()) {
         right_lines.pop();
     }
 
@@ -352,10 +365,12 @@ pub fn diff<T: Write>(
     */
     for result in diff::slice(&left_lines, &right_lines) {
         match result {
-            Result::Left(left_ln) => push_output(left_ln, b"", b'<', output, &config).unwrap(),
-            Result::Right(right_ln) => push_output(b"", right_ln, b'>', output, &config).unwrap(),
+            Result::Left(left_ln) => push_output(left_ln.raw, b"", b'<', output, &config).unwrap(),
+            Result::Right(right_ln) => {
+                push_output(b"", right_ln.raw, b'>', output, &config).unwrap()
+            }
             Result::Both(left_ln, right_ln) => {
-                push_output(left_ln, right_ln, b' ', output, &config).unwrap()
+                push_output(left_ln.raw, right_ln.raw, b' ', output, &config).unwrap()
             }
         }
     }

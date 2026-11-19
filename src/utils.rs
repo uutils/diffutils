@@ -462,9 +462,81 @@ pub mod testcmds {
     };
 }
 
+/// A reference to a line of text for diff comparison, optionally ignoring letter case.
+#[derive(Copy, Clone, Debug)]
+pub struct DiffLineRef<'a> {
+    pub raw: &'a [u8],
+    pub ignore_case: bool,
+}
+
+impl<'a> std::ops::Deref for DiffLineRef<'a> {
+    type Target = [u8];
+    fn deref(&self) -> &Self::Target {
+        self.raw
+    }
+}
+
+impl<'a> AsRef<[u8]> for DiffLineRef<'a> {
+    fn as_ref(&self) -> &[u8] {
+        self.raw
+    }
+}
+
+impl<'a> PartialEq for DiffLineRef<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        if self.ignore_case || other.ignore_case {
+            lines_equal_ignore_case(self.raw, other.raw)
+        } else {
+            self.raw == other.raw
+        }
+    }
+}
+
+/// Compares two byte slices ignoring letter case.
+///
+/// If both slices are valid UTF-8, characters are compared using Unicode case folding
+/// (`to_lowercase`). Otherwise, bytes are compared using ASCII case folding.
+pub fn lines_equal_ignore_case(a: &[u8], b: &[u8]) -> bool {
+    if a == b {
+        return true;
+    }
+    if let (Ok(sa), Ok(sb)) = (std::str::from_utf8(a), std::str::from_utf8(b)) {
+        sa.chars()
+            .flat_map(|c| c.to_lowercase())
+            .eq(sb.chars().flat_map(|c| c.to_lowercase()))
+    } else {
+        a.eq_ignore_ascii_case(b)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    mod ignore_case {
+        use super::*;
+
+        #[test]
+        fn basics() {
+            assert!(lines_equal_ignore_case(b"Funky Stuff", b"fUNKy stuFf"));
+            assert!(lines_equal_ignore_case(b"hello", b"HELLO"));
+            assert!(!lines_equal_ignore_case(b"hello", b"world"));
+            assert!(lines_equal_ignore_case(b"", b""));
+        }
+
+        #[test]
+        fn unicode_case_folding() {
+            let s1 = "AĀȀΆΑАӐḀἈＡ𐐀-Δ".as_bytes();
+            let s2 = "aāȁάαаӑḁἀａ𐐨-δ".as_bytes();
+            assert!(lines_equal_ignore_case(s1, s2));
+        }
+
+        #[test]
+        fn non_utf8() {
+            assert!(lines_equal_ignore_case(b"\xffa", b"\xffA"));
+            assert!(!lines_equal_ignore_case(b"\xffa", b"\xfeA"));
+        }
+    }
 
     mod expand_tabs {
         use super::*;
