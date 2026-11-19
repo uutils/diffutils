@@ -1131,3 +1131,42 @@ fn label_errors(#[case] args: &[&str], #[case] error: &str) {
         .fails_with_code(2)
         .stderr_contains(error);
 }
+
+#[test]
+fn ignore_blank_lines() {
+    let (at, ts) = at_and_ts!();
+    at.write("b1", "a\n\nb\n");
+    at.write("b2", "a\nb\n");
+    for option in ["-B", "--ignore-blank-lines"] {
+        ts.ucmd()
+            .args(&[option, "b1", "b2"])
+            .succeeds()
+            .stdout_is("");
+        ts.ucmd()
+            .args(&["-u", option, "b1", "b2"])
+            .succeeds()
+            .stdout_is("");
+        ts.ucmd()
+            .args(&["-c", option, "b1", "b2"])
+            .succeeds()
+            .stdout_is("");
+        ts.ucmd()
+            .args(&["-e", option, "b1", "b2"])
+            .succeeds()
+            .stdout_is("");
+        ts.ucmd()
+            .args(&["-q", option, "b1", "b2"])
+            .succeeds()
+            .stdout_is("");
+    }
+
+    // Bug#18402: non-blank changes without a final newline are still reported.
+    at.write("b5", "a");
+    at.write("b6", "b");
+    ts.ucmd()
+        .args(&["-B", "b5", "b6"])
+        .fails_with_code(1)
+        .stdout_is(
+            "1c1\n< a\n\\ No newline at end of file\n---\n> b\n\\ No newline at end of file\n",
+        );
+}

@@ -262,7 +262,21 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
         params.to_label.as_deref(),
         &to_modified_time,
     );
-    let diff_results = make_diff(expected, actual, params.context_count, params.brief);
+    let stop_early = params.brief && !params.ignore_blank_lines;
+    let mut diff_results = make_diff(expected, actual, params.context_count, stop_early);
+    if params.ignore_blank_lines {
+        diff_results.retain(|result| {
+            let all_expected_blank = result.lines.iter().all(|line| match line {
+                DiffLine::Expected(l) => l.is_empty(),
+                _ => true,
+            });
+            let all_actual_blank = result.lines.iter().all(|line| match line {
+                DiffLine::Actual(l) => l.is_empty(),
+                _ => true,
+            });
+            !(all_expected_blank && all_actual_blank)
+        });
+    }
     if diff_results.is_empty() {
         return Vec::new();
     }

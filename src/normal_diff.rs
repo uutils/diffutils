@@ -121,7 +121,15 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
     // See https://www.gnu.org/software/diffutils/manual/html_node/Detailed-Normal.html
     // for details on the syntax of the normal format.
     let mut output = Vec::new();
-    let diff_results = make_diff(expected, actual, params.brief);
+    let stop_early = params.brief && !params.ignore_blank_lines;
+    let mut diff_results = make_diff(expected, actual, stop_early);
+    if params.ignore_blank_lines {
+        diff_results.retain(|result| {
+            let all_expected_blank = result.expected.iter().all(|l| l.is_empty());
+            let all_actual_blank = result.actual.iter().all(|l| l.is_empty());
+            !(all_expected_blank && all_actual_blank)
+        });
+    }
     if params.brief && !diff_results.is_empty() {
         write!(&mut output, "\0").unwrap();
         return output;

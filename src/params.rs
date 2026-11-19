@@ -64,6 +64,7 @@ pub struct Params {
     /// (`-S`).
     pub starting_file: Option<OsString>,
     pub ignore_file_name_case: bool,
+    pub ignore_blank_lines: bool,
     pub no_dereference: bool,
     /// Set when `from` did not exist and was compared as an empty file.
     pub from_missing: bool,
@@ -110,6 +111,7 @@ impl Default for Params {
             recursive: false,
             starting_file: None,
             ignore_file_name_case: false,
+            ignore_blank_lines: false,
             no_dereference: false,
             from_missing: false,
             to_missing: false,
@@ -279,6 +281,10 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
         }
         if param == "--suppress-blank-empty" {
             params.suppress_blank_empty = true;
+            continue;
+        }
+        if param == "-B" || param == "--ignore-blank-lines" {
+            params.ignore_blank_lines = true;
             continue;
         }
         if param == "--normal" {
@@ -1509,6 +1515,16 @@ mod tests {
                 .chain(["foo", "bar"]);
             let params = parse_params(args.map(os).peekable()).unwrap();
             assert_eq!(params.ignore_file_name_case, expected);
+        }
+    }
+    #[test]
+    fn ignore_blank_lines() {
+        for args in [&["-B"][..], &["--ignore-blank-lines"]] {
+            let args = std::iter::once("diff")
+                .chain(args.iter().copied())
+                .chain(["foo", "bar"]);
+            let params = parse_params(args.map(os).peekable()).unwrap();
+            assert!(params.ignore_blank_lines);
         }
     }
 }
