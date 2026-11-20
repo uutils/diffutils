@@ -908,7 +908,10 @@ fn sdiff_recursive_brief_different_files() {
     ts.ucmd()
         .args(&["-q", "-r", "-y", "left", "right"])
         .fails_with_code(1)
-        .stdout_is("Files left/file and right/file differ\n");
+        .stdout_is(format!(
+            "Files left{sep}file and right{sep}file differ\n",
+            sep = std::path::MAIN_SEPARATOR
+        ));
 }
 
 #[test]
