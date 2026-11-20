@@ -36,6 +36,7 @@ pub struct Params {
     max_bytes: Option<BytesLimitU64>,
     verbose: bool,
     quiet: bool,
+    help: bool,
 }
 
 #[inline]
@@ -204,8 +205,8 @@ pub fn parse_params<I: Iterator<Item = OsString>>(mut opts: Peekable<I>) -> Resu
             continue;
         }
         if param == "--help" {
-            println!("{}", usage_string(&executable_str));
-            std::process::exit(0);
+            params.help = true;
+            return Ok(params);
         }
         if param_str.starts_with('-') {
             return Err(format!("unrecognized option '{}'", param.to_string_lossy()));
@@ -462,6 +463,11 @@ pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
             return ExitCode::from(2);
         }
     };
+
+    if params.help {
+        println!("{}", usage_string(&params.executable.to_string_lossy()));
+        return ExitCode::SUCCESS;
+    }
 
     if params.from == "-" && params.to == "-"
         || same_file::is_same_file(&params.from, &params.to).unwrap_or(false)
@@ -720,6 +726,20 @@ mod tests {
     use super::*;
     fn os(s: &str) -> OsString {
         OsString::from(s)
+    }
+
+    #[test]
+    fn help() {
+        for args in [
+            vec!["cmp", "--help"],
+            vec!["cmp", "foo", "--help"],
+            vec!["cmp", "--help", "--invalid"],
+            vec!["cmp", "-l", "-s", "--help"],
+        ] {
+            let params = parse_params(args.into_iter().map(os).peekable()).unwrap();
+            assert!(params.help);
+            assert_eq!(params.executable, os("cmp"));
+        }
     }
 
     #[test]
