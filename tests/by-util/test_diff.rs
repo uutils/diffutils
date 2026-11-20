@@ -1131,3 +1131,22 @@ fn label_errors(#[case] args: &[&str], #[case] error: &str) {
         .fails_with_code(2)
         .stderr_contains(error);
 }
+
+// Like GNU diff, -N and --unidirectional-new-file treat a missing operand as
+// empty only when the other one exists: two missing files are both errors.
+#[rstest]
+fn new_file_both_missing_is_an_error(
+    #[values("-N", "--new-file", "--unidirectional-new-file")] option: &str,
+) {
+    let (_at, ts) = at_and_ts!();
+    #[cfg(not(windows))]
+    let error = "No such file or directory";
+    #[cfg(windows)]
+    let error = "The system cannot find the file specified.";
+    ts.ucmd()
+        .args(&[option, "missing1", "missing2"])
+        .fails_with_code(2)
+        .no_stdout()
+        .stderr_contains(format!("missing1: {error}"))
+        .stderr_contains(format!("missing2: {error}"));
+}
