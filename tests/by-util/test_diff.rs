@@ -1133,6 +1133,28 @@ fn label_errors(#[case] args: &[&str], #[case] error: &str) {
 }
 
 #[test]
+fn unified_missing_newline_deletions_first() {
+    let (at, ts) = at_and_ts!();
+    at.write("n1", "1\n");
+    at.write("n2", "0\n1");
+    ts.ucmd()
+        .args(&["-u", "n1", "n2"])
+        .fails_with_code(1)
+        .stdout_str_check(|s| {
+            s.ends_with("@@ -1 +1,2 @@\n-1\n+0\n+1\n\\ No newline at end of file\n")
+        });
+
+    at.write("n3", "1");
+    at.write("n4", "0\n1\n");
+    ts.ucmd()
+        .args(&["-u", "n3", "n4"])
+        .fails_with_code(1)
+        .stdout_str_check(|s| {
+            s.ends_with("@@ -1 +1,2 @@\n-1\n\\ No newline at end of file\n+0\n+1\n")
+        });
+}
+
+#[test]
 fn ignore_tab_expansion() {
     let (at, ts) = at_and_ts!();
     at.write("a", "a\tb\n");
