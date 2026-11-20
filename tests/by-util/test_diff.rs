@@ -1132,6 +1132,110 @@ fn label_errors(#[case] args: &[&str], #[case] error: &str) {
         .stderr_contains(error);
 }
 
+#[rstest]
+#[case::separate(&["-D", "FOO"])]
+#[case::joined(&["-DFOO"])]
+#[case::long(&["--ifdef=FOO"])]
+fn ifdef_diff_basic(#[case] flag: &[&str]) {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", "a\nb\nc\n");
+    at.write("file2", "a\nx\nc\n");
+    ts.ucmd()
+        .args(flag)
+        .args(&["file1", "file2"])
+        .fails_with_code(1)
+        .stdout_is("a\n#ifndef FOO\nb\n#else /* FOO */\nx\n#endif /* FOO */\nc\n");
+}
+
+#[test]
+fn ifdef_diff_identical() {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", "a\nb\nc\n");
+    at.write("file2", "a\nb\nc\n");
+    ts.ucmd()
+        .args(&["-D", "FOO", "file1", "file2"])
+        .succeeds()
+        .stdout_is("a\nb\nc\n");
+}
+
+#[test]
+fn ifdef_diff_identical_report() {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", "a\nb\nc\n");
+    at.write("file2", "a\nb\nc\n");
+    ts.ucmd()
+        .args(&["-DFOO", "-s", "file1", "file2"])
+        .succeeds()
+        .stdout_is("a\nb\nc\nFiles file1 and file2 are identical\n");
+}
+
+#[test]
+fn ifdef_diff_brief() {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", "a\nb\n");
+    at.write("file2", "a\nx\n");
+    ts.ucmd()
+        .args(&["--ifdef=FOO", "-q", "file1", "file2"])
+        .fails_with_code(1)
+        .stdout_is("Files file1 and file2 differ\n");
+}
+
+#[test]
+fn ifdef_diff_conflict_error() {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", "a\n");
+    at.write("file2", "b\n");
+    ts.ucmd()
+        .args(&["-D", "FOO", "-u", "file1", "file2"])
+        .fails_with_code(2)
+        .stderr_contains("Conflicting output style options");
+}
+
+#[test]
+fn ifdef_diff_missing_newline() {
+    let (at, ts) = at_and_ts!();
+    // Identical files without trailing newline: GNU diff outputs with newline.
+    at.write("f_nonl1", "a\nb");
+    at.write("f_nonl2", "a\nb");
+    ts.ucmd()
+        .args(&["-DFOO", "f_nonl1", "f_nonl2"])
+        .succeeds()
+        .stdout_is("a\nb\n");
+
+    // One side missing trailing newline, one side with newline.
+    at.write("f_nl", "a\nb\n");
+    ts.ucmd()
+        .args(&["-DFOO", "f_nonl1", "f_nl"])
+        .fails_with_code(1)
+        .stdout_is("a\n#ifndef FOO\nb\n#else /* FOO */\nb\n#endif /* FOO */\n");
+
+    // Both sides missing trailing newline, diff at EOF.
+    at.write("f_nonl3", "a\nc");
+    ts.ucmd()
+        .args(&["-DFOO", "f_nonl1", "f_nonl3"])
+        .fails_with_code(1)
+        .stdout_is("a\n#ifndef FOO\nb\n#else /* FOO */\nc\n#endif /* FOO */\n");
+}
+
+#[cfg(unix)]
+#[test]
+fn ifdef_diff_non_utf8_macro() {
+    use std::os::unix::ffi::OsStringExt;
+    let (at, ts) = at_and_ts!();
+    at.write("file1", "a\nb\n");
+    at.write("file2", "a\nx\n");
+    let macro_arg = std::ffi::OsString::from_vec(b"-DFOO\xffBAR".to_vec());
+    let res = ts
+        .ucmd()
+        .arg(macro_arg)
+        .args(&["file1", "file2"])
+        .fails_with_code(1);
+    assert_eq!(
+        res.stdout(),
+        b"a\n#ifndef FOO\xffBAR\nb\n#else /* FOO\xffBAR */\nx\n#endif /* FOO\xffBAR */\n"
+    );
+}
+
 #[test]
 fn ignore_tab_expansion() {
     let (at, ts) = at_and_ts!();

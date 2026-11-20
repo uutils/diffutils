@@ -22,6 +22,7 @@ pub enum Format {
     Context,
     Ed,
     SideBySide,
+    Ifdef,
 }
 
 /// How to handle an operand that does not exist (`-N` and
@@ -72,6 +73,7 @@ pub struct Params {
     pub to_missing: bool,
     pub from_label: Option<OsString>,
     pub to_label: Option<OsString>,
+    pub ifdef_name: Option<OsString>,
 }
 
 impl Params {
@@ -117,6 +119,7 @@ impl Default for Params {
             to_missing: false,
             from_label: None,
             to_label: None,
+            ifdef_name: None,
         }
     }
 }
@@ -178,6 +181,27 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
             } else {
                 return Err("too many file label options".to_string());
             }
+            continue;
+        }
+        // -D NAME, -DNAME, --ifdef NAME or --ifdef=NAME
+        let ifdef = if bytes == b"-D" || bytes == b"--ifdef" {
+            Some(opts.next().map(|(_, val)| val).ok_or_else(|| {
+                format!("option '{}' requires an argument", param.to_string_lossy())
+            })?)
+        } else {
+            bytes
+                .strip_prefix(b"--ifdef=")
+                .or_else(|| bytes.strip_prefix(b"-D"))
+                // SAFETY: the bytes come from an OsStr and are split right
+                // after an ASCII prefix.
+                .map(|rest| unsafe { OsStr::from_encoded_bytes_unchecked(rest) }.to_os_string())
+        };
+        if let Some(name) = ifdef {
+            if format.is_some() && format != Some(Format::Ifdef) {
+                return Err("Conflicting output style options".to_string());
+            }
+            format = Some(Format::Ifdef);
+            params.ifdef_name = Some(name);
             continue;
         }
         let next_param = opts.peek().map(|(_, next_param)| next_param);
@@ -1285,6 +1309,15 @@ mod tests {
         assert_eq!(params.to_label, Some(bytes(b"\xfenew")));
         assert_eq!(params.from, os("foo"));
         assert_eq!(params.to, os("bar"));
+
+        let params = parse_params(
+            [os("diff"), bytes(b"-D\xffmacro"), os("foo"), os("bar")]
+                .iter()
+                .cloned()
+                .peekable(),
+        )
+        .unwrap();
+        assert_eq!(params.ifdef_name, Some(bytes(b"\xffmacro")));
     }
     #[test]
     fn double_dash() {
