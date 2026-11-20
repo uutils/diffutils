@@ -1197,3 +1197,29 @@ fn ignore_tab_expansion_control_and_wide_chars() {
 
     ts.ucmd().args(&["-E", "old", "new"]).succeeds().no_stdout();
 }
+
+#[test]
+fn ignore_tab_expansion_with_differing_files() {
+    let (at, ts) = at_and_ts!();
+    // In tabsize 8, 'header\t1' has 6 chars ('header') + 2 spaces to column 8.
+    // So 'header\t1' expands to 'header  1'.
+    at.write("d1", "header\t1\nold line\nfooter\t2\n");
+    at.write("d2", "header  1\nnew line\nfooter  2\n");
+
+    // Without -E, all 3 lines differ
+    ts.ucmd()
+        .args(&["-u", "d1", "d2"])
+        .fails_with_code(1)
+        .stdout_contains("-header\t1")
+        .stdout_contains("+header  1")
+        .stdout_contains("-old line")
+        .stdout_contains("+new line")
+        .stdout_contains("-footer\t2")
+        .stdout_contains("+footer  2");
+
+    // With -E, header and footer match as unchanged context lines
+    ts.ucmd()
+        .args(&["-E", "-u", "d1", "d2"])
+        .fails_with_code(1)
+        .stdout_contains(" header\t1\n-old line\n+new line\n footer\t2\n");
+}

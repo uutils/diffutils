@@ -9,7 +9,7 @@ use std::{io::Write, vec};
 use unicode_width::UnicodeWidthStr;
 
 use crate::params::Params;
-use crate::utils::ComparisonLine;
+use crate::utils::comparison_lines_inclusive;
 
 const GUTTER_WIDTH_MIN: usize = 3;
 
@@ -317,14 +317,8 @@ pub fn diff<T: Write>(
 ) -> Vec<u8> {
     //      ^ The left file  ^ The right file
 
-    let mut left_lines: Vec<ComparisonLine> = from_file
-        .split_inclusive(|&c| c == b'\n')
-        .map(|line| ComparisonLine::new(line, params.ignore_tab_expansion, params.tabsize))
-        .collect();
-    let mut right_lines: Vec<ComparisonLine> = to_file
-        .split_inclusive(|&c| c == b'\n')
-        .map(|line| ComparisonLine::new(line, params.ignore_tab_expansion, params.tabsize))
-        .collect();
+    let mut left_lines = comparison_lines_inclusive(from_file, params);
+    let mut right_lines = comparison_lines_inclusive(to_file, params);
     let config = Config::new(params.width, params.tabsize, params.expand_tabs);
 
     if left_lines.last().is_some_and(|l| l.raw.is_empty()) {
