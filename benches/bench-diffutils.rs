@@ -401,8 +401,6 @@ mod binary {
         let args = str_to_options(cmd_args);
         Command::new(program)
             .args(args)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
             .status()
             .expect("Failed to execute binary")
     }
