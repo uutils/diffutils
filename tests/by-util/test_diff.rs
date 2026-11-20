@@ -1190,3 +1190,48 @@ fn ifdef_diff_conflict_error() {
         .fails_with_code(2)
         .stderr_contains("Conflicting output style options");
 }
+
+#[test]
+fn ifdef_diff_missing_newline() {
+    let (at, ts) = at_and_ts!();
+    // Identical files without trailing newline: GNU diff outputs with newline.
+    at.write("f_nonl1", "a\nb");
+    at.write("f_nonl2", "a\nb");
+    ts.ucmd()
+        .args(&["-DFOO", "f_nonl1", "f_nonl2"])
+        .succeeds()
+        .stdout_is("a\nb\n");
+
+    // One side missing trailing newline, one side with newline.
+    at.write("f_nl", "a\nb\n");
+    ts.ucmd()
+        .args(&["-DFOO", "f_nonl1", "f_nl"])
+        .fails_with_code(1)
+        .stdout_is("a\n#ifndef FOO\nb\n#else /* FOO */\nb\n#endif /* FOO */\n");
+
+    // Both sides missing trailing newline, diff at EOF.
+    at.write("f_nonl3", "a\nc");
+    ts.ucmd()
+        .args(&["-DFOO", "f_nonl1", "f_nonl3"])
+        .fails_with_code(1)
+        .stdout_is("a\n#ifndef FOO\nb\n#else /* FOO */\nc\n#endif /* FOO */\n");
+}
+
+#[cfg(unix)]
+#[test]
+fn ifdef_diff_non_utf8_macro() {
+    use std::os::unix::ffi::OsStringExt;
+    let (at, ts) = at_and_ts!();
+    at.write("file1", "a\nb\n");
+    at.write("file2", "a\nx\n");
+    let macro_arg = std::ffi::OsString::from_vec(b"-DFOO\xffBAR".to_vec());
+    let res = ts
+        .ucmd()
+        .arg(macro_arg)
+        .args(&["file1", "file2"])
+        .fails_with_code(1);
+    assert_eq!(
+        res.stdout(),
+        b"a\n#ifndef FOO\xffBAR\nb\n#else /* FOO\xffBAR */\nx\n#endif /* FOO\xffBAR */\n"
+    );
+}

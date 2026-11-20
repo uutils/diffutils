@@ -154,55 +154,45 @@ pub fn compare_files(params: &Params, header: Option<&[u8]>) -> Outcome {
         ..params.clone()
     };
 
+    let mut ifdef_differs = false;
     // run diff
-    let (result, differs) = match params.format {
-        Format::Normal => {
-            let res = normal_diff::diff(&from_content, &to_content, params);
-            let differs = !res.is_empty();
-            (res, differs)
-        }
-        Format::Unified => {
-            let res = unified_diff::diff(&from_content, &to_content, params);
-            let differs = !res.is_empty();
-            (res, differs)
-        }
-        Format::Context => {
-            let res = context_diff::diff(&from_content, &to_content, params);
-            let differs = !res.is_empty();
-            (res, differs)
-        }
+    let result: Vec<u8> = match params.format {
+        Format::Normal => normal_diff::diff(&from_content, &to_content, params),
+        Format::Unified => unified_diff::diff(&from_content, &to_content, params),
+        Format::Context => context_diff::diff(&from_content, &to_content, params),
         Format::Ed => match ed_diff::diff(&from_content, &to_content, params) {
-            Ok(res) => {
-                let differs = !res.is_empty();
-                (res, differs)
-            }
+            Ok(result) => result,
             Err(error) => {
                 eprintln!("{error}");
                 return Outcome::Trouble;
             }
         },
-        Format::Ifdef => ifdef_diff::diff(&from_content, &to_content, params),
+        Format::Ifdef => {
+            let (res, differs) = ifdef_diff::diff(&from_content, &to_content, params);
+            ifdef_differs = differs;
+            res
+        }
         // Side by side output is streamed, unless a header may have to come
         // first.
         Format::SideBySide => match header {
-            None => {
-                let res = side_diff::diff(&from_content, &to_content, &mut stdout().lock(), params);
-                let differs = !res.is_empty();
-                (res, differs)
-            }
+            None => side_diff::diff(&from_content, &to_content, &mut stdout().lock(), params),
             Some(header) => {
                 let mut output = Vec::new();
-                let res = side_diff::diff(&from_content, &to_content, &mut output, params);
-                let differs = !res.is_empty();
-                if !res.is_empty() {
+                let result = side_diff::diff(&from_content, &to_content, &mut output, params);
+                if !result.is_empty() {
                     output.splice(0..0, header.iter().copied());
                 }
                 if stdout().write_all(&output).is_err() {
                     return Outcome::Trouble;
                 }
-                (res, differs)
+                result
             }
         },
+    };
+    let differs = if params.format == Format::Ifdef {
+        ifdef_differs
+    } else {
+        !result.is_empty()
     };
     if params.brief {
         if differs {

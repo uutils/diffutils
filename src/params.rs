@@ -72,7 +72,7 @@ pub struct Params {
     pub to_missing: bool,
     pub from_label: Option<OsString>,
     pub to_label: Option<OsString>,
-    pub ifdef_name: Option<String>,
+    pub ifdef_name: Option<OsString>,
 }
 
 impl Params {
@@ -179,6 +179,27 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
             } else {
                 return Err("too many file label options".to_string());
             }
+            continue;
+        }
+        // -D NAME, -DNAME, --ifdef NAME or --ifdef=NAME
+        let ifdef = if bytes == b"-D" || bytes == b"--ifdef" {
+            Some(opts.next().map(|(_, val)| val).ok_or_else(|| {
+                format!("option '{}' requires an argument", param.to_string_lossy())
+            })?)
+        } else {
+            bytes
+                .strip_prefix(b"--ifdef=")
+                .or_else(|| bytes.strip_prefix(b"-D"))
+                // SAFETY: the bytes come from an OsStr and are split right
+                // after an ASCII prefix.
+                .map(|rest| unsafe { OsStr::from_encoded_bytes_unchecked(rest) }.to_os_string())
+        };
+        if let Some(name) = ifdef {
+            if format.is_some() && format != Some(Format::Ifdef) {
+                return Err("Conflicting output style options".to_string());
+            }
+            format = Some(Format::Ifdef);
+            params.ifdef_name = Some(name);
             continue;
         }
         let next_param = opts.peek().map(|(_, next_param)| next_param);
@@ -303,15 +324,6 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
                 return Err("Conflicting output style option".to_string());
             }
             format = Some(Format::SideBySide);
-            continue;
-        }
-        if let Some(argument) = option_argument(&param, "-D", "--ifdef") {
-            if format.is_some() && format != Some(Format::Ifdef) {
-                return Err("Conflicting output style options".to_string());
-            }
-            format = Some(Format::Ifdef);
-            let val = argument_value(argument, &param, &mut opts)?;
-            params.ifdef_name = Some(val.to_string_lossy().into_owned());
             continue;
         }
         if width_re.is_match(param.to_string_lossy().as_ref()) {
@@ -1271,6 +1283,15 @@ mod tests {
         assert_eq!(params.to_label, Some(bytes(b"\xfenew")));
         assert_eq!(params.from, os("foo"));
         assert_eq!(params.to, os("bar"));
+
+        let params = parse_params(
+            [os("diff"), bytes(b"-D\xffmacro"), os("foo"), os("bar")]
+                .iter()
+                .cloned()
+                .peekable(),
+        )
+        .unwrap();
+        assert_eq!(params.ifdef_name, Some(bytes(b"\xffmacro")));
     }
     #[test]
     fn double_dash() {
