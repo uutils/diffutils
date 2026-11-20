@@ -155,35 +155,55 @@ pub fn compare_files(params: &Params, header: Option<&[u8]>) -> Outcome {
     };
 
     // run diff
+    let mut side_by_side_different = false;
     let result: Vec<u8> = match params.format {
         Format::Normal => normal_diff::diff(&from_content, &to_content, params),
         Format::Unified => unified_diff::diff(&from_content, &to_content, params),
         Format::Context => context_diff::diff(&from_content, &to_content, params),
-        Format::Ed => match ed_diff::diff(&from_content, &to_content, params) {
-            Ok(result) => result,
-            Err(error) => {
-                eprintln!("{error}");
-                return Outcome::Trouble;
-            }
-        },
-        // Side by side output is streamed, unless a header may have to come
-        // first.
-        Format::SideBySide => match header {
-            None => side_diff::diff(&from_content, &to_content, &mut stdout().lock(), params),
-            Some(header) => {
-                let mut output = Vec::new();
-                let result = side_diff::diff(&from_content, &to_content, &mut output, params);
-                if !result.is_empty() {
-                    output.splice(0..0, header.iter().copied());
-                }
-                if stdout().write_all(&output).is_err() {
+        Format::Ed => {
+            let result = match ed_diff::diff(&from_content, &to_content, params) {
+                Ok(result) => result,
+                Err(error) => {
+                    eprintln!("{error}");
                     return Outcome::Trouble;
                 }
-                result
-            }
-        },
+            };
+
+            result
+        }
+        Format::SideBySide => {
+            let different = if params.brief {
+                side_diff::diff(&from_content, &to_content, &mut std::io::sink(), params)
+            } else {
+                match header {
+                    None => {
+                        side_diff::diff(&from_content, &to_content, &mut stdout().lock(), params)
+                    }
+                    Some(header) => {
+                        let mut output = Vec::new();
+
+                        let different =
+                            side_diff::diff(&from_content, &to_content, &mut output, params);
+
+                        if different {
+                            output.splice(0..0, header.iter().copied());
+                        }
+
+                        if stdout().write_all(&output).is_err() {
+                            return Outcome::Trouble;
+                        }
+
+                        different
+                    }
+                }
+            };
+
+            side_by_side_different = different;
+            Vec::new()
+        }
     };
-    if params.brief && !result.is_empty() {
+    let different = side_by_side_different || !result.is_empty();
+    if params.brief && different {
         print_files_differ("Files", params);
     } else if params.format != Format::SideBySide {
         let header = if result.is_empty() {
@@ -210,7 +230,7 @@ pub fn compare_files(params: &Params, header: Option<&[u8]>) -> Outcome {
             return Outcome::Trouble;
         }
     }
-    if result.is_empty() {
+    if !different {
         maybe_report_identical_files();
         Outcome::Identical
     } else {

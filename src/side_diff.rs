@@ -5,7 +5,7 @@
 
 use core::cmp::{max, min};
 use diff::Result;
-use std::{io::Write, vec};
+use std::io::Write;
 use unicode_width::UnicodeWidthStr;
 
 use crate::params::Params;
@@ -308,14 +308,8 @@ fn push_output<T: Write>(
     Ok(())
 }
 
-pub fn diff<T: Write>(
-    from_file: &[u8],
-    to_file: &[u8],
-    output: &mut T,
-    params: &Params,
-) -> Vec<u8> {
+pub fn diff<T: Write>(from_file: &[u8], to_file: &[u8], output: &mut T, params: &Params) -> bool {
     //      ^ The left file  ^ The right file
-
     let mut left_lines: Vec<&[u8]> = from_file.split_inclusive(|&c| c == b'\n').collect();
     let mut right_lines: Vec<&[u8]> = to_file.split_inclusive(|&c| c == b'\n').collect();
     let config = Config::new(params.width, params.tabsize, params.expand_tabs);
@@ -327,7 +321,6 @@ pub fn diff<T: Write>(
     if right_lines.last() == Some(&&b""[..]) {
         right_lines.pop();
     }
-
     /*
     DISCLAIMER:
     Currently the diff engine does not produce results like the diff engine used in GNU diff,
@@ -350,17 +343,26 @@ pub fn diff<T: Write>(
     More studies are needed to cover GNU diff side by side with 100% accuracy, which is one of
     the goals of this project : )
     */
-    for result in diff::slice(&left_lines, &right_lines) {
+    let results = diff::slice(&left_lines, &right_lines);
+    let mut different = false;
+
+    for result in results {
         match result {
-            Result::Left(left_ln) => push_output(left_ln, b"", b'<', output, &config).unwrap(),
-            Result::Right(right_ln) => push_output(b"", right_ln, b'>', output, &config).unwrap(),
+            Result::Left(left_ln) => {
+                different = true;
+                push_output(left_ln, b"", b'<', output, &config).unwrap();
+            }
+            Result::Right(right_ln) => {
+                different = true;
+                push_output(b"", right_ln, b'>', output, &config).unwrap();
+            }
             Result::Both(left_ln, right_ln) => {
-                push_output(left_ln, right_ln, b' ', output, &config).unwrap()
+                push_output(left_ln, right_ln, b' ', output, &config).unwrap();
             }
         }
     }
 
-    vec![]
+    different
 }
 
 #[cfg(test)]
