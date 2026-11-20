@@ -385,21 +385,36 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
             for line in result.expected {
                 match line {
                     DiffLine::Context(e) => {
-                        output.extend_from_slice(line_prefix(b"  ", &e, params));
-                        do_write_line(&mut output, &e, params.expand_tabs, params.tabsize)
-                            .expect("write to Vec is infallible");
+                        do_write_line(
+                            &mut output,
+                            &e,
+                            params.expand_tabs,
+                            params.tabsize,
+                            line_prefix(b"  ", &e, params),
+                        )
+                        .expect("write to Vec is infallible");
                         writeln!(output).unwrap();
                     }
                     DiffLine::Change(e) => {
-                        output.extend_from_slice(line_prefix(b"! ", &e, params));
-                        do_write_line(&mut output, &e, params.expand_tabs, params.tabsize)
-                            .expect("write to Vec is infallible");
+                        do_write_line(
+                            &mut output,
+                            &e,
+                            params.expand_tabs,
+                            params.tabsize,
+                            line_prefix(b"! ", &e, params),
+                        )
+                        .expect("write to Vec is infallible");
                         writeln!(output).unwrap();
                     }
                     DiffLine::Add(e) => {
-                        output.extend_from_slice(line_prefix(b"- ", &e, params));
-                        do_write_line(&mut output, &e, params.expand_tabs, params.tabsize)
-                            .expect("write to Vec is infallible");
+                        do_write_line(
+                            &mut output,
+                            &e,
+                            params.expand_tabs,
+                            params.tabsize,
+                            line_prefix(b"- ", &e, params),
+                        )
+                        .expect("write to Vec is infallible");
                         writeln!(output).unwrap();
                     }
                 }
@@ -415,21 +430,36 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
             for line in result.actual {
                 match line {
                     DiffLine::Context(e) => {
-                        output.extend_from_slice(line_prefix(b"  ", &e, params));
-                        do_write_line(&mut output, &e, params.expand_tabs, params.tabsize)
-                            .expect("write to Vec is infallible");
+                        do_write_line(
+                            &mut output,
+                            &e,
+                            params.expand_tabs,
+                            params.tabsize,
+                            line_prefix(b"  ", &e, params),
+                        )
+                        .expect("write to Vec is infallible");
                         writeln!(output).unwrap();
                     }
                     DiffLine::Change(e) => {
-                        output.extend_from_slice(line_prefix(b"! ", &e, params));
-                        do_write_line(&mut output, &e, params.expand_tabs, params.tabsize)
-                            .expect("write to Vec is infallible");
+                        do_write_line(
+                            &mut output,
+                            &e,
+                            params.expand_tabs,
+                            params.tabsize,
+                            line_prefix(b"! ", &e, params),
+                        )
+                        .expect("write to Vec is infallible");
                         writeln!(output).unwrap();
                     }
                     DiffLine::Add(e) => {
-                        output.extend_from_slice(line_prefix(b"+ ", &e, params));
-                        do_write_line(&mut output, &e, params.expand_tabs, params.tabsize)
-                            .expect("write to Vec is infallible");
+                        do_write_line(
+                            &mut output,
+                            &e,
+                            params.expand_tabs,
+                            params.tabsize,
+                            line_prefix(b"+ ", &e, params),
+                        )
+                        .expect("write to Vec is infallible");
                         writeln!(output).unwrap();
                     }
                 }
