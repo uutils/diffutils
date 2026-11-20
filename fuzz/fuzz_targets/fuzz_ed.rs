@@ -2,16 +2,15 @@
 #[macro_use]
 extern crate libfuzzer_sys;
 use diffutilslib::ed_diff;
-use diffutilslib::ed_diff::DiffError;
 use diffutilslib::params::Params;
 use std::fs::{self, File};
 use std::io::Write;
 use std::process::Command;
 
-fn diff_w(expected: &[u8], actual: &[u8], filename: &str) -> Result<Vec<u8>, DiffError> {
-    let mut output = ed_diff::diff(expected, actual, &Params::default())?;
+fn diff_w(expected: &[u8], actual: &[u8], filename: &str) -> Vec<u8> {
+    let mut output = ed_diff::diff(expected, actual, &Params::default());
     writeln!(&mut output, "w {filename}").unwrap();
-    Ok(output)
+    output
 }
 
 fuzz_target!(|x: (Vec<u8>, Vec<u8>)| {
@@ -39,7 +38,7 @@ fuzz_target!(|x: (Vec<u8>, Vec<u8>)| {
         return;
     }
     fs::create_dir_all("target").unwrap();
-    let diff = diff_w(&from, &to, "target/fuzz.file").unwrap();
+    let diff = diff_w(&from, &to, "target/fuzz.file");
     File::create("target/fuzz.file.original")
         .unwrap()
         .write_all(&from)

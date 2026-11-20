@@ -60,15 +60,46 @@ fn differences_brief(#[values(&[][..], &["-u"], &["-c"], &["-e"])] format: &[&st
         .stdout_is("Files file1 and file2 differ\n");
 }
 
-#[test]
-fn missing_newline() {
+// An ed script cannot say that a newline is missing, so `-e` writes the
+// script anyway, treating the last line as if it had its newline, then warns
+// about each file that lacks one (#332).
+#[rstest]
+#[case::both("foo", "bar", "1c\nbar\n.\n", "file1 file2")]
+#[case::from("a\nb", "a\nc\n", "2c\nc\n.\n", "file1")]
+#[case::to("a\nb\n", "a\nc", "2c\nc\n.\n", "file2")]
+#[case::only_the_newline("a\n", "a", "", "file2")]
+#[case::same_content("a\nb", "a\nb", "", "file1 file2")]
+#[case::from_empty("", "a\nb", "0a\na\nb\n.\n", "file2")]
+fn missing_newline_ed(
+    #[case] from: &str,
+    #[case] to: &str,
+    #[case] script: &str,
+    #[case] warned: &str,
+) {
     let (at, ts) = at_and_ts!();
-    at.write("file1", "foo");
-    at.write("file2", "bar");
+    at.write("file1", from);
+    at.write("file2", to);
+    let warnings: String = warned
+        .split(' ')
+        .map(|name| format!("diff: {name}: No newline at end of file\n\n"))
+        .collect();
     ts.ucmd()
         .args(&["-e", "file1", "file2"])
         .fails_with_code(2)
-        .stderr_str_check(|s| s.starts_with("No newline at end of file"));
+        .stdout_is(script)
+        .stderr_is(warnings);
+}
+
+#[test]
+fn missing_newline_ed_brief() {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", "a\nb");
+    at.write("file2", "a\nc\n");
+    ts.ucmd()
+        .args(&["-e", "-q", "file1", "file2"])
+        .fails_with_code(2)
+        .stdout_is("Files file1 and file2 differ\n")
+        .stderr_is("diff: file1: No newline at end of file\n\n");
 }
 
 #[test]
