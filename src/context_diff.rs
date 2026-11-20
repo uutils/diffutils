@@ -100,6 +100,7 @@ fn make_diff(
     actual: &[u8],
     context_size: usize,
     stop_early: bool,
+    compare: crate::utils::LineCompare,
 ) -> Vec<Mismatch> {
     let mut line_number_expected = 1;
     let mut line_number_actual = 1;
@@ -129,7 +130,7 @@ fn make_diff(
 
     let mut block: Option<ChangeBlock> = None;
 
-    for result in diff::slice(&expected_lines, &actual_lines) {
+    for result in crate::utils::diff_lines(&expected_lines, &actual_lines, compare) {
         match result {
             diff::Result::Left(str) => {
                 if lines_since_mismatch > max_gap {
@@ -337,7 +338,13 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
         params.to_label.as_deref(),
         &to_modified_time,
     );
-    let diff_results = make_diff(expected, actual, params.context_count, params.brief);
+    let diff_results = make_diff(
+        expected,
+        actual,
+        params.context_count,
+        params.brief,
+        crate::utils::LineCompare::from_params(params),
+    );
     if diff_results.is_empty() {
         return Vec::new();
     }

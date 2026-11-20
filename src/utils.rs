@@ -235,6 +235,84 @@ pub fn quote_shell_argument(arg: &[u8]) -> Cow<'_, [u8]> {
     Cow::Owned(quoted)
 }
 
+/// How lines are compared: as they are, or as `-i` and `-E` ask.
+#[derive(Clone, Copy, Default)]
+pub struct LineCompare {
+    /// `-i`: fold the case of letters.
+    pub ignore_case: bool,
+    /// `-E`: expand tabs with this tab size.
+    pub tab_expansion: Option<usize>,
+}
+
+impl LineCompare {
+    pub fn from_params(params: &crate::params::Params) -> Self {
+        Self {
+            ignore_case: params.ignore_case,
+            tab_expansion: params.ignore_tab_expansion.then_some(params.tabsize),
+        }
+    }
+
+    /// The form of `line` that is compared.
+    fn key(self, line: &[u8]) -> Vec<u8> {
+        let mut key = line.to_vec();
+        if let Some(tabsize) = self.tab_expansion {
+            let mut expanded = Vec::with_capacity(line.len());
+            // Writing to a Vec cannot fail, short of an absurd tab size.
+            if do_expand_tabs(&mut expanded, line, tabsize).is_ok() {
+                key = expanded;
+            }
+        }
+        if self.ignore_case {
+            key = match std::str::from_utf8(&key) {
+                Ok(text) if !is_posix_locale("LC_CTYPE") => text.to_lowercase().into_bytes(),
+                _ => key.to_ascii_lowercase(),
+            };
+        }
+        key
+    }
+}
+
+/// Diffs two lists of lines, compared as `compare` says. The results hold the
+/// original lines.
+pub fn diff_lines<'a>(
+    left: &[&'a [u8]],
+    right: &[&'a [u8]],
+    compare: LineCompare,
+) -> Vec<diff::Result<&'a [u8]>> {
+    if !compare.ignore_case && compare.tab_expansion.is_none() {
+        return diff::slice(left, right)
+            .into_iter()
+            .map(|result| match result {
+                diff::Result::Left(l) => diff::Result::Left(*l),
+                diff::Result::Right(r) => diff::Result::Right(*r),
+                diff::Result::Both(l, r) => diff::Result::Both(*l, *r),
+            })
+            .collect();
+    }
+    let left_keys: Vec<Vec<u8>> = left.iter().map(|line| compare.key(line)).collect();
+    let right_keys: Vec<Vec<u8>> = right.iter().map(|line| compare.key(line)).collect();
+    // The results come in order, so they can be mapped back by position.
+    let (mut i, mut j) = (0, 0);
+    diff::slice(&left_keys, &right_keys)
+        .into_iter()
+        .map(|result| match result {
+            diff::Result::Left(_) => {
+                i += 1;
+                diff::Result::Left(left[i - 1])
+            }
+            diff::Result::Right(_) => {
+                j += 1;
+                diff::Result::Right(right[j - 1])
+            }
+            diff::Result::Both(_, _) => {
+                i += 1;
+                j += 1;
+                diff::Result::Both(left[i - 1], right[j - 1])
+            }
+        })
+        .collect()
+}
+
 /// Returns `name` in lowercase, to match file names ignoring case.
 pub fn fold_file_name_case(name: &OsStr) -> Vec<u8> {
     match name.to_str() {

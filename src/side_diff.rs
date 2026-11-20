@@ -350,7 +350,11 @@ pub fn diff<T: Write>(
     More studies are needed to cover GNU diff side by side with 100% accuracy, which is one of
     the goals of this project : )
     */
-    for result in diff::slice(&left_lines, &right_lines) {
+    for result in crate::utils::diff_lines(
+        &left_lines,
+        &right_lines,
+        crate::utils::LineCompare::from_params(params),
+    ) {
         match result {
             Result::Left(left_ln) => push_output(left_ln, b"", b'<', output, &config).unwrap(),
             Result::Right(right_ln) => push_output(b"", right_ln, b'>', output, &config).unwrap(),
