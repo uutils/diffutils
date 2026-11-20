@@ -384,21 +384,13 @@ pub fn is_identical(expected: &[u8], actual: &[u8]) -> bool {
         return true;
     }
 
-    if len >= 256 {
-        // Fast O(1) checks at tail and key sample points before full memcmp
-        if expected[len - 256..] != actual[len - 256..] {
-            return false;
-        }
-        let mid = len / 2;
-        if expected[mid - 128..mid + 128] != actual[mid - 128..mid + 128] {
-            return false;
-        }
-        let q1 = len / 4;
-        if expected[q1 - 128..q1 + 128] != actual[q1 - 128..q1 + 128] {
-            return false;
-        }
-        let q3 = 3 * len / 4;
-        if expected[q3 - 128..q3 + 128] != actual[q3 - 128..q3 + 128] {
+    const CHUNK: usize = 32;
+    if len >= 4 * CHUNK {
+        let offsets = [len - CHUNK, len / 2, len / 4, 3 * len / 4];
+        if offsets
+            .iter()
+            .any(|&off| expected[off..off + CHUNK] != actual[off..off + CHUNK])
+        {
             return false;
         }
     }
@@ -749,6 +741,19 @@ mod tests {
             // Differ at arbitrary position
             b[10] = b'b';
             assert!(!is_identical(&a, &b));
+        }
+
+        #[test]
+        fn test_medium_slice_bounds() {
+            for len in [128, 256, 282, 329, 511, 512] {
+                let a = vec![b'x'; len];
+                let b = vec![b'x'; len];
+                assert!(is_identical(&a, &b));
+
+                let mut c = a.clone();
+                c[len / 4] = b'y';
+                assert!(!is_identical(&a, &c));
+            }
         }
     }
 }
