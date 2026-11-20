@@ -518,9 +518,9 @@ fn push_function_line_pattern(params: &mut Params, pattern: &str) -> Result<(), 
 }
 
 /// GNU diff uses the largest context length given, and a bare -c or -u
-/// counts as a request for 3 lines.
+/// counts as a request for the default length.
 fn largest_context(current: Option<usize>, given: Option<usize>) -> usize {
-    let given = given.unwrap_or(3);
+    let given = given.unwrap_or_else(|| Params::default().context_count);
     current.map_or(given, |current| current.max(given))
 }
 
