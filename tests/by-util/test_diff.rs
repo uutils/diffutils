@@ -1133,6 +1133,51 @@ fn label_errors(#[case] args: &[&str], #[case] error: &str) {
 }
 
 #[test]
+fn width_option_forms() {
+    let (at, ts) = at_and_ts!();
+    at.write("w1", "x\n");
+    at.write("w2", "y\n");
+    for args in [
+        &["-W", "20"][..],
+        &["-W20"],
+        &["--width", "20"],
+        &["--width=20"],
+    ] {
+        ts.ucmd()
+            .arg("-y")
+            .args(args)
+            .args(&["w1", "w2"])
+            .succeeds()
+            .stderr_is("")
+            // Note: GNU diff side-by-side format prints changed lines side-by-side
+            // (e.g. "x     |\ty\n", see #396), while uutils side_diff currently emits
+            // diffs with '<' and '>'. We pin current behavior here.
+            .stdout_is("x     <\n      >\ty\n");
+    }
+    ts.ucmd()
+        .args(&["--tabsize", "4", "w1", "w2"])
+        .fails_with_code(1);
+}
+
+#[rstest]
+#[case::width_missing(&["file1", "file2", "-W"], "option '-W' requires an argument")]
+#[case::width_long_missing(&["file1", "file2", "--width"], "option '--width' requires an argument")]
+#[case::tabsize_missing(&["file1", "file2", "--tabsize"], "option '--tabsize' requires an argument")]
+#[case::width_invalid_zero(&["-y", "-W", "0", "file1", "file2"], "invalid width «0»")]
+#[case::width_invalid_text(&["-y", "--width", "abc", "file1", "file2"], "invalid width «abc»")]
+#[case::tabsize_invalid_zero(&["--tabsize", "0", "file1", "file2"], "invalid tabsize «0»")]
+#[case::tabsize_invalid_text(&["--tabsize", "foo", "file1", "file2"], "invalid tabsize «foo»")]
+fn width_and_tabsize_errors(#[case] args: &[&str], #[case] error: &str) {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", "foo\n");
+    at.write("file2", "bar\n");
+    ts.ucmd()
+        .args(args)
+        .fails_with_code(2)
+        .stderr_contains(error);
+}
+
+#[test]
 fn ignore_tab_expansion() {
     let (at, ts) = at_and_ts!();
     at.write("a", "a\tb\n");
