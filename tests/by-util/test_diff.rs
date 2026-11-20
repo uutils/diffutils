@@ -1149,6 +1149,9 @@ fn width_option_forms() {
             .args(&["w1", "w2"])
             .succeeds()
             .stderr_is("")
+            // Note: GNU diff side-by-side format prints changed lines side-by-side
+            // (e.g. "x     |\ty\n", see #396), while uutils side_diff currently emits
+            // diffs with '<' and '>'. We pin current behavior here.
             .stdout_is("x     <\n      >\ty\n");
     }
     ts.ucmd()
