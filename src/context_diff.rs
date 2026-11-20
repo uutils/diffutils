@@ -6,6 +6,7 @@
 use std::collections::VecDeque;
 use std::io::Write;
 
+use crate::diff_engine::{diff_slices, Change};
 use crate::params::Params;
 use crate::utils::{do_write_line, line_prefix};
 use crate::utils::{
@@ -129,9 +130,9 @@ fn make_diff(
 
     let mut block: Option<ChangeBlock> = None;
 
-    for result in diff::slice(&expected_lines, &actual_lines) {
+    for result in diff_slices(&expected_lines, &actual_lines) {
         match result {
-            diff::Result::Left(str) => {
+            Change::Left(str) => {
                 if lines_since_mismatch > max_gap {
                     results.push(mismatch);
                     mismatch = Mismatch::new(
@@ -153,7 +154,7 @@ fn make_diff(
                 line_number_expected += 1;
                 lines_since_mismatch = 0;
             }
-            diff::Result::Right(str) => {
+            Change::Right(str) => {
                 if lines_since_mismatch > max_gap {
                     results.push(mismatch);
                     mismatch = Mismatch::new(
@@ -175,7 +176,7 @@ fn make_diff(
                 line_number_actual += 1;
                 lines_since_mismatch = 0;
             }
-            diff::Result::Both(str, _) => {
+            Change::Both(str, _) => {
                 // if one of them is missing a newline and the other isn't, then they don't actually match
                 if (line_number_actual > actual_lines_count)
                     && (line_number_expected > expected_lines_count)

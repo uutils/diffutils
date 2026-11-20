@@ -1131,3 +1131,43 @@ fn label_errors(#[case] args: &[&str], #[case] error: &str) {
         .fails_with_code(2)
         .stderr_contains(error);
 }
+
+#[test]
+fn test_myers_hunk_alignment_repeated_lines() {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", "a\na\na\na\nb\n");
+    at.write("file2", "a\na\na\nb\na\n");
+
+    // Normal diff format:
+    ts.ucmd()
+        .args(&["file1", "file2"])
+        .fails_with_code(1)
+        .stdout_is("3a4\n> b\n5d5\n< b\n");
+
+    // Unified diff format:
+    ts.ucmd()
+        .args(&["-u", "file1", "file2"])
+        .fails_with_code(1)
+        .stdout_contains("@@ -1,5 +1,5 @@\n a\n a\n a\n+b\n a\n-b\n");
+}
+
+#[test]
+fn test_large_input_diff() {
+    let (at, ts) = at_and_ts!();
+    let mut file1 = String::new();
+    let mut file2 = String::new();
+    for i in 0..5000 {
+        file1.push_str(&format!("line {i}\n"));
+        if i == 2500 {
+            file2.push_str("modified line 2500\n");
+        } else {
+            file2.push_str(&format!("line {i}\n"));
+        }
+    }
+    at.write("file1", &file1);
+    at.write("file2", &file2);
+    ts.ucmd()
+        .args(&["-u", "file1", "file2"])
+        .fails_with_code(1)
+        .stdout_contains("@@ -2498,7 +2498,7 @@\n line 2497\n line 2498\n line 2499\n-line 2500\n+modified line 2500\n line 2501\n line 2502\n line 2503\n");
+}

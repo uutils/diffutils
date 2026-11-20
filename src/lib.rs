@@ -2,6 +2,7 @@ pub mod bre;
 pub mod cmp;
 pub mod color;
 pub mod context_diff;
+pub mod diff_engine;
 pub mod ed_diff;
 pub mod macros;
 pub mod normal_diff;
