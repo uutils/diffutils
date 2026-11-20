@@ -7,7 +7,7 @@ use std::collections::VecDeque;
 use std::io::Write;
 
 use crate::params::Params;
-use crate::utils::{diff_lines, do_write_line, line_prefix};
+use crate::utils::{comparison_lines, do_write_line, line_prefix};
 use crate::utils::{get_modification_time, write_file_header, FunctionLineFinder, TimestampStyle};
 
 #[derive(Debug, PartialEq)]
@@ -36,13 +36,9 @@ impl Mismatch {
 }
 
 // Produces a diff between the expected output and actual output.
-fn make_diff(
-    expected: &[u8],
-    actual: &[u8],
-    context_size: usize,
-    stop_early: bool,
-    ignore_case: bool,
-) -> Vec<Mismatch> {
+fn make_diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<Mismatch> {
+    let context_size = params.context_count;
+    let stop_early = params.brief;
     let mut line_number_expected = 1;
     let mut line_number_actual = 1;
     let mut context_queue: VecDeque<&[u8]> = VecDeque::with_capacity(context_size);
@@ -53,8 +49,8 @@ fn make_diff(
     let mut results = Vec::new();
     let mut mismatch = Mismatch::new(0, 0);
 
-    let mut expected_lines = diff_lines(expected, ignore_case);
-    let mut actual_lines = diff_lines(actual, ignore_case);
+    let mut expected_lines = comparison_lines(expected, params);
+    let mut actual_lines = comparison_lines(actual, params);
 
     debug_assert_eq!(b"".split(|&c| c == b'\n').count(), 1);
     // ^ means that underflow here is impossible
@@ -263,13 +259,7 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
         params.to_label.as_deref(),
         &to_modified_time,
     );
-    let diff_results = make_diff(
-        expected,
-        actual,
-        params.context_count,
-        params.brief,
-        params.ignore_case,
-    );
+    let diff_results = make_diff(expected, actual, params);
     if diff_results.is_empty() {
         return Vec::new();
     }

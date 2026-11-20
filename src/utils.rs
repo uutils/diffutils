@@ -107,6 +107,78 @@ pub fn do_write_line<W: Write>(
     }
 }
 
+/// Returns the line with tabs expanded according to `tabsize` and terminal column rules.
+fn expand_tabs_to_vec(line: &[u8], tabsize: usize) -> Vec<u8> {
+    let mut expanded = Vec::with_capacity(line.len());
+    let _ = do_expand_tabs(&mut expanded, line, tabsize, b"");
+    expanded
+}
+
+/// A line of text for diff comparison that can optionally ignore differences
+/// caused by tab expansion (-E / --ignore-tab-expansion).
+#[derive(Debug)]
+pub struct ComparisonLine<'a> {
+    pub raw: &'a [u8],
+    key: Cow<'a, [u8]>,
+}
+
+impl<'a> ComparisonLine<'a> {
+    /// `posix` is whether `--ignore-case` folds only ASCII letters (see
+    /// [`lowercase_key`]); it is looked up once per file, not per line.
+    fn new(raw: &'a [u8], params: &Params, posix: bool) -> Self {
+        let expanded =
+            if params.ignore_tab_expansion && (raw.contains(&b'\t') || raw.contains(&b'\x08')) {
+                Cow::Owned(expand_tabs_to_vec(raw, params.tabsize))
+            } else {
+                Cow::Borrowed(raw)
+            };
+        let key = if params.ignore_case {
+            Cow::Owned(lowercase_key(&expanded, true, posix).into_owned())
+        } else {
+            expanded
+        };
+        Self { raw, key }
+    }
+}
+
+fn ignore_case_is_posix(params: &Params) -> bool {
+    params.ignore_case && is_posix_locale("LC_CTYPE")
+}
+
+/// Splits `content` into lines wrapped for comparison according to `params`.
+pub fn comparison_lines<'a>(content: &'a [u8], params: &Params) -> Vec<ComparisonLine<'a>> {
+    let posix = ignore_case_is_posix(params);
+    content
+        .split(|&c| c == b'\n')
+        .map(|line| ComparisonLine::new(line, params, posix))
+        .collect()
+}
+
+/// Splits `content` into inclusive lines (preserving trailing newlines) wrapped for comparison.
+pub fn comparison_lines_inclusive<'a>(
+    content: &'a [u8],
+    params: &Params,
+) -> Vec<ComparisonLine<'a>> {
+    let posix = ignore_case_is_posix(params);
+    content
+        .split_inclusive(|&c| c == b'\n')
+        .map(|line| ComparisonLine::new(line, params, posix))
+        .collect()
+}
+
+impl<'a> std::ops::Deref for ComparisonLine<'a> {
+    type Target = [u8];
+    fn deref(&self) -> &Self::Target {
+        self.raw
+    }
+}
+
+impl<'a> PartialEq for ComparisonLine<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        self.key == other.key
+    }
+}
+
 /// The marker to write before a line of the normal, context or unified
 /// format: `prefix`, without its trailing blanks if `line` is empty and
 /// `--suppress-blank-empty` is given.
@@ -474,53 +546,6 @@ fn lowercase_key<'a>(raw: &'a [u8], ignore_case: bool, posix: bool) -> Cow<'a, [
     } else {
         Cow::Owned(raw.to_ascii_lowercase())
     }
-}
-
-/// A reference to a line of text for diff comparison, optionally ignoring letter case.
-#[derive(Debug)]
-pub struct DiffLineRef<'a> {
-    pub raw: &'a [u8],
-    key: Cow<'a, [u8]>,
-}
-
-impl<'a> DiffLineRef<'a> {
-    pub fn new(raw: &'a [u8], ignore_case: bool, posix: bool) -> Self {
-        Self {
-            raw,
-            key: lowercase_key(raw, ignore_case, posix),
-        }
-    }
-}
-
-impl<'a> std::ops::Deref for DiffLineRef<'a> {
-    type Target = [u8];
-    fn deref(&self) -> &Self::Target {
-        self.raw
-    }
-}
-
-impl<'a> PartialEq for DiffLineRef<'a> {
-    fn eq(&self, other: &Self) -> bool {
-        self.key == other.key
-    }
-}
-
-/// Splits `content` into lines wrapped for comparison according to `ignore_case`.
-pub fn diff_lines<'a>(content: &'a [u8], ignore_case: bool) -> Vec<DiffLineRef<'a>> {
-    let posix = ignore_case && is_posix_locale("LC_CTYPE");
-    content
-        .split(|&c| c == b'\n')
-        .map(|raw| DiffLineRef::new(raw, ignore_case, posix))
-        .collect()
-}
-
-/// Splits `content` into inclusive lines (preserving trailing newlines) wrapped for comparison.
-pub fn diff_lines_inclusive<'a>(content: &'a [u8], ignore_case: bool) -> Vec<DiffLineRef<'a>> {
-    let posix = ignore_case && is_posix_locale("LC_CTYPE");
-    content
-        .split_inclusive(|&c| c == b'\n')
-        .map(|raw| DiffLineRef::new(raw, ignore_case, posix))
-        .collect()
 }
 
 #[cfg(test)]
