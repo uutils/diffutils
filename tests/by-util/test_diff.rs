@@ -874,6 +874,18 @@ fn sdiff_different_files_exit_failure() {
 }
 
 #[test]
+fn sdiff_brief_identical_files() {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", "same\n");
+    at.write("file2", "same\n");
+
+    ts.ucmd()
+        .args(&["-q", "-y", "file1", "file2"])
+        .succeeds()
+        .stdout_is("");
+}
+
+#[test]
 fn sdiff_brief_different_files_exit_failure() {
     let (at, ts) = at_and_ts!();
     at.write("file1", "first\n");
@@ -882,7 +894,21 @@ fn sdiff_brief_different_files_exit_failure() {
     ts.ucmd()
         .args(&["-q", "-y", "file1", "file2"])
         .fails_with_code(1)
-        .stdout_contains("Files file1 and file2 differ\n");
+        .stdout_is("Files file1 and file2 differ\n");
+}
+
+#[test]
+fn sdiff_recursive_brief_different_files() {
+    let (at, ts) = at_and_ts!();
+    at.mkdir("left");
+    at.mkdir("right");
+    at.write("left/file", "first\n");
+    at.write("right/file", "second\n");
+
+    ts.ucmd()
+        .args(&["-q", "-r", "-y", "left", "right"])
+        .fails_with_code(1)
+        .stdout_is("Files left/file and right/file differ\n");
 }
 
 #[test]

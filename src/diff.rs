@@ -171,29 +171,36 @@ pub fn compare_files(params: &Params, header: Option<&[u8]>) -> Outcome {
 
             result
         }
-        Format::SideBySide => match header {
-            None => {
-                side_by_side_different =
-                    side_diff::diff(&from_content, &to_content, &mut stdout().lock(), params);
-                Vec::new()
-            }
-            Some(header) => {
-                let mut output = Vec::new();
+        Format::SideBySide => {
+            let different = if params.brief {
+                side_diff::diff(&from_content, &to_content, &mut std::io::sink(), params)
+            } else {
+                match header {
+                    None => {
+                        side_diff::diff(&from_content, &to_content, &mut stdout().lock(), params)
+                    }
+                    Some(header) => {
+                        let mut output = Vec::new();
 
-                side_by_side_different =
-                    side_diff::diff(&from_content, &to_content, &mut output, params);
+                        let different =
+                            side_diff::diff(&from_content, &to_content, &mut output, params);
 
-                if side_by_side_different {
-                    output.splice(0..0, header.iter().copied());
+                        if different {
+                            output.splice(0..0, header.iter().copied());
+                        }
+
+                        if stdout().write_all(&output).is_err() {
+                            return Outcome::Trouble;
+                        }
+
+                        different
+                    }
                 }
+            };
 
-                if stdout().write_all(&output).is_err() {
-                    return Outcome::Trouble;
-                }
-
-                Vec::new()
-            }
-        },
+            side_by_side_different = different;
+            Vec::new()
+        }
     };
     let different = side_by_side_different || !result.is_empty();
     if params.brief && different {
