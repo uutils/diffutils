@@ -1082,7 +1082,6 @@ fn unified_missing_newline_deletions_first() {
             s.ends_with("@@ -1 +1,2 @@\n-1\n+0\n+1\n\\ No newline at end of file\n")
         });
 
-    let (at, ts) = at_and_ts!();
     at.write("n3", "1");
     at.write("n4", "0\n1\n");
     ts.ucmd()
