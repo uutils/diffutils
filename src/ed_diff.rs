@@ -6,7 +6,7 @@
 use std::io::Write;
 
 use crate::params::Params;
-use crate::utils::{do_write_line, DiffLineRef};
+use crate::utils::{diff_lines, do_write_line};
 
 #[derive(Debug, PartialEq)]
 struct Mismatch {
@@ -56,14 +56,8 @@ fn make_diff(
     let mut results = Vec::new();
     let mut mismatch = Mismatch::new(line_number_expected, line_number_actual);
 
-    let mut expected_lines: Vec<DiffLineRef> = expected
-        .split(|&c| c == b'\n')
-        .map(|raw| DiffLineRef { raw, ignore_case })
-        .collect();
-    let mut actual_lines: Vec<DiffLineRef> = actual
-        .split(|&c| c == b'\n')
-        .map(|raw| DiffLineRef { raw, ignore_case })
-        .collect();
+    let mut expected_lines = diff_lines(expected, ignore_case);
+    let mut actual_lines = diff_lines(actual, ignore_case);
 
     debug_assert_eq!(b"".split(|&c| c == b'\n').count(), 1);
     // ^ means that underflow here is impossible

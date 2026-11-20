@@ -7,7 +7,7 @@ use std::collections::VecDeque;
 use std::io::Write;
 
 use crate::params::Params;
-use crate::utils::{do_write_line, line_prefix, DiffLineRef};
+use crate::utils::{diff_lines, do_write_line, line_prefix};
 use crate::utils::{get_modification_time, write_file_header, FunctionLineFinder, TimestampStyle};
 
 #[derive(Debug, PartialEq)]
@@ -53,14 +53,8 @@ fn make_diff(
     let mut results = Vec::new();
     let mut mismatch = Mismatch::new(0, 0);
 
-    let mut expected_lines: Vec<DiffLineRef> = expected
-        .split(|&c| c == b'\n')
-        .map(|raw| DiffLineRef { raw, ignore_case })
-        .collect();
-    let mut actual_lines: Vec<DiffLineRef> = actual
-        .split(|&c| c == b'\n')
-        .map(|raw| DiffLineRef { raw, ignore_case })
-        .collect();
+    let mut expected_lines = diff_lines(expected, ignore_case);
+    let mut actual_lines = diff_lines(actual, ignore_case);
 
     debug_assert_eq!(b"".split(|&c| c == b'\n').count(), 1);
     // ^ means that underflow here is impossible

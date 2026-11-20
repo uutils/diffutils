@@ -1166,10 +1166,39 @@ fn ignore_case() {
         .stdout_is("");
     ts.ucmd().args(&["-i", "-y", "i1", "i2"]).succeeds();
 
-    // Unicode case folding (from GNU diff test ignore-case)
+    // Unicode case folding: in UTF-8 locale, Unicode characters are folded
     let (at, ts) = at_and_ts!();
     at.write("u1", "AĀȀΆΑАӐḀἈＡ𐐀-Δ\n");
     at.write("u2", "aāȁάαаӑḁἀａ𐐨-δ\n");
-    ts.ucmd().args(&["-i", "u1", "u2"]).succeeds().stdout_is("");
+    ts.ucmd()
+        .env("LC_ALL", "en_US.UTF-8")
+        .args(&["-i", "u1", "u2"])
+        .succeeds()
+        .stdout_is("");
+
+    // In POSIX locale (LC_ALL=C), GNU diff only folds ASCII, so Unicode characters differ
+    ts.ucmd()
+        .env("LC_ALL", "C")
+        .args(&["-i", "u1", "u2"])
+        .fails_with_code(1);
     ts.ucmd().args(&["u1", "u2"]).fails_with_code(1);
+}
+
+#[test]
+fn ignore_case_context_lines() {
+    let (at, ts) = at_and_ts!();
+    at.write("c1", "COMMON LINE\ndiff1\n");
+    at.write("c2", "common line\ndiff2\n");
+
+    // Unified diff: common line differing only in case is emitted as context from from-file
+    ts.ucmd()
+        .args(&["-i", "-u", "c1", "c2"])
+        .fails_with_code(1)
+        .stdout_contains(" COMMON LINE\n-diff1\n+diff2\n");
+
+    // Context diff: from-file hunk shows COMMON LINE, to-file hunk shows common line
+    ts.ucmd()
+        .args(&["-i", "-c", "c1", "c2"])
+        .fails_with_code(1)
+        .stdout_contains("  COMMON LINE\n! diff1\n--- 1,2 ----\n  common line\n! diff2\n");
 }

@@ -9,7 +9,7 @@ use std::{io::Write, vec};
 use unicode_width::UnicodeWidthStr;
 
 use crate::params::Params;
-use crate::utils::DiffLineRef;
+use crate::utils::diff_lines_inclusive;
 
 const GUTTER_WIDTH_MIN: usize = 3;
 
@@ -317,20 +317,8 @@ pub fn diff<T: Write>(
 ) -> Vec<u8> {
     //      ^ The left file  ^ The right file
 
-    let mut left_lines: Vec<DiffLineRef> = from_file
-        .split_inclusive(|&c| c == b'\n')
-        .map(|raw| DiffLineRef {
-            raw,
-            ignore_case: params.ignore_case,
-        })
-        .collect();
-    let mut right_lines: Vec<DiffLineRef> = to_file
-        .split_inclusive(|&c| c == b'\n')
-        .map(|raw| DiffLineRef {
-            raw,
-            ignore_case: params.ignore_case,
-        })
-        .collect();
+    let mut left_lines = diff_lines_inclusive(from_file, params.ignore_case);
+    let mut right_lines = diff_lines_inclusive(to_file, params.ignore_case);
     let config = Config::new(params.width, params.tabsize, params.expand_tabs);
 
     if left_lines.last().is_some_and(|l| l.raw.is_empty()) {

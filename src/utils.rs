@@ -462,11 +462,34 @@ pub mod testcmds {
     };
 }
 
+fn lowercase_key<'a>(raw: &'a [u8], ignore_case: bool) -> Cow<'a, [u8]> {
+    if !ignore_case {
+        return Cow::Borrowed(raw);
+    }
+    if is_posix_locale("LC_CTYPE") {
+        return Cow::Owned(raw.to_ascii_lowercase());
+    }
+    if let Ok(s) = std::str::from_utf8(raw) {
+        Cow::Owned(s.to_lowercase().into_bytes())
+    } else {
+        Cow::Owned(raw.to_ascii_lowercase())
+    }
+}
+
 /// A reference to a line of text for diff comparison, optionally ignoring letter case.
-#[derive(Copy, Clone, Debug)]
+#[derive(Debug)]
 pub struct DiffLineRef<'a> {
     pub raw: &'a [u8],
-    pub ignore_case: bool,
+    key: Cow<'a, [u8]>,
+}
+
+impl<'a> DiffLineRef<'a> {
+    pub fn new(raw: &'a [u8], ignore_case: bool) -> Self {
+        Self {
+            raw,
+            key: lowercase_key(raw, ignore_case),
+        }
+    }
 }
 
 impl<'a> std::ops::Deref for DiffLineRef<'a> {
@@ -476,37 +499,32 @@ impl<'a> std::ops::Deref for DiffLineRef<'a> {
     }
 }
 
-impl<'a> AsRef<[u8]> for DiffLineRef<'a> {
-    fn as_ref(&self) -> &[u8] {
-        self.raw
-    }
-}
-
 impl<'a> PartialEq for DiffLineRef<'a> {
     fn eq(&self, other: &Self) -> bool {
-        if self.ignore_case || other.ignore_case {
-            lines_equal_ignore_case(self.raw, other.raw)
-        } else {
-            self.raw == other.raw
-        }
+        self.key == other.key
     }
 }
 
-/// Compares two byte slices ignoring letter case.
-///
-/// If both slices are valid UTF-8, characters are compared using Unicode case folding
-/// (`to_lowercase`). Otherwise, bytes are compared using ASCII case folding.
+/// Splits `content` into lines wrapped for comparison according to `ignore_case`.
+pub fn diff_lines<'a>(content: &'a [u8], ignore_case: bool) -> Vec<DiffLineRef<'a>> {
+    content
+        .split(|&c| c == b'\n')
+        .map(|raw| DiffLineRef::new(raw, ignore_case))
+        .collect()
+}
+
+/// Splits `content` into inclusive lines (preserving trailing newlines) wrapped for comparison.
+pub fn diff_lines_inclusive<'a>(content: &'a [u8], ignore_case: bool) -> Vec<DiffLineRef<'a>> {
+    content
+        .split_inclusive(|&c| c == b'\n')
+        .map(|raw| DiffLineRef::new(raw, ignore_case))
+        .collect()
+}
+
+/// Compares two byte slices ignoring letter case (used in tests).
+#[cfg(test)]
 pub fn lines_equal_ignore_case(a: &[u8], b: &[u8]) -> bool {
-    if a == b {
-        return true;
-    }
-    if let (Ok(sa), Ok(sb)) = (std::str::from_utf8(a), std::str::from_utf8(b)) {
-        sa.chars()
-            .flat_map(|c| c.to_lowercase())
-            .eq(sb.chars().flat_map(|c| c.to_lowercase()))
-    } else {
-        a.eq_ignore_ascii_case(b)
-    }
+    lowercase_key(a, true) == lowercase_key(b, true)
 }
 
 #[cfg(test)]
