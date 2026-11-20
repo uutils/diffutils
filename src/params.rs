@@ -48,6 +48,7 @@ pub struct Params {
     pub report_identical_files: bool,
     pub brief: bool,
     pub expand_tabs: bool,
+    pub ignore_tab_expansion: bool,
     pub suppress_blank_empty: bool,
     pub tabsize: usize,
     pub width: usize,
@@ -100,6 +101,7 @@ impl Default for Params {
             report_identical_files: false,
             brief: false,
             expand_tabs: false,
+            ignore_tab_expansion: false,
             suppress_blank_empty: false,
             tabsize: 8,
             width: 130,
@@ -299,6 +301,10 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
         }
         if param == "-t" || param == "--expand-tabs" {
             params.expand_tabs = true;
+            continue;
+        }
+        if param == "-E" || param == "--ignore-tab-expansion" {
+            params.ignore_tab_expansion = true;
             continue;
         }
         if param == "--suppress-blank-empty" {
@@ -1027,6 +1033,26 @@ mod tests {
                     from: os("foo"),
                     to: os("bar"),
                     expand_tabs: true,
+                    ..Default::default()
+                }),
+                parse_params(
+                    [os("diff"), os(option), os("foo"), os("bar")]
+                        .iter()
+                        .cloned()
+                        .peekable()
+                )
+            );
+        }
+    }
+    #[test]
+    fn ignore_tab_expansion() {
+        for option in ["-E", "--ignore-tab-expansion"] {
+            assert_eq!(
+                Ok(Params {
+                    executable: os("diff"),
+                    from: os("foo"),
+                    to: os("bar"),
+                    ignore_tab_expansion: true,
                     ..Default::default()
                 }),
                 parse_params(
