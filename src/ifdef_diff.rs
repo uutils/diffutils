@@ -10,7 +10,7 @@ use crate::utils::do_write_line;
 
 fn write_lines(output: &mut Vec<u8>, lines: &[&[u8]], expand_tabs: bool, tabsize: usize) {
     for &line in lines {
-        do_write_line(output, line, expand_tabs, tabsize).unwrap();
+        do_write_line(output, line, expand_tabs, tabsize, b"").unwrap();
         output.push(b'\n');
     }
 }
@@ -22,6 +22,42 @@ fn write_directive(output: &mut Vec<u8>, prefix: &[u8], name: &[u8], suffix: Opt
         output.extend_from_slice(s);
     }
     output.push(b'\n');
+}
+
+fn flush_hunk(
+    output: &mut Vec<u8>,
+    current_expected: &mut Vec<&[u8]>,
+    current_actual: &mut Vec<&[u8]>,
+    ifdef_name: &[u8],
+    expand_tabs: bool,
+    tabsize: usize,
+) -> bool {
+    if current_expected.is_empty() && current_actual.is_empty() {
+        return false;
+    }
+    match (!current_expected.is_empty(), !current_actual.is_empty()) {
+        (true, false) => {
+            write_directive(output, b"#ifndef ", ifdef_name, None);
+            write_lines(output, current_expected, expand_tabs, tabsize);
+            write_directive(output, b"#endif /* ! ", ifdef_name, Some(b" */"));
+        }
+        (false, true) => {
+            write_directive(output, b"#ifdef ", ifdef_name, None);
+            write_lines(output, current_actual, expand_tabs, tabsize);
+            write_directive(output, b"#endif /* ", ifdef_name, Some(b" */"));
+        }
+        (true, true) => {
+            write_directive(output, b"#ifndef ", ifdef_name, None);
+            write_lines(output, current_expected, expand_tabs, tabsize);
+            write_directive(output, b"#else /* ", ifdef_name, Some(b" */"));
+            write_lines(output, current_actual, expand_tabs, tabsize);
+            write_directive(output, b"#endif /* ", ifdef_name, Some(b" */"));
+        }
+        (false, false) => unreachable!(),
+    }
+    current_expected.clear();
+    current_actual.clear();
+    true
 }
 
 /// Produces a merged output with preprocessor `#ifdef` / `#ifndef` / `#else` / `#endif` blocks.
@@ -55,38 +91,6 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> (Vec<u8>, bool) 
     let mut current_expected: Vec<&[u8]> = Vec::new();
     let mut current_actual: Vec<&[u8]> = Vec::new();
 
-    let flush = |output: &mut Vec<u8>,
-                 current_expected: &mut Vec<&[u8]>,
-                 current_actual: &mut Vec<&[u8]>,
-                 differs: &mut bool| {
-        if current_expected.is_empty() && current_actual.is_empty() {
-            return;
-        }
-        *differs = true;
-        match (!current_expected.is_empty(), !current_actual.is_empty()) {
-            (true, false) => {
-                write_directive(output, b"#ifndef ", ifdef_name, None);
-                write_lines(output, current_expected, params.expand_tabs, params.tabsize);
-                write_directive(output, b"#endif /* ! ", ifdef_name, Some(b" */"));
-            }
-            (false, true) => {
-                write_directive(output, b"#ifdef ", ifdef_name, None);
-                write_lines(output, current_actual, params.expand_tabs, params.tabsize);
-                write_directive(output, b"#endif /* ", ifdef_name, Some(b" */"));
-            }
-            (true, true) => {
-                write_directive(output, b"#ifndef ", ifdef_name, None);
-                write_lines(output, current_expected, params.expand_tabs, params.tabsize);
-                write_directive(output, b"#else /* ", ifdef_name, Some(b" */"));
-                write_lines(output, current_actual, params.expand_tabs, params.tabsize);
-                write_directive(output, b"#endif /* ", ifdef_name, Some(b" */"));
-            }
-            (false, false) => unreachable!(),
-        }
-        current_expected.clear();
-        current_actual.clear();
-    };
-
     for result in diff::slice(&expected_lines, &actual_lines) {
         match result {
             diff::Result::Left(&line) => {
@@ -104,13 +108,18 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> (Vec<u8>, bool) 
                     current_expected.push(line1);
                     current_actual.push(line2);
                 } else {
-                    flush(
+                    if flush_hunk(
                         &mut output,
                         &mut current_expected,
                         &mut current_actual,
-                        &mut differs,
-                    );
-                    do_write_line(&mut output, line1, params.expand_tabs, params.tabsize).unwrap();
+                        ifdef_name,
+                        params.expand_tabs,
+                        params.tabsize,
+                    ) {
+                        differs = true;
+                    }
+                    do_write_line(&mut output, line1, params.expand_tabs, params.tabsize, b"")
+                        .unwrap();
                     output.push(b'\n');
                 }
                 line_number_expected += 1;
@@ -119,12 +128,16 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> (Vec<u8>, bool) 
         }
     }
 
-    flush(
+    if flush_hunk(
         &mut output,
         &mut current_expected,
         &mut current_actual,
-        &mut differs,
-    );
+        ifdef_name,
+        params.expand_tabs,
+        params.tabsize,
+    ) {
+        differs = true;
+    }
 
     (output, differs)
 }
