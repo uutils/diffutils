@@ -462,11 +462,11 @@ pub mod testcmds {
     };
 }
 
-fn lowercase_key<'a>(raw: &'a [u8], ignore_case: bool) -> Cow<'a, [u8]> {
+fn lowercase_key<'a>(raw: &'a [u8], ignore_case: bool, posix: bool) -> Cow<'a, [u8]> {
     if !ignore_case {
         return Cow::Borrowed(raw);
     }
-    if is_posix_locale("LC_CTYPE") {
+    if posix {
         return Cow::Owned(raw.to_ascii_lowercase());
     }
     if let Ok(s) = std::str::from_utf8(raw) {
@@ -484,10 +484,10 @@ pub struct DiffLineRef<'a> {
 }
 
 impl<'a> DiffLineRef<'a> {
-    pub fn new(raw: &'a [u8], ignore_case: bool) -> Self {
+    pub fn new(raw: &'a [u8], ignore_case: bool, posix: bool) -> Self {
         Self {
             raw,
-            key: lowercase_key(raw, ignore_case),
+            key: lowercase_key(raw, ignore_case, posix),
         }
     }
 }
@@ -507,24 +507,20 @@ impl<'a> PartialEq for DiffLineRef<'a> {
 
 /// Splits `content` into lines wrapped for comparison according to `ignore_case`.
 pub fn diff_lines<'a>(content: &'a [u8], ignore_case: bool) -> Vec<DiffLineRef<'a>> {
+    let posix = ignore_case && is_posix_locale("LC_CTYPE");
     content
         .split(|&c| c == b'\n')
-        .map(|raw| DiffLineRef::new(raw, ignore_case))
+        .map(|raw| DiffLineRef::new(raw, ignore_case, posix))
         .collect()
 }
 
 /// Splits `content` into inclusive lines (preserving trailing newlines) wrapped for comparison.
 pub fn diff_lines_inclusive<'a>(content: &'a [u8], ignore_case: bool) -> Vec<DiffLineRef<'a>> {
+    let posix = ignore_case && is_posix_locale("LC_CTYPE");
     content
         .split_inclusive(|&c| c == b'\n')
-        .map(|raw| DiffLineRef::new(raw, ignore_case))
+        .map(|raw| DiffLineRef::new(raw, ignore_case, posix))
         .collect()
-}
-
-/// Compares two byte slices ignoring letter case (used in tests).
-#[cfg(test)]
-pub fn lines_equal_ignore_case(a: &[u8], b: &[u8]) -> bool {
-    lowercase_key(a, true) == lowercase_key(b, true)
 }
 
 #[cfg(test)]
@@ -536,23 +532,45 @@ mod tests {
 
         #[test]
         fn basics() {
-            assert!(lines_equal_ignore_case(b"Funky Stuff", b"fUNKy stuFf"));
-            assert!(lines_equal_ignore_case(b"hello", b"HELLO"));
-            assert!(!lines_equal_ignore_case(b"hello", b"world"));
-            assert!(lines_equal_ignore_case(b"", b""));
+            assert_eq!(
+                lowercase_key(b"Funky Stuff", true, false),
+                lowercase_key(b"fUNKy stuFf", true, false)
+            );
+            assert_eq!(
+                lowercase_key(b"hello", true, false),
+                lowercase_key(b"HELLO", true, false)
+            );
+            assert_ne!(
+                lowercase_key(b"hello", true, false),
+                lowercase_key(b"world", true, false)
+            );
+            assert_eq!(
+                lowercase_key(b"", true, false),
+                lowercase_key(b"", true, false)
+            );
         }
 
         #[test]
         fn unicode_case_folding() {
             let s1 = "AĀȀΆΑАӐḀἈＡ𐐀-Δ".as_bytes();
             let s2 = "aāȁάαаӑḁἀａ𐐨-δ".as_bytes();
-            assert!(lines_equal_ignore_case(s1, s2));
+            assert_eq!(
+                lowercase_key(s1, true, false),
+                lowercase_key(s2, true, false)
+            );
+            assert_ne!(lowercase_key(s1, true, true), lowercase_key(s2, true, true));
         }
 
         #[test]
         fn non_utf8() {
-            assert!(lines_equal_ignore_case(b"\xffa", b"\xffA"));
-            assert!(!lines_equal_ignore_case(b"\xffa", b"\xfeA"));
+            assert_eq!(
+                lowercase_key(b"\xffa", true, false),
+                lowercase_key(b"\xffA", true, false)
+            );
+            assert_ne!(
+                lowercase_key(b"\xffa", true, false),
+                lowercase_key(b"\xfeA", true, false)
+            );
         }
     }
 
