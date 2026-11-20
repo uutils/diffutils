@@ -242,7 +242,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
             push_function_line_pattern(&mut params, C_FUNCTION_PATTERN)?;
             continue;
         }
-        if let Some(argument) = option_argument(&param, "-F", "--show-function-line") {
+        if let Some(argument) = option_argument(&param, Some("-F"), "--show-function-line") {
             let pattern = argument_value(argument, &param, &mut opts)?;
             push_function_line_pattern(&mut params, &pattern.to_string_lossy())?;
             continue;
@@ -259,7 +259,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
             params.ignore_file_name_case = false;
             continue;
         }
-        if let Some(argument) = option_argument(&param, "-S", "--starting-file") {
+        if let Some(argument) = option_argument(&param, Some("-S"), "--starting-file") {
             params.starting_file = Some(argument_value(argument, &param, &mut opts)?);
             continue;
         }
@@ -300,7 +300,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
             format = Some(Format::SideBySide);
             continue;
         }
-        if let Some(argument) = option_argument(&param, "-W", "--width") {
+        if let Some(argument) = option_argument(&param, Some("-W"), "--width") {
             let width_value = argument_value(argument, &param, &mut opts)?;
             let width_str = width_value.to_string_lossy();
             params.width = match width_str.parse::<usize>() {
@@ -309,7 +309,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
             };
             continue;
         }
-        if let Some(argument) = option_argument(&param, "", "--tabsize") {
+        if let Some(argument) = option_argument(&param, None, "--tabsize") {
             let tabsize_value = argument_value(argument, &param, &mut opts)?;
             let tabsize_str = tabsize_value.to_string_lossy();
             params.tabsize = match tabsize_str.parse::<usize>() {
@@ -464,17 +464,19 @@ enum OptionArgument<'a> {
 
 /// Returns how the argument of the option named `short` (like `-F`) or
 /// `long` is given, if `param` is that option.
-fn option_argument<'a>(param: &'a OsStr, short: &str, long: &str) -> Option<OptionArgument<'a>> {
-    if (!short.is_empty() && param == short) || (!long.is_empty() && param == long) {
+fn option_argument<'a>(
+    param: &'a OsStr,
+    short: Option<&str>,
+    long: &str,
+) -> Option<OptionArgument<'a>> {
+    if short.is_some_and(|s| param == s) || param == long {
         return Some(OptionArgument::Separate);
     }
     let param = param.to_str()?;
-    if !long.is_empty() {
-        if let Some(rest) = param.strip_prefix(long).and_then(|r| r.strip_prefix('=')) {
-            return Some(OptionArgument::Attached(rest));
-        }
+    if let Some(rest) = param.strip_prefix(long).and_then(|r| r.strip_prefix('=')) {
+        return Some(OptionArgument::Attached(rest));
     }
-    if !short.is_empty() {
+    if let Some(short) = short {
         if let Some(rest) = param.strip_prefix(short).filter(|value| !value.is_empty()) {
             return Some(OptionArgument::Attached(rest));
         }

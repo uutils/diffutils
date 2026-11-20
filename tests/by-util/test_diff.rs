@@ -1149,8 +1149,7 @@ fn width_option_forms() {
             .args(&["w1", "w2"])
             .succeeds()
             .stderr_is("")
-            .stdout_contains("x ")
-            .stdout_contains("y");
+            .stdout_is("x     <\n      >\ty\n");
     }
     ts.ucmd()
         .args(&["--tabsize", "4", "w1", "w2"])
