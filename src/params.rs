@@ -52,6 +52,7 @@ pub struct Params {
     pub width: usize,
     pub missing_file: MissingFile,
     pub text: bool,
+    pub ignore_case: bool,
     pub color: ColorWhen,
     /// The raw `--palette` value, validated when colors are enabled.
     pub palette: Option<String>,
@@ -103,6 +104,7 @@ impl Default for Params {
             width: 130,
             missing_file: MissingFile::default(),
             text: false,
+            ignore_case: false,
             color: ColorWhen::default(),
             palette: None,
             presume_output_tty: false,
@@ -271,6 +273,10 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
         }
         if param == "-a" || param == "--text" {
             params.text = true;
+            continue;
+        }
+        if param == "-i" || param == "--ignore-case" {
+            params.ignore_case = true;
             continue;
         }
         if param == "-t" || param == "--expand-tabs" {

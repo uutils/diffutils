@@ -235,6 +235,54 @@ pub fn quote_shell_argument(arg: &[u8]) -> Cow<'_, [u8]> {
     Cow::Owned(quoted)
 }
 
+/// Diffs two lists of lines. With `ignore_case` the lines are compared after
+/// folding their case (`-i`), but the results hold the original lines.
+pub fn diff_lines<'a>(
+    left: &[&'a [u8]],
+    right: &[&'a [u8]],
+    ignore_case: bool,
+) -> Vec<diff::Result<&'a [u8]>> {
+    if !ignore_case {
+        return diff::slice(left, right)
+            .into_iter()
+            .map(|result| match result {
+                diff::Result::Left(l) => diff::Result::Left(*l),
+                diff::Result::Right(r) => diff::Result::Right(*r),
+                diff::Result::Both(l, r) => diff::Result::Both(*l, *r),
+            })
+            .collect();
+    }
+    let posix = is_posix_locale("LC_CTYPE");
+    let fold = |line: &&[u8]| -> Vec<u8> {
+        match std::str::from_utf8(line) {
+            Ok(text) if !posix => text.to_lowercase().into_bytes(),
+            _ => line.to_ascii_lowercase(),
+        }
+    };
+    let left_keys: Vec<Vec<u8>> = left.iter().map(fold).collect();
+    let right_keys: Vec<Vec<u8>> = right.iter().map(fold).collect();
+    // The results come in order, so they can be mapped back by position.
+    let (mut i, mut j) = (0, 0);
+    diff::slice(&left_keys, &right_keys)
+        .into_iter()
+        .map(|result| match result {
+            diff::Result::Left(_) => {
+                i += 1;
+                diff::Result::Left(left[i - 1])
+            }
+            diff::Result::Right(_) => {
+                j += 1;
+                diff::Result::Right(right[j - 1])
+            }
+            diff::Result::Both(_, _) => {
+                i += 1;
+                j += 1;
+                diff::Result::Both(left[i - 1], right[j - 1])
+            }
+        })
+        .collect()
+}
+
 /// Returns `name` in lowercase, to match file names ignoring case.
 pub fn fold_file_name_case(name: &OsStr) -> Vec<u8> {
     match name.to_str() {
