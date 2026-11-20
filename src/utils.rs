@@ -123,21 +123,34 @@ pub struct ComparisonLine<'a> {
 }
 
 impl<'a> ComparisonLine<'a> {
-    fn new(raw: &'a [u8], ignore_tab_expansion: bool, tabsize: usize) -> Self {
-        let key = if ignore_tab_expansion && (raw.contains(&b'\t') || raw.contains(&b'\x08')) {
-            Cow::Owned(expand_tabs_to_vec(raw, tabsize))
+    /// `posix` is whether `--ignore-case` folds only ASCII letters (see
+    /// [`lowercase_key`]); it is looked up once per file, not per line.
+    fn new(raw: &'a [u8], params: &Params, posix: bool) -> Self {
+        let expanded =
+            if params.ignore_tab_expansion && (raw.contains(&b'\t') || raw.contains(&b'\x08')) {
+                Cow::Owned(expand_tabs_to_vec(raw, params.tabsize))
+            } else {
+                Cow::Borrowed(raw)
+            };
+        let key = if params.ignore_case {
+            Cow::Owned(lowercase_key(&expanded, true, posix).into_owned())
         } else {
-            Cow::Borrowed(raw)
+            expanded
         };
         Self { raw, key }
     }
 }
 
+fn ignore_case_is_posix(params: &Params) -> bool {
+    params.ignore_case && is_posix_locale("LC_CTYPE")
+}
+
 /// Splits `content` into lines wrapped for comparison according to `params`.
 pub fn comparison_lines<'a>(content: &'a [u8], params: &Params) -> Vec<ComparisonLine<'a>> {
+    let posix = ignore_case_is_posix(params);
     content
         .split(|&c| c == b'\n')
-        .map(|line| ComparisonLine::new(line, params.ignore_tab_expansion, params.tabsize))
+        .map(|line| ComparisonLine::new(line, params, posix))
         .collect()
 }
 
@@ -146,9 +159,10 @@ pub fn comparison_lines_inclusive<'a>(
     content: &'a [u8],
     params: &Params,
 ) -> Vec<ComparisonLine<'a>> {
+    let posix = ignore_case_is_posix(params);
     content
         .split_inclusive(|&c| c == b'\n')
-        .map(|line| ComparisonLine::new(line, params.ignore_tab_expansion, params.tabsize))
+        .map(|line| ComparisonLine::new(line, params, posix))
         .collect()
 }
 
@@ -520,9 +534,70 @@ pub mod testcmds {
     };
 }
 
+fn lowercase_key<'a>(raw: &'a [u8], ignore_case: bool, posix: bool) -> Cow<'a, [u8]> {
+    if !ignore_case {
+        return Cow::Borrowed(raw);
+    }
+    if posix {
+        return Cow::Owned(raw.to_ascii_lowercase());
+    }
+    if let Ok(s) = std::str::from_utf8(raw) {
+        Cow::Owned(s.to_lowercase().into_bytes())
+    } else {
+        Cow::Owned(raw.to_ascii_lowercase())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    mod ignore_case {
+        use super::*;
+
+        #[test]
+        fn basics() {
+            assert_eq!(
+                lowercase_key(b"Funky Stuff", true, false),
+                lowercase_key(b"fUNKy stuFf", true, false)
+            );
+            assert_eq!(
+                lowercase_key(b"hello", true, false),
+                lowercase_key(b"HELLO", true, false)
+            );
+            assert_ne!(
+                lowercase_key(b"hello", true, false),
+                lowercase_key(b"world", true, false)
+            );
+            assert_eq!(
+                lowercase_key(b"", true, false),
+                lowercase_key(b"", true, false)
+            );
+        }
+
+        #[test]
+        fn unicode_case_folding() {
+            let s1 = "AĀȀΆΑАӐḀἈＡ𐐀-Δ".as_bytes();
+            let s2 = "aāȁάαаӑḁἀａ𐐨-δ".as_bytes();
+            assert_eq!(
+                lowercase_key(s1, true, false),
+                lowercase_key(s2, true, false)
+            );
+            assert_ne!(lowercase_key(s1, true, true), lowercase_key(s2, true, true));
+        }
+
+        #[test]
+        fn non_utf8() {
+            assert_eq!(
+                lowercase_key(b"\xffa", true, false),
+                lowercase_key(b"\xffA", true, false)
+            );
+            assert_ne!(
+                lowercase_key(b"\xffa", true, false),
+                lowercase_key(b"\xfeA", true, false)
+            );
+        }
+    }
 
     mod expand_tabs {
         use super::*;

@@ -125,7 +125,7 @@ fn make_diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<Mismatch> {
                 line_number_actual += 1;
                 lines_since_mismatch = 0;
             }
-            diff::Result::Both(str, _) => {
+            diff::Result::Both(str1, str2) => {
                 // if one of them is missing a newline and the other isn't, then they don't actually match
                 if (line_number_actual > actual_lines_count)
                     && (line_number_expected > expected_lines_count)
@@ -133,7 +133,7 @@ fn make_diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<Mismatch> {
                     // this is the last line: lines still in the queue are past
                     // the trailing context and there is no next hunk to lead into
                     if lines_since_mismatch < context_size {
-                        mismatch.lines.push(DiffLine::Context(str.to_vec()));
+                        mismatch.lines.push(DiffLine::Context(str1.to_vec()));
                         mismatch.lines.push(DiffLine::MissingNL);
                     }
                 } else if line_number_actual > actual_lines_count {
@@ -148,8 +148,8 @@ fn make_diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<Mismatch> {
                         debug_assert!(mismatch.lines.last() != Some(&DiffLine::MissingNL));
                         mismatch.lines.push(DiffLine::Context(line.to_vec()));
                     }
-                    mismatch.lines.push(DiffLine::Expected(str.to_vec()));
-                    mismatch.lines.push(DiffLine::Actual(str.to_vec()));
+                    mismatch.lines.push(DiffLine::Expected(str1.to_vec()));
+                    mismatch.lines.push(DiffLine::Actual(str2.to_vec()));
                     mismatch.lines.push(DiffLine::MissingNL);
                     lines_since_mismatch = 0;
                 } else if line_number_expected > expected_lines_count {
@@ -164,9 +164,9 @@ fn make_diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<Mismatch> {
                         debug_assert!(mismatch.lines.last() != Some(&DiffLine::MissingNL));
                         mismatch.lines.push(DiffLine::Context(line.to_vec()));
                     }
-                    mismatch.lines.push(DiffLine::Expected(str.to_vec()));
+                    mismatch.lines.push(DiffLine::Expected(str1.to_vec()));
                     mismatch.lines.push(DiffLine::MissingNL);
-                    mismatch.lines.push(DiffLine::Actual(str.to_vec()));
+                    mismatch.lines.push(DiffLine::Actual(str2.to_vec()));
                     lines_since_mismatch = 0;
                 } else {
                     debug_assert!(context_queue.len() <= context_size);
@@ -174,9 +174,9 @@ fn make_diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<Mismatch> {
                         let _ = context_queue.pop_front();
                     }
                     if lines_since_mismatch < context_size {
-                        mismatch.lines.push(DiffLine::Context(str.to_vec()));
+                        mismatch.lines.push(DiffLine::Context(str1.to_vec()));
                     } else if context_size > 0 {
-                        context_queue.push_back(str.raw);
+                        context_queue.push_back(str1.raw);
                     }
                     lines_since_mismatch += 1;
                 }
