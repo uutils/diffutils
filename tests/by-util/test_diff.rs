@@ -1307,7 +1307,7 @@ fn ignore_case_with_ignore_tab_expansion() {
         .succeeds()
         .no_stdout();
     ts.ucmd()
-        .args(&["-iE", "-u", "a", "b"])
+        .args(&["-i", "-E", "-u", "a", "b"])
         .succeeds()
         .no_stdout();
 }
