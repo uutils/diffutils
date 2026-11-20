@@ -5,8 +5,10 @@
 
 use std::io::Write;
 
+use ses::Change;
+
 use crate::params::Params;
-use crate::utils::{do_write_line, line_prefix};
+use crate::utils::{do_write_line, is_identical, line_prefix};
 
 #[derive(Debug, PartialEq)]
 struct Mismatch {
@@ -54,9 +56,10 @@ fn make_diff(expected: &[u8], actual: &[u8], stop_early: bool) -> Vec<Mismatch> 
         actual_lines.pop();
     }
 
-    for result in diff::slice(&expected_lines, &actual_lines) {
+    let differences = ses::diff_lines(&expected_lines, &actual_lines);
+    for result in differences.iter_changes() {
         match result {
-            diff::Result::Left(str) => {
+            Change::Delete(str) => {
                 if !mismatch.actual.is_empty() && !mismatch.actual_missing_nl {
                     results.push(mismatch);
                     mismatch = Mismatch::new(line_number_expected, line_number_actual);
@@ -65,12 +68,12 @@ fn make_diff(expected: &[u8], actual: &[u8], stop_early: bool) -> Vec<Mismatch> 
                 mismatch.expected_missing_nl = line_number_expected > expected_lines_count;
                 line_number_expected += 1;
             }
-            diff::Result::Right(str) => {
+            Change::Insert(str) => {
                 mismatch.actual.push(str.to_vec());
                 mismatch.actual_missing_nl = line_number_actual > actual_lines_count;
                 line_number_actual += 1;
             }
-            diff::Result::Both(str, _) => {
+            Change::Equal(str, _) => {
                 match (
                     line_number_expected > expected_lines_count,
                     line_number_actual > actual_lines_count,
@@ -121,6 +124,11 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
     // See https://www.gnu.org/software/diffutils/manual/html_node/Detailed-Normal.html
     // for details on the syntax of the normal format.
     let mut output = Vec::new();
+
+    if is_identical(expected, actual) {
+        return output;
+    }
+
     let diff_results = make_diff(expected, actual, params.brief);
     if params.brief && !diff_results.is_empty() {
         write!(&mut output, "\0").unwrap();

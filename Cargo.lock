@@ -301,13 +301,13 @@ dependencies = [
  "chrono",
  "codspeed-divan-compat",
  "ctor",
- "diff",
  "itoa",
  "pretty_assertions",
  "rand",
  "regex",
  "rstest",
  "same-file",
+ "ses",
  "tempfile",
  "unicode-width",
  "uutests",
@@ -972,6 +972,15 @@ dependencies = [
  "serde",
  "serde_core",
  "zmij",
+]
+
+[[package]]
+name = "ses"
+version = "0.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5ffac46567485eaeccaa5970d135dc1e5b4b9bb4af308d6964d4a4666cf1e96f"
+dependencies = [
+ "rustc-hash",
 ]
 
 [[package]]
