@@ -334,6 +334,9 @@ pub fn cmp(params: &Params) -> Result<Cmp, String> {
 
     let mut at_byte: BytesLimitU64 = 1;
     let mut at_line: u64 = 1;
+    // Only the default report gives a line number: -s prints nothing and -l
+    // prints byte offsets.
+    let count_lines = !params.quiet && !params.verbose;
     let mut start_of_line = true;
     let mut stdout = BufWriter::new(io::stdout().lock());
     let mut compare = Cmp::Equal;
@@ -370,7 +373,9 @@ pub fn cmp(params: &Params) -> Result<Cmp, String> {
             let last = from_buf[..consumed].last().unwrap();
 
             at_byte += consumed as BytesLimitU64;
-            at_line += (from_buf[..consumed].iter().filter(|&c| *c == b'\n').count()) as u64;
+            if count_lines {
+                at_line += count_newlines(&from_buf[..consumed]);
+            }
 
             start_of_line = *last == b'\n';
 
@@ -434,6 +439,14 @@ pub fn cmp(params: &Params) -> Result<Cmp, String> {
     }
 
     Ok(compare)
+}
+
+/// Counts the newlines in `buf`. Summing each chunk in a `u8` lets the compiler
+/// compare many bytes at once, and a chunk of 255 bytes can't overflow it.
+fn count_newlines(buf: &[u8]) -> u64 {
+    buf.chunks(255)
+        .map(|chunk| u64::from(chunk.iter().fold(0u8, |n, &b| n + u8::from(b == b'\n'))))
+        .sum()
 }
 
 // Exit codes are documented at
@@ -707,6 +720,15 @@ mod tests {
     use super::*;
     fn os(s: &str) -> OsString {
         OsString::from(s)
+    }
+
+    #[test]
+    fn count_newlines_across_chunks() {
+        assert_eq!(count_newlines(b""), 0);
+        assert_eq!(count_newlines(b"no newline"), 0);
+        // more than one 255-byte chunk of nothing but newlines
+        assert_eq!(count_newlines(&[b'\n'; 1000]), 1000);
+        assert_eq!(count_newlines(&b"ab\ncd\n".repeat(300)), 600);
     }
 
     #[test]
