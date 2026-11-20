@@ -75,10 +75,22 @@ pub fn line_prefix<'a>(prefix: &'a [u8], line: &[u8], params: &Params) -> &'a [u
     }
 }
 
-/// Returns true if a line contains only ASCII spaces, tabs or carriage returns, or is empty.
+/// Returns true if a line is empty.
+///
+/// In GNU diff, `-B`/`--ignore-blank-lines` only ignores lines that are completely
+/// empty unless space-ignoring options (like `-b` or `-w`) are also active.
 #[inline]
 pub fn is_blank_line(line: &[u8]) -> bool {
-    line.iter().all(|&c| c == b' ' || c == b'\t' || c == b'\r')
+    line.is_empty()
+}
+
+/// Returns true if any line in the given iterator is non-blank.
+pub fn has_non_blank_lines<I, T>(lines: I) -> bool
+where
+    I: IntoIterator<Item = T>,
+    T: AsRef<[u8]>,
+{
+    lines.into_iter().any(|l| !is_blank_line(l.as_ref()))
 }
 
 /// Quotes a file name for the headers of the diff output: a name containing
@@ -562,10 +574,10 @@ mod tests {
         #[test]
         fn blank_lines() {
             assert!(is_blank_line(b""));
-            assert!(is_blank_line(b"\r"));
-            assert!(is_blank_line(b" "));
-            assert!(is_blank_line(b"\t"));
-            assert!(is_blank_line(b"  \t  \r"));
+            assert!(!is_blank_line(b"\r"));
+            assert!(!is_blank_line(b" "));
+            assert!(!is_blank_line(b"\t"));
+            assert!(!is_blank_line(b"  \t  \r"));
             assert!(!is_blank_line(b"a"));
             assert!(!is_blank_line(b" a "));
         }

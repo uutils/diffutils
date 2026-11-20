@@ -7,7 +7,7 @@ use std::collections::VecDeque;
 use std::io::Write;
 
 use crate::params::Params;
-use crate::utils::{do_write_line, is_blank_line, line_prefix};
+use crate::utils::{do_write_line, has_non_blank_lines, line_prefix};
 use crate::utils::{
     get_modification_time, is_posix_locale, write_file_header, FunctionLineFinder, TimestampStyle,
 };
@@ -17,6 +17,15 @@ pub enum DiffLine {
     Context(Vec<u8>),
     Change(Vec<u8>),
     Add(Vec<u8>),
+}
+
+impl DiffLine {
+    fn changed_bytes(&self) -> Option<&[u8]> {
+        match self {
+            Self::Change(l) | Self::Add(l) => Some(l),
+            Self::Context(_) => None,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -344,19 +353,13 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
         params.brief && !params.ignore_blank_lines,
     );
     if params.ignore_blank_lines {
-        diff_results.retain(|mismatch| {
-            if mismatch.expected_missing_nl || mismatch.actual_missing_nl {
-                return true;
-            }
-            let expected_has_non_blank = mismatch.expected.iter().any(|line| match line {
-                DiffLine::Change(l) | DiffLine::Add(l) => !is_blank_line(l),
-                DiffLine::Context(_) => false,
-            });
-            let actual_has_non_blank = mismatch.actual.iter().any(|line| match line {
-                DiffLine::Change(l) | DiffLine::Add(l) => !is_blank_line(l),
-                DiffLine::Context(_) => false,
-            });
-            expected_has_non_blank || actual_has_non_blank
+        diff_results.retain(|m| {
+            has_non_blank_lines(
+                m.expected
+                    .iter()
+                    .filter_map(DiffLine::changed_bytes)
+                    .chain(m.actual.iter().filter_map(DiffLine::changed_bytes)),
+            )
         });
     }
     if diff_results.is_empty() {

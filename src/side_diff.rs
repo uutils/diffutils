@@ -9,6 +9,7 @@ use std::{io::Write, vec};
 use unicode_width::UnicodeWidthStr;
 
 use crate::params::Params;
+use crate::utils::is_blank_line;
 
 const GUTTER_WIDTH_MIN: usize = 3;
 
@@ -350,17 +351,38 @@ pub fn diff<T: Write>(
     More studies are needed to cover GNU diff side by side with 100% accuracy, which is one of
     the goals of this project : )
     */
+    let mut differs = false;
     for result in diff::slice(&left_lines, &right_lines) {
         match result {
-            Result::Left(left_ln) => push_output(left_ln, b"", b'<', output, &config).unwrap(),
-            Result::Right(right_ln) => push_output(b"", right_ln, b'>', output, &config).unwrap(),
+            Result::Left(left_ln) => {
+                let is_blank = params.ignore_blank_lines
+                    && is_blank_line(left_ln.strip_suffix(b"\n").unwrap_or(left_ln));
+                if !is_blank {
+                    differs = true;
+                }
+                let symbol = if is_blank { b'(' } else { b'<' };
+                push_output(left_ln, b"", symbol, output, &config).unwrap();
+            }
+            Result::Right(right_ln) => {
+                let is_blank = params.ignore_blank_lines
+                    && is_blank_line(right_ln.strip_suffix(b"\n").unwrap_or(right_ln));
+                if !is_blank {
+                    differs = true;
+                }
+                let symbol = if is_blank { b')' } else { b'>' };
+                push_output(b"", right_ln, symbol, output, &config).unwrap();
+            }
             Result::Both(left_ln, right_ln) => {
                 push_output(left_ln, right_ln, b' ', output, &config).unwrap()
             }
         }
     }
 
-    vec![]
+    if differs {
+        vec![1]
+    } else {
+        vec![]
+    }
 }
 
 #[cfg(test)]
