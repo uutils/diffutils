@@ -108,7 +108,7 @@ pub fn do_write_line<W: Write>(
 }
 
 /// Returns the line with tabs expanded according to `tabsize` and terminal column rules.
-pub fn expand_tabs_to_vec(line: &[u8], tabsize: usize) -> Vec<u8> {
+fn expand_tabs_to_vec(line: &[u8], tabsize: usize) -> Vec<u8> {
     let mut expanded = Vec::with_capacity(line.len());
     let _ = do_expand_tabs(&mut expanded, line, tabsize, b"");
     expanded
@@ -116,32 +116,45 @@ pub fn expand_tabs_to_vec(line: &[u8], tabsize: usize) -> Vec<u8> {
 
 /// A line of text for diff comparison that can optionally ignore differences
 /// caused by tab expansion (-E / --ignore-tab-expansion).
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ComparisonLine<'a> {
     pub raw: &'a [u8],
-    key: std::borrow::Cow<'a, [u8]>,
+    key: Cow<'a, [u8]>,
 }
 
 impl<'a> ComparisonLine<'a> {
-    pub fn new(raw: &'a [u8], ignore_tab_expansion: bool, tabsize: usize) -> Self {
+    fn new(raw: &'a [u8], ignore_tab_expansion: bool, tabsize: usize) -> Self {
         let key = if ignore_tab_expansion && (raw.contains(&b'\t') || raw.contains(&b'\x08')) {
-            std::borrow::Cow::Owned(expand_tabs_to_vec(raw, tabsize))
+            Cow::Owned(expand_tabs_to_vec(raw, tabsize))
         } else {
-            std::borrow::Cow::Borrowed(raw)
+            Cow::Borrowed(raw)
         };
         Self { raw, key }
     }
 }
 
+/// Splits `content` into lines wrapped for comparison according to `params`.
+pub fn comparison_lines<'a>(content: &'a [u8], params: &Params) -> Vec<ComparisonLine<'a>> {
+    content
+        .split(|&c| c == b'\n')
+        .map(|line| ComparisonLine::new(line, params.ignore_tab_expansion, params.tabsize))
+        .collect()
+}
+
+/// Splits `content` into inclusive lines (preserving trailing newlines) wrapped for comparison.
+pub fn comparison_lines_inclusive<'a>(
+    content: &'a [u8],
+    params: &Params,
+) -> Vec<ComparisonLine<'a>> {
+    content
+        .split_inclusive(|&c| c == b'\n')
+        .map(|line| ComparisonLine::new(line, params.ignore_tab_expansion, params.tabsize))
+        .collect()
+}
+
 impl<'a> std::ops::Deref for ComparisonLine<'a> {
     type Target = [u8];
     fn deref(&self) -> &Self::Target {
-        self.raw
-    }
-}
-
-impl<'a> AsRef<[u8]> for ComparisonLine<'a> {
-    fn as_ref(&self) -> &[u8] {
         self.raw
     }
 }
