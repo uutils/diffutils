@@ -7,8 +7,10 @@ use std::collections::VecDeque;
 use std::io::Write;
 
 use crate::params::Params;
-use crate::utils::{do_write_line, line_prefix};
-use crate::utils::{get_modification_time, write_file_header, FunctionLineFinder, TimestampStyle};
+use crate::utils::{
+    do_write_line, get_modification_time, is_identical, line_prefix, write_file_header,
+    FunctionLineFinder, TimestampStyle,
+};
 
 #[derive(Debug, PartialEq)]
 pub enum DiffLine {
@@ -238,6 +240,9 @@ fn make_diff(
 
 #[must_use]
 pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
+    if is_identical(expected, actual) {
+        return Vec::new();
+    }
     let from_modified_time = get_modification_time(
         &params.from.to_string_lossy(),
         TimestampStyle::Iso,

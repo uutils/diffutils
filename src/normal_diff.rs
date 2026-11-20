@@ -8,7 +8,7 @@ use std::io::Write;
 use ses::Change;
 
 use crate::params::Params;
-use crate::utils::{do_write_line, line_prefix};
+use crate::utils::{do_write_line, is_identical, line_prefix};
 
 #[derive(Debug, PartialEq)]
 struct Mismatch {
@@ -124,6 +124,11 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
     // See https://www.gnu.org/software/diffutils/manual/html_node/Detailed-Normal.html
     // for details on the syntax of the normal format.
     let mut output = Vec::new();
+
+    if is_identical(expected, actual) {
+        return output;
+    }
+
     let diff_results = make_diff(expected, actual, params.brief);
     if params.brief && !diff_results.is_empty() {
         write!(&mut output, "\0").unwrap();

@@ -369,6 +369,43 @@ pub fn report_failure_to_read_input_file(
     );
 }
 
+/// Check if two byte slices are identical with early rejection sampling.
+///
+/// When files are equal, this verifies full byte equality and returns `true`.
+/// When files differ, it samples the tail, midpoint, and quarter points to reject
+/// non-identical files in O(1) time before committing to a full O(N) scan.
+#[inline]
+pub fn is_identical(expected: &[u8], actual: &[u8]) -> bool {
+    if expected.len() != actual.len() {
+        return false;
+    }
+    let len = expected.len();
+    if len == 0 {
+        return true;
+    }
+
+    if len >= 256 {
+        // Fast O(1) checks at tail and key sample points before full memcmp
+        if expected[len - 256..] != actual[len - 256..] {
+            return false;
+        }
+        let mid = len / 2;
+        if expected[mid - 128..mid + 128] != actual[mid - 128..mid + 128] {
+            return false;
+        }
+        let q1 = len / 4;
+        if expected[q1 - 128..q1 + 128] != actual[q1 - 128..q1 + 128] {
+            return false;
+        }
+        let q3 = 3 * len / 4;
+        if expected[q3 - 128..q3 + 128] != actual[q3 - 128..q3 + 128] {
+            return false;
+        }
+    }
+
+    expected == actual
+}
+
 #[cfg(test)]
 pub mod testcmds {
     // Command construction wrapper that provides some validation and non-obscure, "fail fast"
@@ -663,6 +700,55 @@ mod tests {
                     .unwrap();
 
             assert!(m_time > current_time);
+        }
+    }
+
+    mod is_identical {
+        use super::*;
+
+        #[test]
+        fn test_empty() {
+            assert!(is_identical(b"", b""));
+            assert!(!is_identical(b"", b"a"));
+            assert!(!is_identical(b"a", b""));
+        }
+
+        #[test]
+        fn test_small() {
+            assert!(is_identical(b"hello world", b"hello world"));
+            assert!(!is_identical(b"hello world", b"hello work!"));
+            assert!(!is_identical(b"hello", b"world"));
+        }
+
+        #[test]
+        fn test_large_sample_rejections() {
+            let a = vec![b'a'; 1000];
+            let mut b = vec![b'a'; 1000];
+            assert!(is_identical(&a, &b));
+
+            // Differ at tail
+            b[999] = b'b';
+            assert!(!is_identical(&a, &b));
+            b[999] = b'a';
+
+            // Differ at midpoint
+            b[500] = b'b';
+            assert!(!is_identical(&a, &b));
+            b[500] = b'a';
+
+            // Differ at quarter 1
+            b[250] = b'b';
+            assert!(!is_identical(&a, &b));
+            b[250] = b'a';
+
+            // Differ at quarter 3
+            b[750] = b'b';
+            assert!(!is_identical(&a, &b));
+            b[750] = b'a';
+
+            // Differ at arbitrary position
+            b[10] = b'b';
+            assert!(!is_identical(&a, &b));
         }
     }
 }
