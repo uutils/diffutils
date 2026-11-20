@@ -8,6 +8,18 @@ use rstest::rstest;
 use std::fs::OpenOptions;
 use uutests::{at_and_ts, new_ucmd};
 
+#[rstest]
+#[case::alone(&["--help"])]
+#[case::missing_file(&["foo", "--help"])]
+#[case::stop_parsing(&["--help", "--invalid"])]
+#[case::incompatible_options(&["-l", "-s", "--help"])]
+fn cmp_help(#[case] args: &[&str]) {
+    new_ucmd!()
+        .args(args)
+        .succeeds()
+        .stdout_only("Usage: cmp <from> <to>\n");
+}
+
 // A file whose metadata length is 0 but which still yields bytes (/dev/zero)
 // collapses the offset column to two characters, so the padding subtraction
 // underflowed once the running offset reached three digits.
