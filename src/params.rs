@@ -8,6 +8,12 @@ use crate::bre::Bre;
 use crate::color::ColorWhen;
 use crate::utils::fold_file_name_case;
 
+/// Largest value accepted for `--tabsize`.
+/// Side-by-side mode computes `tabsize + GUTTER_WIDTH_MIN` (3) as an
+/// `isize` in `side_diff::Config::new`, so anything larger would overflow.
+/// GNU diff accepts the same maximum.
+pub(crate) const MAX_TABSIZE: usize = isize::MAX as usize - 3;
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum Format {
     #[default]
@@ -41,6 +47,8 @@ pub struct Params {
     pub report_identical_files: bool,
     pub brief: bool,
     pub expand_tabs: bool,
+    pub ignore_tab_expansion: bool,
+    pub suppress_blank_empty: bool,
     pub tabsize: usize,
     pub width: usize,
     pub missing_file: MissingFile,
@@ -91,6 +99,8 @@ impl Default for Params {
             report_identical_files: false,
             brief: false,
             expand_tabs: false,
+            ignore_tab_expansion: false,
+            suppress_blank_empty: false,
             tabsize: 8,
             width: 130,
             missing_file: MissingFile::default(),
@@ -269,6 +279,14 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
             params.expand_tabs = true;
             continue;
         }
+        if param == "-E" || param == "--ignore-tab-expansion" {
+            params.ignore_tab_expansion = true;
+            continue;
+        }
+        if param == "--suppress-blank-empty" {
+            params.suppress_blank_empty = true;
+            continue;
+        }
         if param == "--normal" {
             if format.is_some() && format != Some(Format::Normal) {
                 return Err("Conflicting output style options".to_string());
@@ -322,14 +340,8 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
                 .unwrap()
                 .as_str();
             params.tabsize = match tabsize_str.parse::<usize>() {
-                Ok(num) => {
-                    if num == 0 {
-                        return Err("invalid tabsize «0»".to_string());
-                    }
-
-                    num
-                }
-                Err(_) => return Err(format!("invalid tabsize «{tabsize_str}»")),
+                Ok(num) if num != 0 && num <= MAX_TABSIZE => num,
+                _ => return Err(format!("invalid tabsize «{tabsize_str}»")),
             };
 
             continue;
@@ -1009,6 +1021,26 @@ mod tests {
         }
     }
     #[test]
+    fn ignore_tab_expansion() {
+        for option in ["-E", "--ignore-tab-expansion"] {
+            assert_eq!(
+                Ok(Params {
+                    executable: os("diff"),
+                    from: os("foo"),
+                    to: os("bar"),
+                    ignore_tab_expansion: true,
+                    ..Default::default()
+                }),
+                parse_params(
+                    [os("diff"), os(option), os("foo"), os("bar")]
+                        .iter()
+                        .cloned()
+                        .peekable()
+                )
+            );
+        }
+    }
+    #[test]
     fn tabsize() {
         assert_eq!(
             Ok(Params {
@@ -1101,6 +1133,42 @@ mod tests {
             .peekable()
         )
         .is_err());
+        for too_large in [(MAX_TABSIZE + 1).to_string(), usize::MAX.to_string()] {
+            assert_eq!(
+                Err(format!("invalid tabsize «{too_large}»")),
+                parse_params(
+                    [
+                        os("diff"),
+                        os(&format!("--tabsize={too_large}")),
+                        os("foo"),
+                        os("bar")
+                    ]
+                    .iter()
+                    .cloned()
+                    .peekable()
+                )
+            );
+        }
+        assert_eq!(
+            Ok(Params {
+                executable: os("diff"),
+                from: os("foo"),
+                to: os("bar"),
+                tabsize: MAX_TABSIZE,
+                ..Default::default()
+            }),
+            parse_params(
+                [
+                    os("diff"),
+                    os(&format!("--tabsize={MAX_TABSIZE}")),
+                    os("foo"),
+                    os("bar")
+                ]
+                .iter()
+                .cloned()
+                .peekable()
+            )
+        );
     }
     #[test]
     fn width() {

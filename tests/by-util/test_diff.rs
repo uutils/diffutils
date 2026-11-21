@@ -71,6 +71,15 @@ fn missing_newline() {
         .stderr_str_check(|s| s.starts_with("No newline at end of file"));
 }
 
+#[test]
+fn huge_tabsize() {
+    new_ucmd!()
+        .args(&["--tabsize=18446744073709551615", "foo", "bar"])
+        .fails_with_code(2)
+        .no_stdout()
+        .stderr_contains("invalid tabsize «18446744073709551615»");
+}
+
 #[rstest]
 #[case::second(&["file1", "-"], "bar\n", "--- file1\tTIMESTAMP\n+++ -\tTIMESTAMP\n")]
 #[case::first(&["-", "file2"], "foo\n", "--- -\tTIMESTAMP\n+++ file2\tTIMESTAMP\n")]
@@ -357,6 +366,68 @@ fn color_bad_option(#[case] option: &str, #[case] error: &str) {
         .args(&[option, "old", "new"])
         .fails_with_code(2)
         .stderr_contains(error);
+}
+
+// With -t, the column moves like on a terminal: back to the start after a
+// carriage return, where the line marker is printed again, and one back for
+// a backspace. Other control characters take no room.
+#[test]
+fn expand_tabs_after_control_characters() {
+    let (at, ts) = at_and_ts!();
+    at.write(
+        "old",
+        "ab\rc\t1\nabc\x08d\t1\n\x08x\t1\na\x01\x1bb\t1\nend\r\n",
+    );
+    at.write(
+        "new",
+        "ab\rc\t2\nabc\x08d\t2\n\x08x\t2\na\x01\x1bb\t2\nend\r\n",
+    );
+    let diff = |format: &str| {
+        ts.ucmd()
+            .args(&["-t", format, "old", "new"])
+            .fails_with_code(1)
+    };
+
+    diff("--normal").stdout_only(
+        "1,4c1,4\n\
+         < ab\r< c       1\n\
+         < abc\x08d     1\n\
+         < x       1\n\
+         < a\x01\x1bb      1\n\
+         ---\n\
+         > ab\r> c       2\n\
+         > abc\x08d     2\n\
+         > x       2\n\
+         > a\x01\x1bb      2\n",
+    );
+    // The unified format does not repeat its marker.
+    diff("-U0").stdout_str_check(|s| {
+        s.ends_with(
+            "@@ -1,4 +1,4 @@\n\
+         -ab\rc       1\n\
+         -abc\x08d     1\n\
+         -x       1\n\
+         -a\x01\x1bb      1\n\
+         +ab\rc       2\n\
+         +abc\x08d     2\n\
+         +x       2\n\
+         +a\x01\x1bb      2\n",
+        )
+    });
+    diff("-C0").stdout_str_check(|s| {
+        s.ends_with(
+            "*** 1,4 ****\n\
+         ! ab\r! c       1\n\
+         ! abc\x08d     1\n\
+         ! x       1\n\
+         ! a\x01\x1bb      1\n\
+         --- 1,4 ----\n\
+         ! ab\r! c       2\n\
+         ! abc\x08d     2\n\
+         ! x       2\n\
+         ! a\x01\x1bb      2\n",
+        )
+    });
 }
 
 #[cfg(target_os = "linux")]
@@ -985,6 +1056,21 @@ fn trailing_context_without_final_newlines(#[case] format: &str, #[case] hunk: &
 }
 
 #[rstest]
+#[case::normal("--normal", "1d0\n<\n4c3,4\n< b\n---\n> c\n>\n")]
+#[case::unified("-u", "@@ -1,4 +1,4 @@\n-\n a\n\n-b\n+c\n+\n")]
+#[case::context("-c", "*** 1,4 ****\n-\n  a\n\n! b\n--- 1,4 ----\n  a\n\n! c\n!\n")]
+fn suppress_blank_empty(#[case] format: &str, #[case] hunk: &str) {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", "\na\n\nb\n");
+    at.write("file2", "a\n\nc\n\n");
+
+    ts.ucmd()
+        .args(&[format, "--suppress-blank-empty", "file1", "file2"])
+        .fails_with_code(1)
+        .stdout_str_check(|s| s.ends_with(hunk));
+}
+
+#[rstest]
 #[case::unified(
     &["-u", "--label", "a/x", "--label=b/x"],
     "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-foo\n+bar\n"
@@ -1044,4 +1130,96 @@ fn label_errors(#[case] args: &[&str], #[case] error: &str) {
         .args(args)
         .fails_with_code(2)
         .stderr_contains(error);
+}
+
+#[test]
+fn ignore_tab_expansion() {
+    let (at, ts) = at_and_ts!();
+    at.write("a", "a\tb\n");
+    at.write("b", "a       b\n");
+
+    // Without -E, they differ
+    ts.ucmd().args(&["a", "b"]).fails_with_code(1);
+
+    // With -E / --ignore-tab-expansion, treated as equal
+    for option in ["-E", "--ignore-tab-expansion"] {
+        ts.ucmd().args(&[option, "a", "b"]).succeeds().no_stdout();
+        ts.ucmd()
+            .args(&["-s", option, "a", "b"])
+            .succeeds()
+            .stdout_is("Files a and b are identical\n");
+    }
+
+    // Supported in multiple output formats
+    for format in ["-u", "-c", "-e"] {
+        ts.ucmd()
+            .args(&["-E", format, "a", "b"])
+            .succeeds()
+            .no_stdout();
+    }
+
+    // Side-by-side format prints common lines with space gutter and exits 0
+    ts.ucmd()
+        .args(&["-E", "-y", "a", "b"])
+        .succeeds()
+        .stdout_contains("a\tb");
+}
+
+#[test]
+fn ignore_tab_expansion_custom_tabsize() {
+    let (at, ts) = at_and_ts!();
+    at.write("a", "a\tb\n");
+    at.write("b_tab4", "a   b\n");
+    at.write("b_tab8", "a       b\n");
+
+    // With default tabsize 8, matches b_tab8
+    ts.ucmd()
+        .args(&["-E", "a", "b_tab8"])
+        .succeeds()
+        .no_stdout();
+
+    // With --tabsize=4, matches b_tab4
+    ts.ucmd()
+        .args(&["-E", "--tabsize=4", "a", "b_tab4"])
+        .succeeds()
+        .no_stdout();
+
+    ts.ucmd()
+        .args(&["-E", "--tabsize=4", "a", "b_tab8"])
+        .fails_with_code(1);
+}
+
+#[test]
+fn ignore_tab_expansion_control_and_wide_chars() {
+    let (at, ts) = at_and_ts!();
+    at.write("old", "ab\rc\t1\n\x08x\t1\n中\t2\n");
+    at.write("new", "ab\rc       1\nx       1\n中      2\n");
+
+    ts.ucmd().args(&["-E", "old", "new"]).succeeds().no_stdout();
+}
+
+#[test]
+fn ignore_tab_expansion_with_differing_files() {
+    let (at, ts) = at_and_ts!();
+    // In tabsize 8, 'header\t1' has 6 chars ('header') + 2 spaces to column 8.
+    // So 'header\t1' expands to 'header  1'.
+    at.write("d1", "header\t1\nold line\nfooter\t2\n");
+    at.write("d2", "header  1\nnew line\nfooter  2\n");
+
+    // Without -E, all 3 lines differ
+    ts.ucmd()
+        .args(&["-u", "d1", "d2"])
+        .fails_with_code(1)
+        .stdout_contains("-header\t1")
+        .stdout_contains("+header  1")
+        .stdout_contains("-old line")
+        .stdout_contains("+new line")
+        .stdout_contains("-footer\t2")
+        .stdout_contains("+footer  2");
+
+    // With -E, header and footer match as unchanged context lines
+    ts.ucmd()
+        .args(&["-E", "-u", "d1", "d2"])
+        .fails_with_code(1)
+        .stdout_contains(" header\t1\n-old line\n+new line\n footer\t2\n");
 }

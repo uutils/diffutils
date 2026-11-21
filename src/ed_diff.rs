@@ -6,7 +6,7 @@
 use std::io::Write;
 
 use crate::params::Params;
-use crate::utils::do_write_line;
+use crate::utils::{comparison_lines, do_write_line};
 
 #[derive(Debug, PartialEq)]
 struct Mismatch {
@@ -45,27 +45,28 @@ impl Mismatch {
 }
 
 // Produces a diff between the expected output and actual output.
-fn make_diff(expected: &[u8], actual: &[u8], stop_early: bool) -> Result<Vec<Mismatch>, DiffError> {
+fn make_diff(expected: &[u8], actual: &[u8], params: &Params) -> Result<Vec<Mismatch>, DiffError> {
+    let stop_early = params.brief;
     let mut line_number_expected = 1;
     let mut line_number_actual = 1;
     let mut results = Vec::new();
     let mut mismatch = Mismatch::new(line_number_expected, line_number_actual);
 
-    let mut expected_lines: Vec<&[u8]> = expected.split(|&c| c == b'\n').collect();
-    let mut actual_lines: Vec<&[u8]> = actual.split(|&c| c == b'\n').collect();
+    let mut expected_lines = comparison_lines(expected, params);
+    let mut actual_lines = comparison_lines(actual, params);
 
     debug_assert_eq!(b"".split(|&c| c == b'\n').count(), 1);
     // ^ means that underflow here is impossible
     let _expected_lines_count = expected_lines.len() - 1;
     let _actual_lines_count = actual_lines.len() - 1;
 
-    if expected_lines.last() == Some(&&b""[..]) {
+    if expected_lines.last().is_some_and(|l| l.raw.is_empty()) {
         expected_lines.pop();
     } else {
         return Err(DiffError::MissingNL);
     }
 
-    if actual_lines.last() == Some(&&b""[..]) {
+    if actual_lines.last().is_some_and(|l| l.raw.is_empty()) {
         actual_lines.pop();
     } else {
         return Err(DiffError::MissingNL);
@@ -112,7 +113,7 @@ fn make_diff(expected: &[u8], actual: &[u8], stop_early: bool) -> Result<Vec<Mis
 
 pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Result<Vec<u8>, DiffError> {
     let mut output = Vec::new();
-    let diff_results = make_diff(expected, actual, params.brief)?;
+    let diff_results = make_diff(expected, actual, params)?;
     if params.brief && !diff_results.is_empty() {
         write!(&mut output, "\0").unwrap();
         return Ok(output);
@@ -158,7 +159,8 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Result<Vec<u8>, 
                     writeln!(&mut output, "..\n.\ns/.//").unwrap();
                     in_text = false;
                 } else {
-                    do_write_line(&mut output, actual, params.expand_tabs, params.tabsize).unwrap();
+                    do_write_line(&mut output, actual, params.expand_tabs, params.tabsize, b"")
+                        .unwrap();
                     writeln!(&mut output).unwrap();
                 }
             }
