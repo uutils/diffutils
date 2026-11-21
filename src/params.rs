@@ -151,8 +151,6 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
     let mut format = None;
     let mut context = None;
     let mut show_c_function = false;
-    let tabsize_re = Regex::new(r"^--tabsize=(?<num>\d+)$").unwrap();
-    let width_re = Regex::new(r"^--width=(?P<long>\d+)$").unwrap();
     while let Some((position, param)) = opts.next() {
         // -L LABEL, -LLABEL, --label LABEL or --label=LABEL: the first names
         // the from-file in headers and messages, the second the to-file.
@@ -246,7 +244,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
             push_function_line_pattern(&mut params, C_FUNCTION_PATTERN)?;
             continue;
         }
-        if let Some(argument) = option_argument(&param, "-F", "--show-function-line") {
+        if let Some(argument) = option_argument(&param, Some("-F"), "--show-function-line") {
             let pattern = argument_value(argument, &param, &mut opts)?;
             push_function_line_pattern(&mut params, &pattern.to_string_lossy())?;
             continue;
@@ -263,7 +261,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
             params.ignore_file_name_case = false;
             continue;
         }
-        if let Some(argument) = option_argument(&param, "-S", "--starting-file") {
+        if let Some(argument) = option_argument(&param, Some("-S"), "--starting-file") {
             params.starting_file = Some(argument_value(argument, &param, &mut opts)?);
             continue;
         }
@@ -308,37 +306,21 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
             format = Some(Format::SideBySide);
             continue;
         }
-        if width_re.is_match(param.to_string_lossy().as_ref()) {
-            let param = param.into_string().unwrap();
-            let width_str: &str = width_re
-                .captures(param.as_str())
-                .unwrap()
-                .name("long")
-                .unwrap()
-                .as_str();
+        if let Some(argument) = option_argument(&param, Some("-W"), "--width") {
+            let width = argument_value(argument, &param, &mut opts)?;
+            let width_str = width.to_string_lossy();
 
             params.width = match width_str.parse::<usize>() {
-                Ok(num) => {
-                    if num == 0 {
-                        return Err("invalid width «0»".to_string());
-                    }
-
-                    num
-                }
-                Err(_) => return Err(format!("invalid width «{width_str}»")),
+                Ok(num) if num != 0 => num,
+                _ => return Err(format!("invalid width «{width_str}»")),
             };
+
             continue;
         }
-        if tabsize_re.is_match(param.to_string_lossy().as_ref()) {
-            // Because param matches the regular expression,
-            // it is safe to assume it is valid UTF-8.
-            let param = param.into_string().unwrap();
-            let tabsize_str = tabsize_re
-                .captures(param.as_str())
-                .unwrap()
-                .name("num")
-                .unwrap()
-                .as_str();
+        if let Some(argument) = option_argument(&param, None, "--tabsize") {
+            let tabsize = argument_value(argument, &param, &mut opts)?;
+            let tabsize_str = tabsize.to_string_lossy();
+
             params.tabsize = match tabsize_str.parse::<usize>() {
                 Ok(num) if num != 0 && num <= MAX_TABSIZE => num,
                 _ => return Err(format!("invalid tabsize «{tabsize_str}»")),
@@ -492,15 +474,23 @@ enum OptionArgument<'a> {
 
 /// Returns how the argument of the option named `short` (like `-F`) or
 /// `long` is given, if `param` is that option.
-fn option_argument<'a>(param: &'a OsStr, short: &str, long: &str) -> Option<OptionArgument<'a>> {
-    if param == short || param == long {
+fn option_argument<'a>(
+    param: &'a OsStr,
+    short: Option<&str>,
+    long: &str,
+) -> Option<OptionArgument<'a>> {
+    if param == long || short.is_some_and(|short| param == short) {
         return Some(OptionArgument::Separate);
     }
+
     let param = param.to_str()?;
+
     param
         .strip_prefix(long)
         .and_then(|rest| rest.strip_prefix('='))
-        .or_else(|| param.strip_prefix(short).filter(|value| !value.is_empty()))
+        .or_else(|| {
+            short.and_then(|short| param.strip_prefix(short).filter(|value| !value.is_empty()))
+        })
         .map(OptionArgument::Attached)
 }
 
@@ -1042,6 +1032,37 @@ mod tests {
     }
     #[test]
     fn tabsize() {
+        // Separate argument.
+        assert_eq!(
+            Ok(Params {
+                executable: os("diff"),
+                from: os("foo"),
+                to: os("bar"),
+                tabsize: 42,
+                ..Default::default()
+            }),
+            parse_params(
+                [os("diff"), os("--tabsize"), os("42"), os("foo"), os("bar")]
+                    .iter()
+                    .cloned()
+                    .peekable()
+            )
+        );
+        // Missing argument.
+        assert!(parse_params([os("diff"), os("--tabsize")].iter().cloned().peekable()).is_err());
+        assert!(parse_params(
+            [
+                os("diff"),
+                os("--tabsize"),
+                os("invalid"),
+                os("foo"),
+                os("bar")
+            ]
+            .iter()
+            .cloned()
+            .peekable()
+        )
+        .is_err());
         assert_eq!(
             Ok(Params {
                 executable: os("diff"),
@@ -1172,21 +1193,60 @@ mod tests {
     }
     #[test]
     fn width() {
-        assert_eq!(
-            Ok(Params {
-                executable: os("diff"),
-                from: os("foo"),
-                to: os("bar"),
-                width: 100,
-                ..Default::default()
-            }),
-            parse_params(
-                [os("diff"), os("--width=100"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
+        let parse = |args: &[&str]| {
+            let args = std::iter::once("diff")
+                .chain(args.iter().copied())
+                .chain(["foo", "bar"]);
+
+            parse_params(args.map(os).peekable()).map(|params| params.width)
+        };
+
+        // All supported forms of the width option.
+        for args in [
+            &["-W", "100"][..],
+            &["-W100"][..],
+            &["--width=100"][..],
+            &["--width", "100"][..],
+        ] {
+            assert_eq!(Ok(100), parse(args), "{args:?}");
+        }
+
+        // Zero is not a valid width.
+        for args in [
+            &["-W", "0"][..],
+            &["-W0"][..],
+            &["--width=0"][..],
+            &["--width", "0"][..],
+        ] {
+            assert_eq!(
+                Err("invalid width «0»".to_string()),
+                parse(args),
+                "{args:?}"
+            );
+        }
+
+        // Non-numeric values are rejected.
+        for args in [
+            &["-W", "abc"][..],
+            &["-Wabc"][..],
+            &["--width=abc"][..],
+            &["--width", "abc"][..],
+        ] {
+            assert_eq!(
+                Err("invalid width «abc»".to_string()),
+                parse(args),
+                "{args:?}"
+            );
+        }
+
+        // Missing option arguments are rejected.
+        for option in ["-W", "--width"] {
+            assert_eq!(
+                Err(format!("option '{option}' requires an argument")),
+                parse_params([os("diff"), os(option)].into_iter().peekable())
+                    .map(|params| params.width)
+            );
+        }
     }
     #[test]
     fn labels() {
