@@ -7,7 +7,7 @@ use std::collections::VecDeque;
 use std::io::Write;
 
 use crate::params::Params;
-use crate::utils::{do_write_line, has_non_blank_lines, line_prefix};
+use crate::utils::{comparison_lines, do_write_line, has_non_blank_lines, line_prefix};
 use crate::utils::{
     get_modification_time, is_posix_locale, write_file_header, FunctionLineFinder, TimestampStyle,
 };
@@ -104,12 +104,9 @@ impl ChangeBlock {
 }
 
 // Produces a diff between the expected output and actual output.
-fn make_diff(
-    expected: &[u8],
-    actual: &[u8],
-    context_size: usize,
-    stop_early: bool,
-) -> Vec<Mismatch> {
+fn make_diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<Mismatch> {
+    let context_size = params.context_count;
+    let stop_early = params.brief && !params.ignore_blank_lines;
     let mut line_number_expected = 1;
     let mut line_number_actual = 1;
     let mut context_queue: VecDeque<&[u8]> = VecDeque::with_capacity(context_size);
@@ -120,19 +117,19 @@ fn make_diff(
     let mut results = Vec::new();
     let mut mismatch = Mismatch::new(0, 0);
 
-    let mut expected_lines: Vec<&[u8]> = expected.split(|&c| c == b'\n').collect();
-    let mut actual_lines: Vec<&[u8]> = actual.split(|&c| c == b'\n').collect();
+    let mut expected_lines = comparison_lines(expected, params);
+    let mut actual_lines = comparison_lines(actual, params);
 
     debug_assert_eq!(b"".split(|&c| c == b'\n').count(), 1);
     // ^ means that underflow here is impossible
     let expected_lines_count = expected_lines.len() - 1;
     let actual_lines_count = actual_lines.len() - 1;
 
-    if expected_lines.last() == Some(&&b""[..]) {
+    if expected_lines.last().is_some_and(|l| l.raw.is_empty()) {
         expected_lines.pop();
     }
 
-    if actual_lines.last() == Some(&&b""[..]) {
+    if actual_lines.last().is_some_and(|l| l.raw.is_empty()) {
         actual_lines.pop();
     }
 
@@ -242,7 +239,7 @@ fn make_diff(
                         mismatch.expected.push(DiffLine::Context(str.to_vec()));
                         mismatch.actual.push(DiffLine::Context(str.to_vec()));
                     } else if context_size > 0 {
-                        context_queue.push_back(str);
+                        context_queue.push_back(str.raw);
                     }
                     lines_since_mismatch += 1;
                 }
@@ -346,12 +343,7 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
         params.to_label.as_deref(),
         &to_modified_time,
     );
-    let mut diff_results = make_diff(
-        expected,
-        actual,
-        params.context_count,
-        params.brief && !params.ignore_blank_lines,
-    );
+    let mut diff_results = make_diff(expected, actual, params);
     if params.ignore_blank_lines {
         diff_results.retain(|m| {
             has_non_blank_lines(
@@ -408,21 +400,36 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
             for line in result.expected {
                 match line {
                     DiffLine::Context(e) => {
-                        output.extend_from_slice(line_prefix(b"  ", &e, params));
-                        do_write_line(&mut output, &e, params.expand_tabs, params.tabsize)
-                            .expect("write to Vec is infallible");
+                        do_write_line(
+                            &mut output,
+                            &e,
+                            params.expand_tabs,
+                            params.tabsize,
+                            line_prefix(b"  ", &e, params),
+                        )
+                        .expect("write to Vec is infallible");
                         writeln!(output).unwrap();
                     }
                     DiffLine::Change(e) => {
-                        output.extend_from_slice(line_prefix(b"! ", &e, params));
-                        do_write_line(&mut output, &e, params.expand_tabs, params.tabsize)
-                            .expect("write to Vec is infallible");
+                        do_write_line(
+                            &mut output,
+                            &e,
+                            params.expand_tabs,
+                            params.tabsize,
+                            line_prefix(b"! ", &e, params),
+                        )
+                        .expect("write to Vec is infallible");
                         writeln!(output).unwrap();
                     }
                     DiffLine::Add(e) => {
-                        output.extend_from_slice(line_prefix(b"- ", &e, params));
-                        do_write_line(&mut output, &e, params.expand_tabs, params.tabsize)
-                            .expect("write to Vec is infallible");
+                        do_write_line(
+                            &mut output,
+                            &e,
+                            params.expand_tabs,
+                            params.tabsize,
+                            line_prefix(b"- ", &e, params),
+                        )
+                        .expect("write to Vec is infallible");
                         writeln!(output).unwrap();
                     }
                 }
@@ -438,21 +445,36 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
             for line in result.actual {
                 match line {
                     DiffLine::Context(e) => {
-                        output.extend_from_slice(line_prefix(b"  ", &e, params));
-                        do_write_line(&mut output, &e, params.expand_tabs, params.tabsize)
-                            .expect("write to Vec is infallible");
+                        do_write_line(
+                            &mut output,
+                            &e,
+                            params.expand_tabs,
+                            params.tabsize,
+                            line_prefix(b"  ", &e, params),
+                        )
+                        .expect("write to Vec is infallible");
                         writeln!(output).unwrap();
                     }
                     DiffLine::Change(e) => {
-                        output.extend_from_slice(line_prefix(b"! ", &e, params));
-                        do_write_line(&mut output, &e, params.expand_tabs, params.tabsize)
-                            .expect("write to Vec is infallible");
+                        do_write_line(
+                            &mut output,
+                            &e,
+                            params.expand_tabs,
+                            params.tabsize,
+                            line_prefix(b"! ", &e, params),
+                        )
+                        .expect("write to Vec is infallible");
                         writeln!(output).unwrap();
                     }
                     DiffLine::Add(e) => {
-                        output.extend_from_slice(line_prefix(b"+ ", &e, params));
-                        do_write_line(&mut output, &e, params.expand_tabs, params.tabsize)
-                            .expect("write to Vec is infallible");
+                        do_write_line(
+                            &mut output,
+                            &e,
+                            params.expand_tabs,
+                            params.tabsize,
+                            line_prefix(b"+ ", &e, params),
+                        )
+                        .expect("write to Vec is infallible");
                         writeln!(output).unwrap();
                     }
                 }
