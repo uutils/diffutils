@@ -43,7 +43,7 @@ fn cmp_incompatible_params() {
     new_ucmd!()
         .args(&["-l", "-s", "/etc/passwd", "/etc/group"])
         .fails_with_code(2)
-        .stderr_str_check(|s| s.ends_with(": options -l and -s are incompatible\n"));
+        .stderr_str_check(|s| s.contains(": options -l and -s are incompatible\n"));
 }
 
 #[rstest]
@@ -358,4 +358,44 @@ fn cmp_difference_term_follows_messages_locale(
         .args(&["a", "b"])
         .fails_with_code(1)
         .stdout_is(format!("a b differ: {term} 1, line 1\n"));
+}
+
+#[rstest]
+#[case::missing_operand(
+    &[],
+    "cmp: missing operand after 'cmp'\ncmp: Try 'cmp --help' for more information.\n"
+)]
+#[case::missing_operand_after_flag(
+    &["-s"],
+    "cmp: missing operand after '-s'\ncmp: Try 'cmp --help' for more information.\n"
+)]
+#[case::unrecognized_option(
+    &["--bogus", "a", "b"],
+    "cmp: unrecognized option '--bogus'\ncmp: Try 'cmp --help' for more information.\n"
+)]
+#[case::extra_operand(
+    &["a", "b", "3", "4", "extra"],
+    "cmp: extra operand 'extra'\ncmp: Try 'cmp --help' for more information.\n"
+)]
+#[case::extra_operand_after_dashdash(
+    &["--", "a", "b", "3", "4", "extra"],
+    "cmp: extra operand 'extra'\ncmp: Try 'cmp --help' for more information.\n"
+)]
+#[case::n_requires_argument(
+    &["a", "b", "-n"],
+    "cmp: option requires an argument -- 'n'\ncmp: Try 'cmp --help' for more information.\n"
+)]
+#[case::i_requires_argument(
+    &["a", "b", "-i"],
+    "cmp: option requires an argument -- 'i'\ncmp: Try 'cmp --help' for more information.\n"
+)]
+#[case::extra_dash_operand(
+    &["a", "b", "1", "2", "-"],
+    "cmp: extra operand '-'\ncmp: Try 'cmp --help' for more information.\n"
+)]
+fn cmp_usage_errors_match_gnu(#[case] args: &[&str], #[case] expected_stderr: &str) {
+    new_ucmd!()
+        .args(args)
+        .fails_with_code(2)
+        .stderr_is(expected_stderr);
 }
