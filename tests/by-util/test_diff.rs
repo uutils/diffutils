@@ -1133,6 +1133,89 @@ fn label_errors(#[case] args: &[&str], #[case] error: &str) {
 }
 
 #[test]
+fn ignore_blank_lines() {
+    let (at, ts) = at_and_ts!();
+    at.write("a", "a\n\nb\n");
+    at.write("b", "a\nb\n");
+    for option in ["-B", "--ignore-blank-lines"] {
+        for format in [&[][..], &["-u"], &["-c"], &["-e"], &["-q"]] {
+            ts.ucmd()
+                .arg(option)
+                .args(format)
+                .args(&["a", "b"])
+                .succeeds()
+                .no_stdout();
+        }
+    }
+    // Bug#18402: non-blank changes without a final newline are still reported.
+    at.write("c", "a");
+    at.write("d", "b");
+    ts.ucmd()
+        .arg("-B")
+        .args(&["c", "d"])
+        .fails_with_code(1)
+        .stdout_is(
+            "1c1\n< a\n\\ No newline at end of file\n---\n> b\n\\ No newline at end of file\n",
+        );
+}
+
+#[test]
+fn ignore_blank_lines_whitespace_not_ignored() {
+    let (at, ts) = at_and_ts!();
+    at.write("a", "a\n \nb\n");
+    at.write("b", "a\nb\n");
+    ts.ucmd()
+        .arg("-B")
+        .args(&["a", "b"])
+        .fails_with_code(1)
+        .stdout_is("2d1\n<  \n");
+}
+
+#[test]
+fn ignore_blank_lines_missing_newline_at_eof() {
+    let (at, ts) = at_and_ts!();
+    // Common context line at EOF with missing trailing newline.
+    at.write("a", "a\n\nb");
+    at.write("b", "a\nb");
+    for format in [&[][..], &["-u"], &["-c"]] {
+        ts.ucmd()
+            .arg("-B")
+            .args(format)
+            .args(&["a", "b"])
+            .succeeds()
+            .no_stdout();
+    }
+}
+
+#[test]
+fn ignore_blank_lines_with_real_change_in_same_hunk() {
+    let (at, ts) = at_and_ts!();
+    at.write("a", "a\n\nb\n");
+    at.write("b", "a\nx\n");
+    ts.ucmd()
+        .arg("-B")
+        .args(&["a", "b"])
+        .fails_with_code(1)
+        .stdout_is("2,3c2\n< \n< b\n---\n> x\n");
+}
+
+#[test]
+fn ignore_blank_lines_side_by_side() {
+    let (at, ts) = at_and_ts!();
+    at.write("a", "a\n\nb\n");
+    at.write("b", "a\nb\n");
+    ts.ucmd()
+        .args(&["-y", "-B", "a", "b"])
+        .succeeds()
+        .stdout_contains("(");
+
+    ts.ucmd()
+        .args(&["-y", "-B", "b", "a"])
+        .succeeds()
+        .stdout_contains(")");
+}
+
+#[test]
 fn ignore_tab_expansion() {
     let (at, ts) = at_and_ts!();
     at.write("a", "a\tb\n");
@@ -1222,4 +1305,21 @@ fn ignore_tab_expansion_with_differing_files() {
         .args(&["-E", "-u", "d1", "d2"])
         .fails_with_code(1)
         .stdout_contains(" header\t1\n-old line\n+new line\n footer\t2\n");
+}
+
+#[test]
+fn ignore_blank_lines_with_ignore_tab_expansion() {
+    let (at, ts) = at_and_ts!();
+    at.write("a", "x\ty\n\nz\n");
+    at.write("b", "x       y\nz\n");
+    ts.ucmd().args(&["-B", "a", "b"]).fails_with_code(1);
+    ts.ucmd().args(&["-E", "a", "b"]).fails_with_code(1);
+    ts.ucmd()
+        .args(&["-B", "-E", "a", "b"])
+        .succeeds()
+        .no_stdout();
+    ts.ucmd()
+        .args(&["-q", "-B", "-E", "a", "b"])
+        .succeeds()
+        .no_stdout();
 }
