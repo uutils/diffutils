@@ -1314,6 +1314,12 @@ fn ignore_blank_lines_with_ignore_tab_expansion() {
     at.write("b", "x       y\nz\n");
     ts.ucmd().args(&["-B", "a", "b"]).fails_with_code(1);
     ts.ucmd().args(&["-E", "a", "b"]).fails_with_code(1);
-    ts.ucmd().args(&["-B", "-E", "a", "b"]).succeeds().no_stdout();
-    ts.ucmd().args(&["-q", "-B", "-E", "a", "b"]).succeeds().no_stdout();
+    ts.ucmd()
+        .args(&["-B", "-E", "a", "b"])
+        .succeeds()
+        .no_stdout();
+    ts.ucmd()
+        .args(&["-q", "-B", "-E", "a", "b"])
+        .succeeds()
+        .no_stdout();
 }
