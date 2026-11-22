@@ -60,4 +60,3 @@ feat_bench_not_diff = []
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(codspeed)'] }
-
