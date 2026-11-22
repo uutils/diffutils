@@ -7,7 +7,7 @@ use std::collections::VecDeque;
 use std::io::Write;
 
 use crate::params::Params;
-use crate::utils::{comparison_lines, do_write_line, line_prefix};
+use crate::utils::{comparison_lines, do_write_line, has_non_blank_lines, line_prefix};
 use crate::utils::{get_modification_time, write_file_header, FunctionLineFinder, TimestampStyle};
 
 #[derive(Debug, PartialEq)]
@@ -16,6 +16,15 @@ pub enum DiffLine {
     Expected(Vec<u8>),
     Actual(Vec<u8>),
     MissingNL,
+}
+
+impl DiffLine {
+    fn changed_bytes(&self) -> Option<&[u8]> {
+        match self {
+            Self::Expected(l) | Self::Actual(l) => Some(l),
+            Self::Context(_) | Self::MissingNL => None,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -60,7 +69,7 @@ impl Mismatch {
 // Produces a diff between the expected output and actual output.
 fn make_diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<Mismatch> {
     let context_size = params.context_count;
-    let stop_early = params.brief;
+    let stop_early = params.brief && !params.ignore_blank_lines;
     let mut line_number_expected = 1;
     let mut line_number_actual = 1;
     let mut context_queue: VecDeque<&[u8]> = VecDeque::with_capacity(context_size);
@@ -261,7 +270,11 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
         params.to_label.as_deref(),
         &to_modified_time,
     );
-    let diff_results = make_diff(expected, actual, params);
+    let mut diff_results = make_diff(expected, actual, params);
+    if params.ignore_blank_lines {
+        diff_results
+            .retain(|m| has_non_blank_lines(m.lines.iter().filter_map(DiffLine::changed_bytes)));
+    }
     if diff_results.is_empty() {
         return Vec::new();
     }
