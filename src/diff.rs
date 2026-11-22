@@ -160,17 +160,7 @@ pub fn compare_files(params: &Params, header: Option<&[u8]>) -> Outcome {
         Format::Normal => normal_diff::diff(&from_content, &to_content, params),
         Format::Unified => unified_diff::diff(&from_content, &to_content, params),
         Format::Context => context_diff::diff(&from_content, &to_content, params),
-        Format::Ed => {
-            let result = match ed_diff::diff(&from_content, &to_content, params) {
-                Ok(result) => result,
-                Err(error) => {
-                    eprintln!("{error}");
-                    return Outcome::Trouble;
-                }
-            };
-
-            result
-        }
+        Format::Ed => ed_diff::diff(&from_content, &to_content, params),
         Format::SideBySide => {
             let different = if params.brief {
                 side_diff::diff(&from_content, &to_content, &mut std::io::sink(), params)
@@ -230,6 +220,26 @@ pub fn compare_files(params: &Params, header: Option<&[u8]>) -> Outcome {
             return Outcome::Trouble;
         }
     }
+    // An ed script cannot say that a file's last line lacks its newline, so,
+    // like GNU diff, write the script anyway, then warn about each such file
+    // and report trouble.
+    if params.format == Format::Ed {
+        let mut missing_newline = false;
+        for (name, content) in [(&params.from, &from_content), (&params.to, &to_content)] {
+            if content.last().is_some_and(|&byte| byte != b'\n') {
+                eprintln!(
+                    "{}: {}: No newline at end of file\n",
+                    params.executable.to_string_lossy(),
+                    name.to_string_lossy()
+                );
+                missing_newline = true;
+            }
+        }
+        if missing_newline {
+            return Outcome::Trouble;
+        }
+    }
+
     if !different {
         maybe_report_identical_files();
         Outcome::Identical

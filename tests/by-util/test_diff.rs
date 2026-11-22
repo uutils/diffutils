@@ -60,15 +60,46 @@ fn differences_brief(#[values(&[][..], &["-u"], &["-c"], &["-e"])] format: &[&st
         .stdout_is("Files file1 and file2 differ\n");
 }
 
-#[test]
-fn missing_newline() {
+// An ed script cannot say that a newline is missing, so `-e` writes the
+// script anyway, treating the last line as if it had its newline, then warns
+// about each file that lacks one (#332).
+#[rstest]
+#[case::both("foo", "bar", "1c\nbar\n.\n", "file1 file2")]
+#[case::from("a\nb", "a\nc\n", "2c\nc\n.\n", "file1")]
+#[case::to("a\nb\n", "a\nc", "2c\nc\n.\n", "file2")]
+#[case::only_the_newline("a\n", "a", "", "file2")]
+#[case::same_content("a\nb", "a\nb", "", "file1 file2")]
+#[case::from_empty("", "a\nb", "0a\na\nb\n.\n", "file2")]
+fn missing_newline_ed(
+    #[case] from: &str,
+    #[case] to: &str,
+    #[case] script: &str,
+    #[case] warned: &str,
+) {
     let (at, ts) = at_and_ts!();
-    at.write("file1", "foo");
-    at.write("file2", "bar");
+    at.write("file1", from);
+    at.write("file2", to);
+    let warnings: String = warned
+        .split(' ')
+        .map(|name| format!("diff: {name}: No newline at end of file\n\n"))
+        .collect();
     ts.ucmd()
         .args(&["-e", "file1", "file2"])
         .fails_with_code(2)
-        .stderr_str_check(|s| s.starts_with("No newline at end of file"));
+        .stdout_is(script)
+        .stderr_is(warnings);
+}
+
+#[test]
+fn missing_newline_ed_brief() {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", "a\nb");
+    at.write("file2", "a\nc\n");
+    ts.ucmd()
+        .args(&["-e", "-q", "file1", "file2"])
+        .fails_with_code(2)
+        .stdout_is("Files file1 and file2 differ\n")
+        .stderr_is("diff: file1: No newline at end of file\n\n");
 }
 
 #[test]
@@ -1210,4 +1241,96 @@ fn label_errors(#[case] args: &[&str], #[case] error: &str) {
         .args(args)
         .fails_with_code(2)
         .stderr_contains(error);
+}
+
+#[test]
+fn ignore_tab_expansion() {
+    let (at, ts) = at_and_ts!();
+    at.write("a", "a\tb\n");
+    at.write("b", "a       b\n");
+
+    // Without -E, they differ
+    ts.ucmd().args(&["a", "b"]).fails_with_code(1);
+
+    // With -E / --ignore-tab-expansion, treated as equal
+    for option in ["-E", "--ignore-tab-expansion"] {
+        ts.ucmd().args(&[option, "a", "b"]).succeeds().no_stdout();
+        ts.ucmd()
+            .args(&["-s", option, "a", "b"])
+            .succeeds()
+            .stdout_is("Files a and b are identical\n");
+    }
+
+    // Supported in multiple output formats
+    for format in ["-u", "-c", "-e"] {
+        ts.ucmd()
+            .args(&["-E", format, "a", "b"])
+            .succeeds()
+            .no_stdout();
+    }
+
+    // Side-by-side format prints common lines with space gutter and exits 0
+    ts.ucmd()
+        .args(&["-E", "-y", "a", "b"])
+        .succeeds()
+        .stdout_contains("a\tb");
+}
+
+#[test]
+fn ignore_tab_expansion_custom_tabsize() {
+    let (at, ts) = at_and_ts!();
+    at.write("a", "a\tb\n");
+    at.write("b_tab4", "a   b\n");
+    at.write("b_tab8", "a       b\n");
+
+    // With default tabsize 8, matches b_tab8
+    ts.ucmd()
+        .args(&["-E", "a", "b_tab8"])
+        .succeeds()
+        .no_stdout();
+
+    // With --tabsize=4, matches b_tab4
+    ts.ucmd()
+        .args(&["-E", "--tabsize=4", "a", "b_tab4"])
+        .succeeds()
+        .no_stdout();
+
+    ts.ucmd()
+        .args(&["-E", "--tabsize=4", "a", "b_tab8"])
+        .fails_with_code(1);
+}
+
+#[test]
+fn ignore_tab_expansion_control_and_wide_chars() {
+    let (at, ts) = at_and_ts!();
+    at.write("old", "ab\rc\t1\n\x08x\t1\n中\t2\n");
+    at.write("new", "ab\rc       1\nx       1\n中      2\n");
+
+    ts.ucmd().args(&["-E", "old", "new"]).succeeds().no_stdout();
+}
+
+#[test]
+fn ignore_tab_expansion_with_differing_files() {
+    let (at, ts) = at_and_ts!();
+    // In tabsize 8, 'header\t1' has 6 chars ('header') + 2 spaces to column 8.
+    // So 'header\t1' expands to 'header  1'.
+    at.write("d1", "header\t1\nold line\nfooter\t2\n");
+    at.write("d2", "header  1\nnew line\nfooter  2\n");
+
+    // Without -E, all 3 lines differ
+    ts.ucmd()
+        .args(&["-u", "d1", "d2"])
+        .fails_with_code(1)
+        .stdout_contains("-header\t1")
+        .stdout_contains("+header  1")
+        .stdout_contains("-old line")
+        .stdout_contains("+new line")
+        .stdout_contains("-footer\t2")
+        .stdout_contains("+footer  2");
+
+    // With -E, header and footer match as unchanged context lines
+    ts.ucmd()
+        .args(&["-E", "-u", "d1", "d2"])
+        .fails_with_code(1)
+        .stdout_contains(" header\t1\n-old line\n+new line\n footer\t2\n");
 }

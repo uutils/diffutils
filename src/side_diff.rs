@@ -9,6 +9,7 @@ use std::io::Write;
 use unicode_width::UnicodeWidthStr;
 
 use crate::params::Params;
+use crate::utils::comparison_lines_inclusive;
 
 const GUTTER_WIDTH_MIN: usize = 3;
 
@@ -310,15 +311,15 @@ fn push_output<T: Write>(
 
 pub fn diff<T: Write>(from_file: &[u8], to_file: &[u8], output: &mut T, params: &Params) -> bool {
     //      ^ The left file  ^ The right file
-    let mut left_lines: Vec<&[u8]> = from_file.split_inclusive(|&c| c == b'\n').collect();
-    let mut right_lines: Vec<&[u8]> = to_file.split_inclusive(|&c| c == b'\n').collect();
+    let mut left_lines = comparison_lines_inclusive(from_file, params);
+    let mut right_lines = comparison_lines_inclusive(to_file, params);
     let config = Config::new(params.width, params.tabsize, params.expand_tabs);
 
-    if left_lines.last() == Some(&&b""[..]) {
+    if left_lines.last().is_some_and(|l| l.raw.is_empty()) {
         left_lines.pop();
     }
 
-    if right_lines.last() == Some(&&b""[..]) {
+    if right_lines.last().is_some_and(|l| l.raw.is_empty()) {
         right_lines.pop();
     }
     /*
@@ -350,14 +351,14 @@ pub fn diff<T: Write>(from_file: &[u8], to_file: &[u8], output: &mut T, params: 
         match result {
             Result::Left(left_ln) => {
                 different = true;
-                push_output(left_ln, b"", b'<', output, &config).unwrap();
+                push_output(left_ln.raw, b"", b'<', output, &config).unwrap();
             }
             Result::Right(right_ln) => {
                 different = true;
-                push_output(b"", right_ln, b'>', output, &config).unwrap();
+                push_output(b"", right_ln.raw, b'>', output, &config).unwrap();
             }
             Result::Both(left_ln, right_ln) => {
-                push_output(left_ln, right_ln, b' ', output, &config).unwrap();
+                push_output(left_ln.raw, right_ln.raw, b' ', output, &config).unwrap();
             }
         }
     }

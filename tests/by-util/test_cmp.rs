@@ -8,6 +8,18 @@ use rstest::rstest;
 use std::fs::OpenOptions;
 use uutests::{at_and_ts, new_ucmd};
 
+#[rstest]
+#[case::alone(&["--help"])]
+#[case::missing_file(&["foo", "--help"])]
+#[case::stop_parsing(&["--help", "--invalid"])]
+#[case::incompatible_options(&["-l", "-s", "--help"])]
+fn cmp_help(#[case] args: &[&str]) {
+    new_ucmd!()
+        .args(args)
+        .succeeds()
+        .stdout_only("Usage: cmp <from> <to>\n");
+}
+
 // A file whose metadata length is 0 but which still yields bytes (/dev/zero)
 // collapses the offset column to two characters, so the padding subtraction
 // underflowed once the running offset reached three digits.
@@ -308,6 +320,29 @@ fn cmp_fast_paths() {
         .env("LC_ALL", "en_US")
         .fails_with_code(1)
         .stdout_str_check(|s| s.ends_with(" differ: byte 24577, line 4\n"));
+}
+
+// Many newlines spread over several read buffers must still give the right
+// line number, both for a difference and for an EOF.
+#[test]
+fn cmp_line_number_after_many_lines() {
+    let (at, ts) = at_and_ts!();
+    let lines = "x\n".repeat(30_000);
+
+    at.write("a", &format!("{lines}A"));
+    at.write("b", &format!("{lines}B"));
+    ts.ucmd()
+        .args(&["a", "b"])
+        .env("LC_ALL", "C")
+        .fails_with_code(1)
+        .stdout_only("a b differ: char 60001, line 30001\n");
+
+    at.write("a", &lines);
+    at.write("b", &format!("{lines}more"));
+    ts.ucmd()
+        .args(&["a", "b"])
+        .fails_with_code(1)
+        .stderr_str_check(|s| s.ends_with(" after byte 60000, line 30000\n"));
 }
 
 // LC_ALL overrides LC_MESSAGES, which overrides LANG; empty values are unset.
