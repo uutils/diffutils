@@ -57,3 +57,7 @@ harness = false
 feat_bench_not_cmp = []
 # Turn bench for diffutils diff off
 feat_bench_not_diff = []
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(codspeed)'] }
+
