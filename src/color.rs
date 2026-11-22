@@ -137,7 +137,7 @@ pub fn colorize(output: &[u8], format: Format, palette: &Palette) -> Vec<u8> {
                     LineKind::Plain
                 }
             }
-            Format::Ed | Format::SideBySide => LineKind::Plain,
+            Format::Ed | Format::SideBySide | Format::Ifdef => LineKind::Plain,
         };
         let sgr = match kind {
             LineKind::Plain => {
