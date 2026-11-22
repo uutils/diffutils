@@ -173,7 +173,8 @@ pub fn compare_files(params: &Params, header: Option<&[u8]>) -> Outcome {
             Some(header) => {
                 let mut output = Vec::new();
                 let result = side_diff::diff(&from_content, &to_content, &mut output, params);
-                if !result.is_empty() {
+                let differs = !result.is_empty();
+                if differs {
                     output.splice(0..0, header.iter().copied());
                 }
                 if stdout().write_all(&output).is_err() {
