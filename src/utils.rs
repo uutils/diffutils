@@ -380,7 +380,6 @@ pub fn is_posix_locale(category: &str) -> bool {
 /// A file that was `missing` and compared as empty is dated at the Unix Epoch.
 /// If an error occurs, it returns the current system time
 pub fn get_modification_time(file_path: &str, style: TimestampStyle, missing: bool) -> String {
-    use chrono::{DateTime, Local};
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -392,12 +391,13 @@ pub fn get_modification_time(file_path: &str, style: TimestampStyle, missing: bo
             .unwrap_or(SystemTime::now())
     };
 
-    let modification_time: DateTime<Local> = modification_time.into();
+    let zoned =
+        jiff::ZonedDateTime::try_from(modification_time).unwrap_or(jiff::ZonedDateTime::now());
     let format = match style {
-        TimestampStyle::Iso => "%Y-%m-%d %H:%M:%S%.9f %z",
+        TimestampStyle::Iso => "%Y-%m-%d %H:%M:%S.%9f %z",
         TimestampStyle::Traditional => "%a %b %e %H:%M:%S %Y",
     };
-    modification_time.format(format).to_string()
+    zoned.strftime(format).to_string()
 }
 
 pub fn format_failure_to_read_input_file(
@@ -684,7 +684,6 @@ mod tests {
 
         #[test]
         fn set_time() {
-            use chrono::{DateTime, Local};
             use std::time::SystemTime;
             use tempfile::NamedTempFile;
 
@@ -694,8 +693,8 @@ mod tests {
             let _ = temp.as_file().set_modified(current);
 
             // format current time
-            let current: DateTime<Local> = current.into();
-            let current: String = current.format("%Y-%m-%d %H:%M:%S%.9f %z").to_string();
+            let zoned = jiff::ZonedDateTime::try_from(current).unwrap();
+            let current: String = zoned.strftime("%Y-%m-%d %H:%M:%S.%9f %z").to_string();
 
             // verify
             assert_eq!(
@@ -706,7 +705,6 @@ mod tests {
 
         #[test]
         fn invalid_file() {
-            use chrono::{DateTime, Local};
             use std::time::SystemTime;
 
             let invalid_file = "target/utils/invalid-file";
@@ -714,11 +712,13 @@ mod tests {
             // store current time before calling `get_modification_time`
             // Because the file is invalid, it will return SystemTime::now()
             // which will be greater than previously saved time
-            let current_time: DateTime<Local> = SystemTime::now().into();
-            let m_time: DateTime<Local> =
-                get_modification_time(invalid_file, TimestampStyle::Iso, false)
-                    .parse()
-                    .unwrap();
+            let current_time = jiff::Timestamp::try_from(SystemTime::now()).unwrap();
+            let m_time: jiff::Timestamp = jiff::ZonedDateTime::strptime(
+                "%Y-%m-%d %H:%M:%S.%9f %z",
+                get_modification_time(invalid_file, TimestampStyle::Iso, false),
+            )
+            .unwrap()
+            .timestamp();
 
             assert!(m_time > current_time);
         }
