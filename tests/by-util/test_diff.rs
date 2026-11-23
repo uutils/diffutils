@@ -947,6 +947,43 @@ fn ed_format(#[case] old: &str, #[case] new: &str, #[case] expected: &str) {
 }
 
 #[test]
+fn largest_context_length_wins_issue_340() {
+    // The case from issue #340, GNU diff merges both changes into one hunk.
+    let (at, ts) = at_and_ts!();
+    at.write("old", "a\nb\nc\nd\ne\nf\ng\nh\n");
+    at.write("new", "a\nB\nc\nd\ne\nf\nG\nh\n");
+    ts.ucmd()
+        .args(&["-U1", "-u", "old", "new"])
+        .fails_with_code(1)
+        .stdout_contains("\n@@ -1,8 +1,8 @@\n");
+}
+
+// With one changed line in the middle, the hunk header shows how many lines
+// of context were used.
+#[rstest]
+#[case::unified_then_bare(&["-U1", "-u"], "\n@@ -7,7 +7,7 @@\n")]
+#[case::bare_then_unified(&["-u", "-U1"], "\n@@ -7,7 +7,7 @@\n")]
+#[case::larger_unified(&["-U5", "-u"], "\n@@ -5,11 +5,11 @@\n")]
+#[case::two_unified(&["-U2", "-U1"], "\n@@ -8,5 +8,5 @@\n")]
+#[case::long_unified(&["--unified=1", "--unified"], "\n@@ -7,7 +7,7 @@\n")]
+#[case::number_u(&["-5u"], "\n@@ -5,11 +5,11 @@\n")]
+#[case::context_then_bare(&["-C1", "-c"], "\n*** 7,13 ****\n")]
+#[case::long_context_then_bare(&["--context=1", "--context"], "\n*** 7,13 ****\n")]
+#[case::bare_then_long_context(&["--context", "--context=1"], "\n*** 7,13 ****\n")]
+#[case::number_c(&["-5c"], "\n*** 5,15 ****\n")]
+fn largest_context_length_wins(#[case] options: &[&str], #[case] header: &str) {
+    let (at, ts) = at_and_ts!();
+    let lines: String = (1..=20).map(|i| format!("{i}\n")).collect();
+    at.write("old", &lines);
+    at.write("new", &lines.replace("\n10\n", "\nX\n"));
+    ts.ucmd()
+        .args(options)
+        .args(&["old", "new"])
+        .fails_with_code(1)
+        .stdout_contains(header);
+}
+
+#[test]
 fn function_lines() {
     let (at, ts) = at_and_ts!();
     at.write(
