@@ -60,6 +60,7 @@ pub struct Params {
     /// Basic regular expressions matching the lines shown after hunk
     /// headers (`-F` and `-p`).
     pub function_line_patterns: Vec<Bre>,
+    pub ignore_matching_lines: Vec<Bre>,
     pub recursive: bool,
     /// The name from which to start comparing the top-level directories
     /// (`-S`).
@@ -109,6 +110,7 @@ impl Default for Params {
             palette: None,
             presume_output_tty: false,
             function_line_patterns: Vec::new(),
+            ignore_matching_lines: Vec::new(),
             recursive: false,
             starting_file: None,
             ignore_file_name_case: false,
@@ -249,6 +251,11 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
         if let Some(argument) = option_argument(&param, "-F", "--show-function-line") {
             let pattern = argument_value(argument, &param, &mut opts)?;
             push_function_line_pattern(&mut params, &pattern.to_string_lossy())?;
+            continue;
+        }
+        if let Some(argument) = option_argument(&param, "-I", "--ignore-matching-lines") {
+            let pattern = argument_value(argument, &param, &mut opts)?;
+            push_ignore_matching_line(&mut params, &pattern.to_string_lossy())?;
             continue;
         }
         if param == "--no-dereference" {
@@ -524,6 +531,13 @@ fn argument_value(
 fn push_function_line_pattern(params: &mut Params, pattern: &str) -> Result<(), String> {
     let bre = Bre::new(pattern).map_err(|error| format!("'{pattern}': {error}"))?;
     params.function_line_patterns.push(bre);
+    Ok(())
+}
+
+/// Validates and records an `-I` pattern.
+fn push_ignore_matching_line(params: &mut Params, pattern: &str) -> Result<(), String> {
+    let bre = Bre::new(pattern).map_err(|error| format!("'{pattern}': {error}"))?;
+    params.ignore_matching_lines.push(bre);
     Ok(())
 }
 
@@ -1465,6 +1479,57 @@ mod tests {
         assert_eq!(
             parse(&["-F", "oops\\"]),
             Err("'oops\\': Trailing backslash".to_string())
+        );
+    }
+
+    #[test]
+    fn ignore_matching_lines() {
+        let patterns = |patterns: &[&str]| -> Vec<Bre> {
+            patterns
+                .iter()
+                .map(|pattern| Bre::new(pattern).unwrap())
+                .collect()
+        };
+        let parse = |args: &[&str]| {
+            let args = std::iter::once("diff")
+                .chain(args.iter().copied())
+                .chain(["foo", "bar"]);
+            parse_params(args.map(os).peekable())
+        };
+
+        assert_eq!(
+            parse(&["-I", "3"]).unwrap().ignore_matching_lines,
+            patterns(&["3"])
+        );
+        assert_eq!(
+            parse(&["-I3"]).unwrap().ignore_matching_lines,
+            patterns(&["3"])
+        );
+        assert_eq!(
+            parse(&["--ignore-matching-lines", "3"])
+                .unwrap()
+                .ignore_matching_lines,
+            patterns(&["3"])
+        );
+        assert_eq!(
+            parse(&["--ignore-matching-lines=3"])
+                .unwrap()
+                .ignore_matching_lines,
+            patterns(&["3"])
+        );
+
+        // Repeatable.
+        assert_eq!(
+            parse(&["-Ix", "-I", "y", "--ignore-matching-lines=z"])
+                .unwrap()
+                .ignore_matching_lines,
+            patterns(&["x", "y", "z"])
+        );
+
+        // Invalid BRE is a usage error.
+        assert_eq!(
+            parse(&["-Ix", "-I\\"]),
+            Err("'\\': Trailing backslash".to_string())
         );
     }
 
