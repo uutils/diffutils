@@ -89,14 +89,11 @@ mod diffutils_diff {
 
     #[cfg(not(codspeed))]
     use crate::binary;
-    use crate::{prepare::*, FILE_SIZE_KILO_BYTES, MB};
+    use crate::{prepare::*, FILE_SIZE_KILO_BYTES};
     use diffutilslib::{normal_diff, params};
     use divan::Bencher;
 
-    // bench the actual diff comparison in-process on identical files
-    #[divan::bench(args = FILE_SIZE_KILO_BYTES)]
-    fn diff_compare_files_equal(bencher: Bencher, bytes: u64) {
-        let (from, to) = get_context().get_test_files_equal(bytes);
+    fn bench_diff(bencher: Bencher, from: &str, to: &str) {
         let from_content = std::fs::read(from).expect("Failed to read from file");
         let to_content = std::fs::read(to).expect("Failed to read to file");
         let cmd = format!("diff {from} {to}");
@@ -108,19 +105,18 @@ mod diffutils_diff {
             .bench_refs(|(from, to, params)| black_box(normal_diff::diff(from, to, params)));
     }
 
+    // bench the actual diff comparison in-process on identical files
+    #[divan::bench(args = FILE_SIZE_KILO_BYTES)]
+    fn diff_compare_files_equal(bencher: Bencher, bytes: u64) {
+        let (from, to) = get_context().get_test_files_equal(bytes);
+        bench_diff(bencher, from, to);
+    }
+
     // bench the actual diff comparison in-process on differing files
     #[divan::bench(args = FILE_SIZE_KILO_BYTES)]
     fn diff_compare_files_different(bencher: Bencher, bytes: u64) {
         let (from, to) = get_context().get_test_files_different(bytes);
-        let from_content = std::fs::read(from).expect("Failed to read from file");
-        let to_content = std::fs::read(to).expect("Failed to read to file");
-        let cmd = format!("diff {from} {to}");
-        let opts = str_to_options(&cmd).into_iter().peekable();
-        let (params, _) = params::parse_params(opts).unwrap();
-
-        bencher
-            .with_inputs(|| (&from_content, &to_content, &params))
-            .bench_refs(|(from, to, params)| black_box(normal_diff::diff(from, to, params)));
+        bench_diff(bencher, from, to);
     }
 
     // bench original GNU diff
