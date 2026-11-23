@@ -237,11 +237,6 @@ pub fn compare_files(params: &Params, header: Option<&[u8]>) -> Outcome {
             return Outcome::Trouble;
         }
     }
-    let differs = if params.format == Format::Ifdef {
-        ifdef_differs
-    } else {
-        !result.is_empty()
-    };
     if !differs {
         maybe_report_identical_files();
         Outcome::Identical

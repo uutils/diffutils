@@ -32,9 +32,6 @@ fn flush_hunk(
     expand_tabs: bool,
     tabsize: usize,
 ) -> bool {
-    if current_expected.is_empty() && current_actual.is_empty() {
-        return false;
-    }
     match (!current_expected.is_empty(), !current_actual.is_empty()) {
         (true, false) => {
             write_directive(output, b"#ifndef ", ifdef_name, None);
@@ -53,7 +50,7 @@ fn flush_hunk(
             write_lines(output, current_actual, expand_tabs, tabsize);
             write_directive(output, b"#endif /* ", ifdef_name, Some(b" */"));
         }
-        (false, false) => unreachable!(),
+        (false, false) => return false,
     }
     current_expected.clear();
     current_actual.clear();
