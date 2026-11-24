@@ -736,570 +736,182 @@ fn report_difference(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
+
     fn os(s: &str) -> OsString {
         OsString::from(s)
     }
 
-    #[test]
-    fn help() {
-        for args in [
-            vec!["cmp", "--help"],
-            vec!["cmp", "foo", "--help"],
-            vec!["cmp", "--help", "--invalid"],
-            vec!["cmp", "-l", "-s", "--help"],
-        ] {
-            let params = parse_params(args.into_iter().map(os).peekable()).unwrap();
-            assert!(params.help);
-            assert_eq!(params.executable, os("cmp"));
+    fn parse(args: &[&str]) -> Result<Params, String> {
+        parse_params(
+            std::iter::once("cmp")
+                .chain(args.iter().copied())
+                .map(os)
+                .peekable(),
+        )
+    }
+
+    fn foo_bar() -> Params {
+        Params {
+            executable: os("cmp"),
+            from: os("foo"),
+            to: os("bar"),
+            ..Default::default()
         }
     }
 
-    #[test]
-    fn count_newlines_across_chunks() {
-        assert_eq!(count_newlines(b""), 0);
-        assert_eq!(count_newlines(b"no newline"), 0);
-        // more than one 255-byte chunk of nothing but newlines
-        assert_eq!(count_newlines(&[b'\n'; 1000]), 1000);
-        assert_eq!(count_newlines(&b"ab\ncd\n".repeat(300)), 600);
+    #[rstest]
+    #[case::alone(&["--help"])]
+    #[case::with_operand(&["foo", "--help"])]
+    #[case::before_invalid(&["--help", "--invalid"])]
+    #[case::incompatible_options(&["-l", "-s", "--help"])]
+    fn help(#[case] args: &[&str]) {
+        let params = parse(args).unwrap();
+        assert!(params.help);
+        assert_eq!(params.executable, os("cmp"));
+    }
+
+    #[rstest]
+    #[case::empty(b"".to_vec(), 0)]
+    #[case::no_newline(b"no newline".to_vec(), 0)]
+    // more than one 255-byte chunk of nothing but newlines
+    #[case::only_newlines(vec![b'\n'; 1000], 1000)]
+    #[case::mixed(b"ab\ncd\n".repeat(300), 600)]
+    fn count_newlines_across_chunks(#[case] input: Vec<u8>, #[case] expected: u64) {
+        assert_eq!(count_newlines(&input), expected);
+    }
+
+    #[rstest]
+    #[case::positional_two_operands(&["foo", "bar"], foo_bar())]
+    #[case::positional_default_to_stdin(&["foo"], Params { to: os("-"), ..foo_bar() })]
+    #[case::positional_double_dash(&["foo", "--", "--help"], Params { to: os("--help"), ..foo_bar() })]
+    #[case::positional_skip_a(&["foo", "bar", "1"], Params { skip_a: Some(1), skip_b: None, ..foo_bar() })]
+    #[case::positional_skip_both(
+        &["foo", "bar", "1", "2Y"],
+        Params { skip_a: Some(1), skip_b: Some(SkipU64::MAX), ..foo_bar() },
+    )]
+    #[case::print_bytes_short(&["-b", "foo", "bar"], Params { print_bytes: true, ..foo_bar() })]
+    #[case::print_bytes_long(&["--print-bytes", "foo", "bar"], Params { print_bytes: true, ..foo_bar() })]
+    #[case::verbose_short(&["-l", "foo", "bar"], Params { verbose: true, ..foo_bar() })]
+    #[case::verbose_long(&["--verbose", "foo", "bar"], Params { verbose: true, ..foo_bar() })]
+    #[case::verbose_print_bytes_separate(
+        &["-l", "-b", "foo", "bar"],
+        Params { print_bytes: true, verbose: true, ..foo_bar() },
+    )]
+    #[case::verbose_print_bytes_lb(
+        &["-lb", "foo", "bar"],
+        Params { print_bytes: true, verbose: true, ..foo_bar() },
+    )]
+    #[case::verbose_print_bytes_bl(
+        &["-bl", "foo", "bar"],
+        Params { print_bytes: true, verbose: true, ..foo_bar() },
+    )]
+    #[case::quiet(&["-s", "foo", "bar"], Params { quiet: true, ..foo_bar() })]
+    #[case::max_bytes_short(&["-n", "1", "foo", "bar"], Params { max_bytes: Some(1), ..foo_bar() })]
+    #[case::max_bytes_long(&["--bytes=1", "foo", "bar"], Params { max_bytes: Some(1), ..foo_bar() })]
+    #[case::max_bytes_overflow(
+        &["--bytes=99999999999999999999999999999999999999999999999999999999999", "foo", "bar"],
+        Params { max_bytes: Some(BytesLimitU64::MAX), ..foo_bar() },
+    )]
+    // Same unit suffixes as --ignore-initial
+    #[case::max_bytes_kibi(&["-n", "1K", "foo", "bar"], Params { max_bytes: Some(1_024), ..foo_bar() })]
+    #[case::max_bytes_kilo(&["--bytes=1kB", "foo", "bar"], Params { max_bytes: Some(1_000), ..foo_bar() })]
+    #[case::max_bytes_mebi(&["--bytes=2M", "foo", "bar"], Params { max_bytes: Some(2_097_152), ..foo_bar() })]
+    #[case::skip_short(&["-i", "1", "foo", "bar"], Params { skip_a: Some(1), skip_b: Some(1), ..foo_bar() })]
+    #[case::skip_long(
+        &["--ignore-initial=1", "foo", "bar"],
+        Params { skip_a: Some(1), skip_b: Some(1), ..foo_bar() },
+    )]
+    #[case::skip_overflow(
+        &["-i", "99999999999999999999999999999999999999999999999999999999999", "foo", "bar"],
+        Params { skip_a: Some(SkipU64::MAX), skip_b: Some(SkipU64::MAX), ..foo_bar() },
+    )]
+    #[case::skip_pair(
+        &["--ignore-initial=1:2", "foo", "bar"],
+        Params { skip_a: Some(1), skip_b: Some(2), ..foo_bar() },
+    )]
+    // Uses the larger of the -i value and the positional skip, like GNU.
+    #[case::skip_larger_positional(
+        &["-i", "5:2", "foo", "bar", "3", "4"],
+        Params { skip_a: Some(5), skip_b: Some(4), ..foo_bar() },
+    )]
+    #[case::skip_larger_positional_after_double_dash(
+        &["-i", "1", "--", "foo", "bar", "6"],
+        Params { skip_a: Some(6), skip_b: Some(1), ..foo_bar() },
+    )]
+    // Also the larger value when -i is given more than once.
+    #[case::skip_larger_repeated(
+        &["-i", "1", "--ignore-initial=2:0", "foo", "bar"],
+        Params { skip_a: Some(2), skip_b: Some(1), ..foo_bar() },
+    )]
+    fn valid(#[case] args: &[&str], #[case] expected: Params) {
+        assert_eq!(parse(args), Ok(expected));
     }
 
     #[test]
-    fn positional() {
+    fn skip_suffix_pair() {
         assert_eq!(
             Ok(Params {
-                executable: os("cmp"),
-                from: os("foo"),
-                to: os("bar"),
-                ..Default::default()
-            }),
-            parse_params([os("cmp"), os("foo"), os("bar")].iter().cloned().peekable())
-        );
-
-        assert_eq!(
-            Ok(Params {
-                executable: os("cmp"),
-                from: os("foo"),
-                to: os("-"),
-                ..Default::default()
-            }),
-            parse_params([os("cmp"), os("foo")].iter().cloned().peekable())
-        );
-
-        assert_eq!(
-            Ok(Params {
-                executable: os("cmp"),
-                from: os("foo"),
-                to: os("--help"),
-                ..Default::default()
-            }),
-            parse_params(
-                [os("cmp"), os("foo"), os("--"), os("--help")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-
-        assert_eq!(
-            Ok(Params {
-                executable: os("cmp"),
-                from: os("foo"),
-                to: os("bar"),
-                skip_a: Some(1),
-                skip_b: None,
-                ..Default::default()
-            }),
-            parse_params(
-                [os("cmp"), os("foo"), os("bar"), os("1")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-
-        assert_eq!(
-            Ok(Params {
-                executable: os("cmp"),
-                from: os("foo"),
-                to: os("bar"),
-                skip_a: Some(1),
-                skip_b: Some(SkipU64::MAX),
-                ..Default::default()
-            }),
-            parse_params(
-                [os("cmp"), os("foo"), os("bar"), os("1"), os("2Y")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-
-        // Bad positional arguments.
-        assert_eq!(
-            Err("Usage: cmp <from> <to>".to_string()),
-            parse_params(
-                [os("cmp"), os("foo"), os("bar"), os("1"), os("2"), os("3")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-        assert_eq!(
-            Err("Usage: cmp <from> <to>".to_string()),
-            parse_params([os("cmp")].iter().cloned().peekable())
-        );
-    }
-
-    #[test]
-    fn execution_modes() {
-        let print_bytes = Params {
-            executable: os("cmp"),
-            from: os("foo"),
-            to: os("bar"),
-            print_bytes: true,
-            ..Default::default()
-        };
-        assert_eq!(
-            Ok(print_bytes.clone()),
-            parse_params(
-                [os("cmp"), os("-b"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-        assert_eq!(
-            Ok(print_bytes),
-            parse_params(
-                [os("cmp"), os("--print-bytes"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-
-        let verbose = Params {
-            executable: os("cmp"),
-            from: os("foo"),
-            to: os("bar"),
-            verbose: true,
-            ..Default::default()
-        };
-        assert_eq!(
-            Ok(verbose.clone()),
-            parse_params(
-                [os("cmp"), os("-l"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-        assert_eq!(
-            Ok(verbose),
-            parse_params(
-                [os("cmp"), os("--verbose"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-
-        let verbose_and_print_bytes = Params {
-            executable: os("cmp"),
-            from: os("foo"),
-            to: os("bar"),
-            print_bytes: true,
-            verbose: true,
-            ..Default::default()
-        };
-        assert_eq!(
-            Ok(verbose_and_print_bytes.clone()),
-            parse_params(
-                [os("cmp"), os("-l"), os("-b"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-        assert_eq!(
-            Ok(verbose_and_print_bytes.clone()),
-            parse_params(
-                [os("cmp"), os("-lb"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-        assert_eq!(
-            Ok(verbose_and_print_bytes),
-            parse_params(
-                [os("cmp"), os("-bl"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-
-        assert_eq!(
-            Ok(Params {
-                executable: os("cmp"),
-                from: os("foo"),
-                to: os("bar"),
-                quiet: true,
-                ..Default::default()
-            }),
-            parse_params(
-                [os("cmp"), os("-s"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-
-        // Some options do not mix.
-        assert_eq!(
-            Err("cmp: options -l and -s are incompatible".to_string()),
-            parse_params(
-                [os("cmp"), os("-l"), os("-s"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-    }
-
-    #[test]
-    fn max_bytes() {
-        let max_bytes = Params {
-            executable: os("cmp"),
-            from: os("foo"),
-            to: os("bar"),
-            max_bytes: Some(1),
-            ..Default::default()
-        };
-        assert_eq!(
-            Ok(max_bytes.clone()),
-            parse_params(
-                [os("cmp"), os("-n"), os("1"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-        assert_eq!(
-            Ok(max_bytes),
-            parse_params(
-                [os("cmp"), os("--bytes=1"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-
-        assert_eq!(
-            Ok(Params {
-                executable: os("cmp"),
-                from: os("foo"),
-                to: os("bar"),
-                max_bytes: Some(BytesLimitU64::MAX),
-                ..Default::default()
-            }),
-            parse_params(
-                [
-                    os("cmp"),
-                    os("--bytes=99999999999999999999999999999999999999999999999999999999999"),
-                    os("foo"),
-                    os("bar")
-                ]
-                .iter()
-                .cloned()
-                .peekable()
-            )
-        );
-
-        // Same unit suffixes as --ignore-initial
-        for (args, bytes) in [
-            (&["-n", "1K"][..], 1_024),
-            (&["--bytes=1kB"][..], 1_000),
-            (&["--bytes=2M"][..], 2_097_152),
-        ] {
-            let mut opts = vec![os("cmp")];
-            opts.extend(args.iter().map(|arg| os(arg)));
-            opts.extend([os("foo"), os("bar")]);
-            assert_eq!(
-                Ok(Params {
-                    executable: os("cmp"),
-                    from: os("foo"),
-                    to: os("bar"),
-                    max_bytes: Some(bytes),
-                    ..Default::default()
-                }),
-                parse_params(opts.into_iter().peekable()),
-                "{args:?}"
-            );
-        }
-
-        // Failure case
-        assert_eq!(
-            Err("cmp: invalid --bytes value '1x'".to_string()),
-            parse_params(
-                [os("cmp"), os("--bytes=1x"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-    }
-
-    #[test]
-    fn skips() {
-        let skips = Params {
-            executable: os("cmp"),
-            from: os("foo"),
-            to: os("bar"),
-            skip_a: Some(1),
-            skip_b: Some(1),
-            ..Default::default()
-        };
-        assert_eq!(
-            Ok(skips.clone()),
-            parse_params(
-                [os("cmp"), os("-i"), os("1"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-        assert_eq!(
-            Ok(skips),
-            parse_params(
-                [os("cmp"), os("--ignore-initial=1"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-
-        assert_eq!(
-            Ok(Params {
-                executable: os("cmp"),
-                from: os("foo"),
-                to: os("bar"),
-                skip_a: Some(SkipU64::MAX),
-                skip_b: Some(SkipU64::MAX),
-                ..Default::default()
-            }),
-            parse_params(
-                [
-                    os("cmp"),
-                    os("-i"),
-                    os("99999999999999999999999999999999999999999999999999999999999"),
-                    os("foo"),
-                    os("bar")
-                ]
-                .iter()
-                .cloned()
-                .peekable()
-            )
-        );
-
-        assert_eq!(
-            Ok(Params {
-                executable: os("cmp"),
-                from: os("foo"),
-                to: os("bar"),
-                skip_a: Some(1),
-                skip_b: Some(2),
-                ..Default::default()
-            }),
-            parse_params(
-                [os("cmp"), os("--ignore-initial=1:2"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-
-        assert_eq!(
-            Ok(Params {
-                executable: os("cmp"),
-                from: os("foo"),
-                to: os("bar"),
                 skip_a: Some(1_000_000_000),
                 #[cfg(target_pointer_width = "32")]
                 skip_b: Some((2_147_483_647.5 * 2.0) as usize),
                 #[cfg(target_pointer_width = "64")]
                 skip_b: Some(1_152_921_504_606_846_976 * 2),
-                ..Default::default()
+                ..foo_bar()
             }),
-            parse_params(
-                [
-                    os("cmp"),
-                    os("--ignore-initial=1GB:2E"),
-                    os("foo"),
-                    os("bar")
-                ]
-                .iter()
-                .cloned()
-                .peekable()
-            )
+            parse(&["--ignore-initial=1GB:2E", "foo", "bar"])
         );
+    }
 
-        // All special suffixes.
-        for (i, suffixes) in [
-            ["kB", "K"],
-            ["MB", "M"],
-            ["GB", "G"],
-            ["TB", "T"],
-            ["PB", "P"],
-            ["EB", "E"],
-            ["ZB", "Z"],
-            ["YB", "Y"],
-        ]
-        .iter()
-        .enumerate()
-        {
-            let values = [
-                (1_000 as SkipU64)
-                    .checked_pow((i + 1) as u32)
-                    .unwrap_or(SkipU64::MAX),
-                (1024 as SkipU64)
-                    .checked_pow((i + 1) as u32)
-                    .unwrap_or(SkipU64::MAX),
-            ];
-            for (j, v) in values.iter().enumerate() {
-                assert_eq!(
-                    Ok(Params {
-                        executable: os("cmp"),
-                        from: os("foo"),
-                        to: os("bar"),
-                        skip_a: Some(*v),
-                        skip_b: Some(2),
-                        ..Default::default()
-                    }),
-                    parse_params(
-                        [
-                            os("cmp"),
-                            os("-i"),
-                            os(&format!("1{}:2", suffixes[j])),
-                            os("foo"),
-                            os("bar"),
-                        ]
-                        .iter()
-                        .cloned()
-                        .peekable()
-                    )
-                );
-            }
-        }
-
-        // Uses the larger of the -i value and the positional skip, like GNU.
+    // All special suffixes.
+    #[rstest]
+    #[case::kilo("kB", 1_000, 1)]
+    #[case::kibi("K", 1_024, 1)]
+    #[case::mega("MB", 1_000, 2)]
+    #[case::mebi("M", 1_024, 2)]
+    #[case::giga("GB", 1_000, 3)]
+    #[case::gibi("G", 1_024, 3)]
+    #[case::tera("TB", 1_000, 4)]
+    #[case::tebi("T", 1_024, 4)]
+    #[case::peta("PB", 1_000, 5)]
+    #[case::pebi("P", 1_024, 5)]
+    #[case::exa("EB", 1_000, 6)]
+    #[case::exbi("E", 1_024, 6)]
+    #[case::zetta("ZB", 1_000, 7)]
+    #[case::zebi("Z", 1_024, 7)]
+    #[case::yotta("YB", 1_000, 8)]
+    #[case::yobi("Y", 1_024, 8)]
+    fn skip_suffixes(#[case] suffix: &str, #[case] base: SkipU64, #[case] exponent: u32) {
+        let skip = format!("1{suffix}:2");
         assert_eq!(
             Ok(Params {
-                executable: os("cmp"),
-                from: os("foo"),
-                to: os("bar"),
-                skip_a: Some(5),
-                skip_b: Some(4),
-                ..Default::default()
+                skip_a: Some(base.checked_pow(exponent).unwrap_or(SkipU64::MAX)),
+                skip_b: Some(2),
+                ..foo_bar()
             }),
-            parse_params(
-                [
-                    os("cmp"),
-                    os("-i"),
-                    os("5:2"),
-                    os("foo"),
-                    os("bar"),
-                    os("3"),
-                    os("4")
-                ]
-                .iter()
-                .cloned()
-                .peekable()
-            )
+            parse(&["-i", &skip, "foo", "bar"])
         );
-        assert_eq!(
-            Ok(Params {
-                executable: os("cmp"),
-                from: os("foo"),
-                to: os("bar"),
-                skip_a: Some(6),
-                skip_b: Some(1),
-                ..Default::default()
-            }),
-            parse_params(
-                [
-                    os("cmp"),
-                    os("-i"),
-                    os("1"),
-                    os("--"),
-                    os("foo"),
-                    os("bar"),
-                    os("6")
-                ]
-                .iter()
-                .cloned()
-                .peekable()
-            )
-        );
+    }
 
-        // Also the larger value when -i is given more than once.
-        assert_eq!(
-            Ok(Params {
-                executable: os("cmp"),
-                from: os("foo"),
-                to: os("bar"),
-                skip_a: Some(2),
-                skip_b: Some(1),
-                ..Default::default()
-            }),
-            parse_params(
-                [
-                    os("cmp"),
-                    os("-i"),
-                    os("1"),
-                    os("--ignore-initial=2:0"),
-                    os("foo"),
-                    os("bar")
-                ]
-                .iter()
-                .cloned()
-                .peekable()
-            )
-        );
-
-        // Failure cases
-        assert_eq!(
-            Err("cmp: invalid --ignore-initial value '1mb'".to_string()),
-            parse_params(
-                [os("cmp"), os("--ignore-initial=1mb"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-        assert_eq!(
-            Err("cmp: invalid --ignore-initial value '1:2:3'".to_string()),
-            parse_params(
-                [
-                    os("cmp"),
-                    os("--ignore-initial=1:2:3"),
-                    os("foo"),
-                    os("bar")
-                ]
-                .iter()
-                .cloned()
-                .peekable()
-            )
-        );
-        assert_eq!(
-            Err("cmp: invalid --ignore-initial value '-1'".to_string()),
-            parse_params(
-                [os("cmp"), os("--ignore-initial=-1"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
+    #[rstest]
+    #[case::too_many_operands(&["foo", "bar", "1", "2", "3"], "Usage: cmp <from> <to>")]
+    #[case::no_operand(&[], "Usage: cmp <from> <to>")]
+    // Some options do not mix.
+    #[case::verbose_and_quiet(&["-l", "-s", "foo", "bar"], "cmp: options -l and -s are incompatible")]
+    #[case::invalid_bytes(&["--bytes=1x", "foo", "bar"], "cmp: invalid --bytes value '1x'")]
+    #[case::invalid_skip_suffix(
+        &["--ignore-initial=1mb", "foo", "bar"],
+        "cmp: invalid --ignore-initial value '1mb'",
+    )]
+    #[case::invalid_skip_triple(
+        &["--ignore-initial=1:2:3", "foo", "bar"],
+        "cmp: invalid --ignore-initial value '1:2:3'",
+    )]
+    #[case::invalid_skip_negative(
+        &["--ignore-initial=-1", "foo", "bar"],
+        "cmp: invalid --ignore-initial value '-1'",
+    )]
+    fn invalid(#[case] args: &[&str], #[case] error: &str) {
+        assert_eq!(parse(args), Err(error.to_string()));
     }
 }
