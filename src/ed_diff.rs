@@ -157,6 +157,7 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+    use rstest::rstest;
 
     use crate::utils::testcmds::ED_CMD;
 
@@ -166,19 +167,11 @@ mod tests {
         output
     }
 
-    #[test]
-    fn test_basic() {
-        let from = b"a\n";
-        let to = b"b\n";
-        let diff = diff(from, to, &Params::default());
-        let expected = ["1c", "b", ".", ""].join("\n");
-        assert_eq!(diff, expected.as_bytes());
-    }
-
-    #[test]
-    fn test_single_line_deleted() {
-        let diff = diff(b"a\nb\n", b"a\n", &Params::default());
-        assert_eq!(diff, b"2d\n");
+    #[rstest]
+    #[case::changed_line(b"a\n", b"b\n", b"1c\nb\n.\n")]
+    #[case::single_line_deleted(b"a\nb\n", b"a\n", b"2d\n")]
+    fn test_basic(#[case] from: &[u8], #[case] to: &[u8], #[case] expected: &[u8]) {
+        assert_eq!(diff(from, to, &Params::default()), expected);
     }
 
     #[test]
@@ -415,37 +408,19 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_stop_early() {
-        let from = ["a", "b", "c", ""].join("\n");
-        let to = ["a", "d", "c", ""].join("\n");
-
-        let diff_full = diff(from.as_bytes(), to.as_bytes(), &Params::default());
-        let expected_full = ["2c", "d", ".", ""].join("\n");
-        assert_eq!(diff_full, expected_full.as_bytes());
-
-        let diff_brief = diff(
-            from.as_bytes(),
-            to.as_bytes(),
-            &Params {
-                brief: true,
-                ..Default::default()
-            },
+    #[rstest]
+    #[case::full(false, "a\nd\nc\n", "2c\nd\n.\n")]
+    #[case::brief(true, "a\nd\nc\n", "\0")]
+    #[case::full_identical(false, "a\nb\nc\n", "")]
+    #[case::brief_identical(true, "a\nb\nc\n", "")]
+    fn test_stop_early(#[case] brief: bool, #[case] to: &str, #[case] expected: &str) {
+        let params = Params {
+            brief,
+            ..Default::default()
+        };
+        assert_eq!(
+            diff(b"a\nb\nc\n", to.as_bytes(), &params),
+            expected.as_bytes()
         );
-        let expected_brief = "\0".as_bytes();
-        assert_eq!(diff_brief, expected_brief);
-
-        let nodiff_full = diff(from.as_bytes(), from.as_bytes(), &Params::default());
-        assert!(nodiff_full.is_empty());
-
-        let nodiff_brief = diff(
-            from.as_bytes(),
-            from.as_bytes(),
-            &Params {
-                brief: true,
-                ..Default::default()
-            },
-        );
-        assert!(nodiff_brief.is_empty());
     }
 }

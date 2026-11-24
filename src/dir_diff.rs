@@ -435,69 +435,64 @@ fn file_kind(metadata: &Metadata) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
-    #[test]
-    fn entries_are_paired_by_name() {
-        let names =
-            |names: &[&str]| -> Vec<OsString> { names.iter().map(OsString::from).collect() };
-        let (from, to) = (names(&["b", "d", "e", "x"]), names(&["a", "d", "x", "z"]));
-        let entries = pair_entries(&from, &to, |a, b| a.cmp(b));
-        let name = OsStr::new;
-        assert_eq!(
-            entries,
-            [
-                Entry::ToOnly(name("a")),
-                Entry::FromOnly(name("b")),
-                Entry::Both(name("d"), name("d")),
-                Entry::FromOnly(name("e")),
-                Entry::Both(name("x"), name("x")),
-                Entry::ToOnly(name("z")),
-            ]
-        );
-        assert_eq!(pair_entries(&[], &[], |a, b| a.cmp(b)), []);
+    fn names(names: &[&str]) -> Vec<OsString> {
+        names.iter().map(OsString::from).collect()
     }
 
-    #[test]
-    fn names_equal_by_order_pair_exact_matches_first() {
-        let names =
-            |names: &[&str]| -> Vec<OsString> { names.iter().map(OsString::from).collect() };
-        let ignoring_case = |a: &OsStr, b: &OsStr| {
-            let lowercase = |name: &OsStr| name.as_encoded_bytes().to_ascii_lowercase();
-            lowercase(a).cmp(&lowercase(b))
-        };
-        let name = OsStr::new;
+    fn ignoring_case(a: &OsStr, b: &OsStr) -> Ordering {
+        let lowercase = |name: &OsStr| name.as_encoded_bytes().to_ascii_lowercase();
+        lowercase(a).cmp(&lowercase(b))
+    }
 
-        let (from, to) = (names(&["f", "x"]), names(&["F", "f", "y"]));
-        assert_eq!(
-            pair_entries(&from, &to, ignoring_case),
-            [
-                Entry::Both(name("f"), name("f")),
-                Entry::ToOnly(name("F")),
-                Entry::FromOnly(name("x")),
-                Entry::ToOnly(name("y")),
-            ]
-        );
+    /// Pairs the names and writes each entry as `from=to`, `-from` or `+to`.
+    fn paired(
+        from: &[&str],
+        to: &[&str],
+        order: impl Fn(&OsStr, &OsStr) -> Ordering,
+    ) -> Vec<String> {
+        let (from, to) = (names(from), names(to));
+        pair_entries(&from, &to, order)
+            .into_iter()
+            .map(|entry| match entry {
+                Entry::Both(a, b) => format!("{}={}", a.display(), b.display()),
+                Entry::FromOnly(a) => format!("-{}", a.display()),
+                Entry::ToOnly(b) => format!("+{}", b.display()),
+            })
+            .collect()
+    }
 
-        // What has no exact match pairs in order; the rest is unpaired, and
-        // comes after the pairs.
-        let (from, to) = (names(&["Ab", "aB"]), names(&["AB", "aB", "ab"]));
-        assert_eq!(
-            pair_entries(&from, &to, ignoring_case),
-            [
-                Entry::Both(name("Ab"), name("AB")),
-                Entry::Both(name("aB"), name("aB")),
-                Entry::ToOnly(name("ab")),
-            ]
-        );
-        let (from, to) = (names(&["AB", "Ab", "aB", "ab"]), names(&["ab"]));
-        assert_eq!(
-            pair_entries(&from, &to, ignoring_case),
-            [
-                Entry::Both(name("ab"), name("ab")),
-                Entry::FromOnly(name("AB")),
-                Entry::FromOnly(name("Ab")),
-                Entry::FromOnly(name("aB")),
-            ]
-        );
+    #[rstest]
+    #[case::interleaved(
+        &["b", "d", "e", "x"],
+        &["a", "d", "x", "z"],
+        &["+a", "-b", "d=d", "-e", "x=x", "+z"]
+    )]
+    #[case::empty(&[], &[], &[])]
+    fn entries_are_paired_by_name(
+        #[case] from: &[&str],
+        #[case] to: &[&str],
+        #[case] expected: &[&str],
+    ) {
+        assert_eq!(paired(from, to, |a, b| a.cmp(b)), expected);
+    }
+
+    #[rstest]
+    #[case::exact_match_first(&["f", "x"], &["F", "f", "y"], &["f=f", "+F", "-x", "+y"])]
+    // What has no exact match pairs in order; the rest is unpaired, and
+    // comes after the pairs.
+    #[case::unpaired_after_pairs(&["Ab", "aB"], &["AB", "aB", "ab"], &["Ab=AB", "aB=aB", "+ab"])]
+    #[case::unpaired_from_side(
+        &["AB", "Ab", "aB", "ab"],
+        &["ab"],
+        &["ab=ab", "-AB", "-Ab", "-aB"]
+    )]
+    fn names_equal_by_order_pair_exact_matches_first(
+        #[case] from: &[&str],
+        #[case] to: &[&str],
+        #[case] expected: &[&str],
+    ) {
+        assert_eq!(paired(from, to, ignoring_case), expected);
     }
 }
