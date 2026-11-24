@@ -1009,7 +1009,7 @@ fn function_lines() {
     ts.ucmd()
         .args(&["-u", "-F", "\\(", "old.c", "new.c"])
         .fails_with_code(2)
-        .stderr_is("'\\(': Unmatched ( or \\(\n");
+        .stderr_is("diff: '\\(': Unmatched ( or \\(\n");
 }
 
 // A function line is cut at 40 bytes, even inside a multi-byte character.
@@ -1335,4 +1335,31 @@ fn ignore_tab_expansion_with_differing_files() {
         .args(&["-E", "-u", "d1", "d2"])
         .fails_with_code(1)
         .stdout_contains(" header\t1\n-old line\n+new line\n footer\t2\n");
+}
+
+// Errors while parsing options are prefixed with the utility name like GNU
+// and add the "Try --help" line; other command-line errors get only the
+// prefix.
+#[test]
+fn usage_errors_have_program_prefix() {
+    let (at, ts) = at_and_ts!();
+    at.write("file", "x\n");
+
+    ts.ucmd()
+        .args(&["--bogus", "file", "file"])
+        .fails_with_code(2)
+        .stderr_is(
+            "diff: unrecognized option '--bogus'\ndiff: Try 'diff --help' for more information.\n",
+        );
+    ts.ucmd()
+        .args(&["-c", "-u", "file", "file"])
+        .fails_with_code(2)
+        .stderr_is(
+            "diff: conflicting output style options\ndiff: Try 'diff --help' for more information.\n",
+        );
+
+    ts.ucmd()
+        .args(&["-F", "\\", "file", "file"])
+        .fails_with_code(2)
+        .stderr_is("diff: '\\': Trailing backslash\n");
 }
