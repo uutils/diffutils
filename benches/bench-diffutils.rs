@@ -89,7 +89,7 @@ mod diffutils_diff {
 
     #[cfg(not(codspeed))]
     use crate::binary;
-    use crate::{prepare::*, FILE_SIZE_KILO_BYTES};
+    use crate::{prepare::*, FILE_SIZE_KILO_BYTES, MB};
     use diffutilslib::{normal_diff, params};
     use divan::Bencher;
 
@@ -113,7 +113,10 @@ mod diffutils_diff {
     }
 
     // bench the actual diff comparison in-process on differing files
-    #[divan::bench(args = FILE_SIZE_KILO_BYTES)]
+    // limiting to 100 KB and 1 MB because the current diff engine allocates O(N*M)
+    // memory on differing files, which causes OOM on 10MB/25MB in CodSpeed CI.
+    // this must be changed back once https://github.com/uutils/diffutils/issues/401 is resolved
+    #[divan::bench(args = [100, MB])]
     fn diff_compare_files_different(bencher: Bencher, bytes: u64) {
         let (from, to) = get_context().get_test_files_different(bytes);
         bench_diff(bencher, from, to);
