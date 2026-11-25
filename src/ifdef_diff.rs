@@ -10,7 +10,7 @@ use crate::utils::do_write_line;
 
 fn write_lines(output: &mut Vec<u8>, lines: &[&[u8]], expand_tabs: bool, tabsize: usize) {
     for &line in lines {
-        do_write_line(output, line, expand_tabs, tabsize, b"").unwrap();
+        do_write_line(output, line, expand_tabs, tabsize, b"").expect("write to Vec is infallible");
         output.push(b'\n');
     }
 }
@@ -116,7 +116,7 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> (Vec<u8>, bool) 
                         differs = true;
                     }
                     do_write_line(&mut output, line1, params.expand_tabs, params.tabsize, b"")
-                        .unwrap();
+                        .expect("write to Vec is infallible");
                     output.push(b'\n');
                 }
                 line_number_expected += 1;
