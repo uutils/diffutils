@@ -678,6 +678,8 @@ mod tests {
             let mut output: Vec<u8> = Vec::new();
             assert!(do_write_line(&mut output, line.as_bytes(), expand_tabs, 8, b"").is_ok());
             assert_eq!(output, expected.as_bytes());
+        }
+
         #[test]
         fn blank_lines() {
             assert!(is_blank_line(b""));

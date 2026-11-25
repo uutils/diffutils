@@ -351,25 +351,26 @@ pub fn diff<T: Write>(
     More studies are needed to cover GNU diff side by side with 100% accuracy, which is one of
     the goals of this project : )
     */
-    let mut differs = false;
     for result in diff::slice(&left_lines, &right_lines) {
         match result {
             Result::Left(left_ln) => {
-                let is_blank = params.ignore_blank_lines
-                    && is_blank_line(left_ln.raw.strip_suffix(b"\n").unwrap_or(left_ln.raw));
-                if !is_blank {
-                    differs = true;
-                }
-                let symbol = if is_blank { b'(' } else { b'<' };
+                let symbol = if params.ignore_blank_lines
+                    && is_blank_line(left_ln.raw.strip_suffix(b"\n").unwrap_or(left_ln.raw))
+                {
+                    b'('
+                } else {
+                    b'<'
+                };
                 push_output(left_ln.raw, b"", symbol, output, &config).unwrap();
             }
             Result::Right(right_ln) => {
-                let is_blank = params.ignore_blank_lines
-                    && is_blank_line(right_ln.raw.strip_suffix(b"\n").unwrap_or(right_ln.raw));
-                if !is_blank {
-                    differs = true;
-                }
-                let symbol = if is_blank { b')' } else { b'>' };
+                let symbol = if params.ignore_blank_lines
+                    && is_blank_line(right_ln.raw.strip_suffix(b"\n").unwrap_or(right_ln.raw))
+                {
+                    b')'
+                } else {
+                    b'>'
+                };
                 push_output(b"", right_ln.raw, symbol, output, &config).unwrap();
             }
             Result::Both(left_ln, right_ln) => {
@@ -378,11 +379,7 @@ pub fn diff<T: Write>(
         }
     }
 
-    if differs {
-        vec![1]
-    } else {
-        vec![]
-    }
+    vec![]
 }
 
 #[cfg(test)]
