@@ -426,6 +426,7 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+    use rstest::rstest;
 
     use crate::utils::testcmds::PATCH_CMD;
 
@@ -901,78 +902,49 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_stop_early() {
+    #[rstest]
+    #[case::full(
+        false,
+        "a\nd\nc\n",
+        "--- foo\tTIMESTAMP\n+++ bar\tTIMESTAMP\n@@ -1,3 +1,3 @@\n a\n-b\n+d\n c\n"
+    )]
+    #[case::brief(true, "a\nd\nc\n", "--- foo\tTIMESTAMP\n+++ bar\tTIMESTAMP\n")]
+    #[case::full_identical(false, "a\nb\nc\n", "")]
+    #[case::brief_identical(true, "a\nb\nc\n", "")]
+    fn test_stop_early(#[case] brief: bool, #[case] to: &str, #[case] expected: &str) {
         use crate::assert_diff_eq;
 
-        let from_filename = "foo";
-        let from = ["a", "b", "c", ""].join("\n");
-        let to_filename = "bar";
-        let to = ["a", "d", "c", ""].join("\n");
-
-        let diff_full = diff(
-            from.as_bytes(),
-            to.as_bytes(),
-            &Params {
-                from: from_filename.into(),
-                to: to_filename.into(),
-                ..Default::default()
-            },
-        );
-
-        let expected_full = [
-            "--- foo\tTIMESTAMP",
-            "+++ bar\tTIMESTAMP",
-            "@@ -1,3 +1,3 @@",
-            " a",
-            "-b",
-            "+d",
-            " c",
-            "",
-        ]
-        .join("\n");
-        assert_diff_eq!(diff_full, expected_full);
-
-        let diff_brief = diff(
-            from.as_bytes(),
-            to.as_bytes(),
-            &Params {
-                from: from_filename.into(),
-                to: to_filename.into(),
-                brief: true,
-                ..Default::default()
-            },
-        );
-
-        let expected_brief = ["--- foo\tTIMESTAMP", "+++ bar\tTIMESTAMP", ""].join("\n");
-        assert_diff_eq!(diff_brief, expected_brief);
-
-        let nodiff_full = diff(
-            from.as_bytes(),
-            from.as_bytes(),
-            &Params {
-                from: from_filename.into(),
-                to: to_filename.into(),
-                ..Default::default()
-            },
-        );
-        assert!(nodiff_full.is_empty());
-
-        let nodiff_brief = diff(
-            from.as_bytes(),
-            from.as_bytes(),
-            &Params {
-                from: from_filename.into(),
-                to: to_filename.into(),
-                brief: true,
-                ..Default::default()
-            },
-        );
-        assert!(nodiff_brief.is_empty());
+        let params = Params {
+            from: "foo".into(),
+            to: "bar".into(),
+            brief,
+            ..Default::default()
+        };
+        let output = diff(b"a\nb\nc\n", to.as_bytes(), &params);
+        assert_diff_eq!(output, expected);
     }
 
-    #[test]
-    fn test_hunk_merging() {
+    #[rstest]
+    // Changes separated by up to twice the context size share one hunk.
+    #[case::changes_share_hunk(
+        "a\nb\nc\nd\ne\nf\n",
+        "a\nB\nc\nd\nE\nf\n",
+        "@@ -1,6 +1,6 @@\n a\n-b\n+B\n c\n d\n-e\n+E\n f\n"
+    )]
+    // One more unchanged line between them splits the hunk.
+    #[case::changes_split_hunks(
+        "a\nb\nc\nd\ne\nf\ng\n",
+        "a\nB\nc\nd\ne\nF\ng\n",
+        "@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n@@ -5,3 +5,3 @@\n e\n-f\n+F\n g\n"
+    )]
+    // An insertion before a nearby change gives the two sides different
+    // line counts; the hunks must still be merged (issue #268).
+    #[case::insertion_before_change(
+        "milk\neggs\nbread\nbutter\napples\n",
+        "milk\neggs\nyogurt\nbread\nhoney\napples\n",
+        "@@ -2,4 +2,5 @@\n eggs\n+yogurt\n bread\n-butter\n+honey\n apples\n"
+    )]
+    fn test_hunk_merging(#[case] from: &str, #[case] to: &str, #[case] hunks: &str) {
         use crate::assert_diff_eq;
 
         let params = Params {
@@ -981,67 +953,7 @@ mod tests {
             context_count: 1,
             ..Default::default()
         };
-
-        // Changes separated by up to twice the context size share one hunk.
-        let from = ["a", "b", "c", "d", "e", "f", ""].join("\n");
-        let to = ["a", "B", "c", "d", "E", "f", ""].join("\n");
-        let expected = [
-            "--- foo\tTIMESTAMP",
-            "+++ bar\tTIMESTAMP",
-            "@@ -1,6 +1,6 @@",
-            " a",
-            "-b",
-            "+B",
-            " c",
-            " d",
-            "-e",
-            "+E",
-            " f",
-            "",
-        ]
-        .join("\n");
-        let output = diff(from.as_bytes(), to.as_bytes(), &params);
-        assert_diff_eq!(output, expected);
-
-        // One more unchanged line between them splits the hunk.
-        let from = ["a", "b", "c", "d", "e", "f", "g", ""].join("\n");
-        let to = ["a", "B", "c", "d", "e", "F", "g", ""].join("\n");
-        let expected = [
-            "--- foo\tTIMESTAMP",
-            "+++ bar\tTIMESTAMP",
-            "@@ -1,3 +1,3 @@",
-            " a",
-            "-b",
-            "+B",
-            " c",
-            "@@ -5,3 +5,3 @@",
-            " e",
-            "-f",
-            "+F",
-            " g",
-            "",
-        ]
-        .join("\n");
-        let output = diff(from.as_bytes(), to.as_bytes(), &params);
-        assert_diff_eq!(output, expected);
-
-        // An insertion before a nearby change gives the two sides different
-        // line counts; the hunks must still be merged (issue #268).
-        let from = ["milk", "eggs", "bread", "butter", "apples", ""].join("\n");
-        let to = ["milk", "eggs", "yogurt", "bread", "honey", "apples", ""].join("\n");
-        let expected = [
-            "--- foo\tTIMESTAMP",
-            "+++ bar\tTIMESTAMP",
-            "@@ -2,4 +2,5 @@",
-            " eggs",
-            "+yogurt",
-            " bread",
-            "-butter",
-            "+honey",
-            " apples",
-            "",
-        ]
-        .join("\n");
+        let expected = format!("--- foo\tTIMESTAMP\n+++ bar\tTIMESTAMP\n{hunks}");
         let output = diff(from.as_bytes(), to.as_bytes(), &params);
         assert_diff_eq!(output, expected);
     }

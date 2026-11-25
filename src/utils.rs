@@ -527,68 +527,52 @@ mod tests {
     mod expand_tabs {
         use super::*;
         use pretty_assertions::assert_eq;
+        use rstest::rstest;
 
-        fn expand(line: &[u8], tabsize: usize, marker: &[u8]) -> Vec<u8> {
+        #[rstest]
+        #[case::no_tabs(b"foo barr   baz", 8, b"", b"foo barr   baz")]
+        #[case::tabsize_8(b"foo\tbarr\tbaz", 8, b"", b"foo     barr    baz")]
+        #[case::tabsize_5(b"foo\tbarr\tbaz", 5, b"", b"foo  barr baz")]
+        #[case::tabsize_2(b"foo\tbarr\tbaz", 2, b"", b"foo barr  baz")]
+        #[case::multibyte_chars("foo\tépée\tbaz".as_bytes(), 8, b"", "foo     épée    baz".as_bytes())]
+        #[case::emoji("foo\t😉\tbaz".as_bytes(), 5, b"", "foo  😉   baz".as_bytes())]
+        // Note: The Woman Scientist emoji (👩‍🔬) is a ZWJ sequence combining
+        // the Woman emoji (👩) and the Microscope emoji (🔬). On supported platforms
+        // it is displayed as a single emoji and has a print size of 2 columns.
+        // Terminal emulators tend to not support this, and display the two emojis
+        // side by side, thus accounting for a print size of 4 columns, but the
+        // unicode_width crate reports a correct size of 2.
+        #[case::zwj_sequence("foo\t👩‍🔬\tbaz".as_bytes(), 6, b"", "foo   👩‍🔬    baz".as_bytes())]
+        // [240, 240, 152, 137] is an invalid UTF-8 sequence, so it is handled as 4 bytes
+        #[case::invalid_utf8(
+            &[240, 240, 152, 137, 9, 102, 111, 111],
+            8,
+            b"",
+            &[240, 240, 152, 137, 32, 32, 32, 32, 102, 111, 111]
+        )]
+        // Only the invalid byte counts as a column, not the whole chunk.
+        #[case::invalid_byte_before_valid_char(b"\xff\xc3\xa9\tx", 4, b"< ", b"\xff\xc3\xa9  x")]
+        // A carriage return restarts the line behind the marker again.
+        #[case::carriage_return(b"ab\rc\td", 8, b"< ", b"ab\r< c       d")]
+        #[case::two_carriage_returns(b"ab\r\r\tc", 4, b"< ", b"ab\r< \r<     c")]
+        #[case::trailing_carriage_return(b"ab\r", 8, b"< ", b"ab\r")]
+        #[case::carriage_return_then_tab(b"x\r\ty\r", 4, b"< ", b"x\r<     y\r")]
+        // A backspace moves one column back, but not before the start.
+        #[case::backspace(b"abc\x08d\te", 8, b"< ", b"abc\x08d     e")]
+        #[case::backspaces_at_start(b"\x08\x08x\ty", 8, b"< ", b"x       y")]
+        #[case::backspace_at_start(b"\x08x", 8, b"< ", b"x")]
+        // Other control characters, C1 ones included, take no room.
+        #[case::control_chars(b"a\x01\x7f\x1bb\tc", 8, b"< ", b"a\x01\x7f\x1bb      c")]
+        #[case::c1_control_char("a\u{80}b\tc".as_bytes(), 4, b"< ", "a\u{80}b  c".as_bytes())]
+        fn expansion(
+            #[case] line: &[u8],
+            #[case] tabsize: usize,
+            #[case] marker: &[u8],
+            #[case] expected: &[u8],
+        ) {
             let mut output = Vec::new();
             assert!(do_expand_tabs(&mut output, line, tabsize, marker).is_ok());
-            output
-        }
-
-        fn assert_tab_expansion(line: &str, tabsize: usize, expected: &str) {
-            assert_eq!(expand(line.as_bytes(), tabsize, b""), expected.as_bytes());
-        }
-
-        #[test]
-        fn basics() {
-            assert_tab_expansion("foo barr   baz", 8, "foo barr   baz");
-            assert_tab_expansion("foo\tbarr\tbaz", 8, "foo     barr    baz");
-            assert_tab_expansion("foo\tbarr\tbaz", 5, "foo  barr baz");
-            assert_tab_expansion("foo\tbarr\tbaz", 2, "foo barr  baz");
-        }
-
-        #[test]
-        fn multibyte_chars() {
-            assert_tab_expansion("foo\tépée\tbaz", 8, "foo     épée    baz");
-            assert_tab_expansion("foo\t😉\tbaz", 5, "foo  😉   baz");
-
-            // Note: The Woman Scientist emoji (👩‍🔬) is a ZWJ sequence combining
-            // the Woman emoji (👩) and the Microscope emoji (🔬). On supported platforms
-            // it is displayed as a single emoji and has a print size of 2 columns.
-            // Terminal emulators tend to not support this, and display the two emojis
-            // side by side, thus accounting for a print size of 4 columns, but the
-            // unicode_width crate reports a correct size of 2.
-            assert_tab_expansion("foo\t👩‍🔬\tbaz", 6, "foo   👩‍🔬    baz");
-        }
-
-        #[test]
-        fn invalid_utf8() {
-            // [240, 240, 152, 137] is an invalid UTF-8 sequence, so it is handled as 4 bytes
-            assert_eq!(
-                expand(&[240, 240, 152, 137, 9, 102, 111, 111], 8, b""),
-                &[240, 240, 152, 137, 32, 32, 32, 32, 102, 111, 111]
-            );
-            // Only the invalid byte counts as a column, not the whole chunk.
-            assert_tab_expansion_bytes(b"\xff\xc3\xa9\tx", 4, b"\xff\xc3\xa9  x");
-        }
-
-        fn assert_tab_expansion_bytes(line: &[u8], tabsize: usize, expected: &[u8]) {
-            assert_eq!(expand(line, tabsize, b"< "), expected);
-        }
-
-        #[test]
-        fn control_chars() {
-            // A carriage return restarts the line behind the marker again.
-            assert_tab_expansion_bytes(b"ab\rc\td", 8, b"ab\r< c       d");
-            assert_tab_expansion_bytes(b"ab\r\r\tc", 4, b"ab\r< \r<     c");
-            assert_tab_expansion_bytes(b"ab\r", 8, b"ab\r");
-            assert_tab_expansion_bytes(b"x\r\ty\r", 4, b"x\r<     y\r");
-            // A backspace moves one column back, but not before the start.
-            assert_tab_expansion_bytes(b"abc\x08d\te", 8, b"abc\x08d     e");
-            assert_tab_expansion_bytes(b"\x08\x08x\ty", 8, b"x       y");
-            assert_tab_expansion_bytes(b"\x08x", 8, b"x");
-            // Other control characters, C1 ones included, take no room.
-            assert_tab_expansion_bytes(b"a\x01\x7f\x1bb\tc", 8, b"a\x01\x7f\x1bb      c");
-            assert_tab_expansion_bytes("a\u{80}b\tc".as_bytes(), 4, "a\u{80}b  c".as_bytes());
+            assert_eq!(output, expected);
         }
 
         #[test]
@@ -609,73 +593,73 @@ mod tests {
     mod quoting {
         use super::*;
         use pretty_assertions::assert_eq;
+        use rstest::rstest;
 
-        fn quoted_name(name: &[u8]) -> String {
-            String::from_utf8(quote_file_name(name).into_owned()).unwrap()
-        }
-
-        fn quoted_arg(arg: &str) -> String {
-            String::from_utf8(quote_shell_argument(arg.as_bytes()).into_owned()).unwrap()
+        #[rstest]
+        #[case::plain(b"src/main.rs", "src/main.rs")]
+        #[case::shell_specials(b"why?*$'#~", "why?*$'#~")]
+        #[case::space(b"two words", r#""two words""#)]
+        #[case::double_quotes(b"say \"hi\"", r#""say \"hi\"""#)]
+        #[case::control_escapes(b"\x07\x08\t\n\x0b\x0c\r", r#""\a\b\t\n\v\f\r""#)]
+        #[case::octal_escape(b"\x1bx\x7f", "\"\\033x\x7f\"")]
+        #[case::non_ascii("caf\u{e9}".as_bytes(), r#""caf\303\251""#)]
+        #[case::invalid_utf8(b"\xfe", r#""\376""#)]
+        fn file_names(#[case] name: &[u8], #[case] expected: &str) {
+            assert_eq!(quoted_name(name), expected);
         }
 
         #[test]
-        fn file_names() {
-            assert_eq!(quoted_name(b"src/main.rs"), "src/main.rs");
-            assert_eq!(quoted_name(b"why?*$'#~"), "why?*$'#~");
-            assert_eq!(quoted_name(b"two words"), r#""two words""#);
-            assert_eq!(quoted_name(b"say \"hi\""), r#""say \"hi\"""#);
+        fn file_names_with_backslashes() {
             if cfg!(windows) {
                 assert_eq!(quoted_name(b"C:\\temp"), r"C:\temp");
                 assert_eq!(quoted_name(b"C:\\my docs"), r#""C:\my docs""#);
             } else {
                 assert_eq!(quoted_name(b"C:\\temp"), r#""C:\\temp""#);
             }
-            assert_eq!(
-                quoted_name(b"\x07\x08\t\n\x0b\x0c\r"),
-                r#""\a\b\t\n\v\f\r""#
-            );
-            assert_eq!(quoted_name(b"\x1bx\x7f"), "\"\\033x\x7f\"");
-            assert_eq!(quoted_name("caf\u{e9}".as_bytes()), r#""caf\303\251""#);
-            assert_eq!(quoted_name(b"\xfe"), r#""\376""#);
         }
 
-        #[test]
-        fn shell_arguments() {
-            assert_eq!(quoted_arg("-u"), "-u");
-            assert_eq!(quoted_arg("a,b:c@d%e+f{g}h]/i.j"), "a,b:c@d%e+f{g}h]/i.j");
-            assert_eq!(quoted_arg("x~#"), "x~#");
-            assert_eq!(quoted_arg("~x"), "'~x'");
-            assert_eq!(quoted_arg("#x"), "'#x'");
-            assert_eq!(quoted_arg("^fn (main|init)"), "'^fn (main|init)'");
-            assert_eq!(quoted_arg("--width=9"), "'--width=9'");
-            assert_eq!(quoted_arg(""), "''");
-            assert_eq!(quoted_arg("don't"), "\"don't\"");
-            assert_eq!(quoted_arg("don't $pay"), "'don'\\''t $pay'");
+        fn quoted_name(name: &[u8]) -> String {
+            String::from_utf8(quote_file_name(name).into_owned()).unwrap()
         }
 
-        #[test]
-        fn single_quotes() {
-            assert_eq!(single_quote(b"plain"), b"'plain'");
-            assert_eq!(single_quote(b"it's"), br"'it'\''s'");
-            assert_eq!(single_quote(b""), b"''");
+        #[rstest]
+        #[case::option("-u", "-u")]
+        #[case::safe_punctuation("a,b:c@d%e+f{g}h]/i.j", "a,b:c@d%e+f{g}h]/i.j")]
+        #[case::tilde_and_hash_inside("x~#", "x~#")]
+        #[case::leading_tilde("~x", "'~x'")]
+        #[case::leading_hash("#x", "'#x'")]
+        #[case::regex("^fn (main|init)", "'^fn (main|init)'")]
+        #[case::equals_sign("--width=9", "'--width=9'")]
+        #[case::empty("", "''")]
+        #[case::single_quote("don't", "\"don't\"")]
+        #[case::single_quote_and_dollar("don't $pay", "'don'\\''t $pay'")]
+        fn shell_arguments(#[case] arg: &str, #[case] expected: &str) {
+            let quoted = String::from_utf8(quote_shell_argument(arg.as_bytes()).into_owned());
+            assert_eq!(quoted.unwrap(), expected);
+        }
+
+        #[rstest]
+        #[case::plain(b"plain", b"'plain'")]
+        #[case::single_quote(b"it's", br"'it'\''s'")]
+        #[case::empty(b"", b"''")]
+        fn single_quotes(#[case] text: &[u8], #[case] expected: &[u8]) {
+            assert_eq!(single_quote(text), expected);
         }
     }
 
     mod write_line {
         use super::*;
         use pretty_assertions::assert_eq;
+        use rstest::rstest;
 
-        fn assert_line_written(line: &str, expand_tabs: bool, tabsize: usize, expected: &str) {
+        #[rstest]
+        #[case::no_tabs("foo bar baz", false, "foo bar baz")]
+        #[case::tab_kept("foo bar\tbaz", false, "foo bar\tbaz")]
+        #[case::tab_expanded("foo bar\tbaz", true, "foo bar baz")]
+        fn basics(#[case] line: &str, #[case] expand_tabs: bool, #[case] expected: &str) {
             let mut output: Vec<u8> = Vec::new();
-            assert!(do_write_line(&mut output, line.as_bytes(), expand_tabs, tabsize, b"").is_ok());
+            assert!(do_write_line(&mut output, line.as_bytes(), expand_tabs, 8, b"").is_ok());
             assert_eq!(output, expected.as_bytes());
-        }
-
-        #[test]
-        fn basics() {
-            assert_line_written("foo bar baz", false, 8, "foo bar baz");
-            assert_line_written("foo bar\tbaz", false, 8, "foo bar\tbaz");
-            assert_line_written("foo bar\tbaz", true, 8, "foo bar baz");
         }
     }
 
