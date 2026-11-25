@@ -262,19 +262,54 @@ fn translate_bracket(
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+    use rstest::rstest;
 
-    fn matches(pattern: &str, text: &str) -> bool {
-        Bre::new(pattern).unwrap().is_match(text.as_bytes())
-    }
-
-    #[test]
-    fn groups_and_alternatives() {
-        assert!(matches(r"^ *\(sub\|fn\) ", "  fn main"));
-        assert!(matches(r"^ *\(sub\|fn\) ", "sub x"));
-        assert!(!matches(r"^ *\(sub\|fn\) ", "  let x"));
-        // Unescaped operators of extended expressions are ordinary characters.
-        assert!(matches(r"f(x)|y+?", "f(x)|y+?"));
-        assert!(!matches(r"f(x)|y+?", "fx"));
+    #[rstest]
+    // Groups and alternatives.
+    #[case::alternative_first(r"^ *\(sub\|fn\) ", "  fn main", true)]
+    #[case::alternative_second(r"^ *\(sub\|fn\) ", "sub x", true)]
+    #[case::alternative_none(r"^ *\(sub\|fn\) ", "  let x", false)]
+    // Unescaped operators of extended expressions are ordinary characters.
+    #[case::ere_operators_are_literal(r"f(x)|y+?", "f(x)|y+?", true)]
+    #[case::ere_operators_do_not_group(r"f(x)|y+?", "fx", false)]
+    // Intervals and repetitions.
+    #[case::interval(r"^ab\{2,3\}c$", "abbc", true)]
+    #[case::interval_too_few(r"^ab\{2,3\}c$", "abc", false)]
+    #[case::one_or_more(r"^x\+$", "xxx", true)]
+    #[case::zero_or_one(r"^y\?z$", "z", true)]
+    // `*` with nothing to repeat is literal.
+    #[case::leading_star(r"*q", "a*q", true)]
+    #[case::star_after_anchor(r"^*q", "*q", true)]
+    #[case::star_after_group_start(r"\(*\)", "*", true)]
+    #[case::star_repeats(r"to*k", "tk", true)]
+    // Anchors only at the ends.
+    #[case::caret_in_middle(r"a^b", "a^b", true)]
+    #[case::dollar_in_middle(r"a$b", "a$b", true)]
+    #[case::dollar_at_end(r"end$", "the end", true)]
+    #[case::dollar_at_end_no_match(r"end$", "endless", false)]
+    #[case::anchors_in_alternatives(r"\(x$\|^y\)", "yes", true)]
+    // Bracket expressions.
+    #[case::class_with_dollar(r"^[[:alpha:]$_]", "$var", true)]
+    #[case::class_with_underscore(r"^[[:alpha:]$_]", "_x", true)]
+    #[case::class_no_match(r"^[[:alpha:]$_]", " x", false)]
+    #[case::leading_bracket(r"[]x]", "]", true)]
+    #[case::negated_leading_bracket(r"[^]x]", "y", true)]
+    #[case::backslash_in_bracket(r"[a\]", "\\", true)]
+    #[case::range(r"[a-c]", "b", true)]
+    #[case::trailing_dash(r"[a-]", "-", true)]
+    #[case::doubled_set_operators(r"[&&~~[]", "[", true)]
+    // Operators with nothing to repeat are literal.
+    #[case::leading_interval(r"\{3\}", "{3}", true)]
+    #[case::plus_after_group_start(r"\(\+x\)", "+x", true)]
+    #[case::interval_without_min(r"q\{,2\}r", "r", true)]
+    #[case::interval_without_max(r"^q\{2,\}$", "qqqq", true)]
+    #[case::collating_symbol(r"[[.-.][=k=]]", "-", true)]
+    #[case::equivalence_class(r"[[.-.][=k=]]", "k", true)]
+    fn matches(#[case] pattern: &str, #[case] text: &str, #[case] expected: bool) {
+        assert_eq!(
+            Bre::new(pattern).unwrap().is_match(text.as_bytes()),
+            expected
+        );
     }
 
     // Only is_match() is used and back references are rejected, so a group
@@ -287,74 +322,22 @@ mod tests {
         assert!(!bre.is_match(b"abd"));
     }
 
-    #[test]
-    fn intervals_and_repetitions() {
-        assert!(matches(r"^ab\{2,3\}c$", "abbc"));
-        assert!(!matches(r"^ab\{2,3\}c$", "abc"));
-        assert!(matches(r"^x\+$", "xxx"));
-        assert!(matches(r"^y\?z$", "z"));
-        // `*` with nothing to repeat is literal.
-        assert!(matches(r"*q", "a*q"));
-        assert!(matches(r"^*q", "*q"));
-        assert!(matches(r"\(*\)", "*"));
-        assert!(matches(r"to*k", "tk"));
-    }
-
-    #[test]
-    fn anchors_only_at_the_ends() {
-        assert!(matches(r"a^b", "a^b"));
-        assert!(matches(r"a$b", "a$b"));
-        assert!(matches(r"end$", "the end"));
-        assert!(!matches(r"end$", "endless"));
-        assert!(matches(r"\(x$\|^y\)", "yes"));
-    }
-
-    #[test]
-    fn bracket_expressions() {
-        assert!(matches(r"^[[:alpha:]$_]", "$var"));
-        assert!(matches(r"^[[:alpha:]$_]", "_x"));
-        assert!(!matches(r"^[[:alpha:]$_]", " x"));
-        assert!(matches(r"[]x]", "]"));
-        assert!(matches(r"[^]x]", "y"));
-        assert!(matches(r"[a\]", "\\"));
-        assert!(matches(r"[a-c]", "b"));
-        assert!(matches(r"[a-]", "-"));
-        assert!(matches(r"[&&~~[]", "["));
-    }
-
-    #[test]
-    fn errors() {
-        for (pattern, message) in [
-            ("ab\\", "Trailing backslash"),
-            ("[ab", "Unmatched [, [^, [:, [., or [="),
-            ("[[:alpha:]", "Unmatched [, [^, [:, [., or [="),
-            (r"\(a\)\1", "Invalid back reference"),
-            (r"x\(y", r"Unmatched ( or \("),
-            (r"x\)y", r"Unmatched ) or \)"),
-            (r"k\{4", r"Unmatched \{"),
-            (r"k\{\}", r"Invalid content of \{\}"),
-            (r"k\{2,z\}", r"Invalid content of \{\}"),
-            (r"k\{5,2\}", r"Invalid content of \{\}"),
-            (r"k\{40000\}", "Regular expression too big"),
-            ("[[:vowel:]]", "Invalid character class name"),
-            ("[[.ab.]]", "Invalid collation character"),
-            ("[m-c]", "Invalid range end"),
-        ] {
-            assert_eq!(
-                Bre::new(pattern).err().as_deref(),
-                Some(message),
-                "{pattern}"
-            );
-        }
-    }
-
-    #[test]
-    fn literal_operators_with_nothing_to_repeat() {
-        assert!(matches(r"\{3\}", "{3}"));
-        assert!(matches(r"\(\+x\)", "+x"));
-        assert!(matches(r"q\{,2\}r", "r"));
-        assert!(matches(r"^q\{2,\}$", "qqqq"));
-        assert!(matches(r"[[.-.][=k=]]", "-"));
-        assert!(matches(r"[[.-.][=k=]]", "k"));
+    #[rstest]
+    #[case::trailing_backslash("ab\\", "Trailing backslash")]
+    #[case::unmatched_bracket("[ab", "Unmatched [, [^, [:, [., or [=")]
+    #[case::unmatched_class_bracket("[[:alpha:]", "Unmatched [, [^, [:, [., or [=")]
+    #[case::back_reference(r"\(a\)\1", "Invalid back reference")]
+    #[case::unmatched_open_group(r"x\(y", r"Unmatched ( or \(")]
+    #[case::unmatched_close_group(r"x\)y", r"Unmatched ) or \)")]
+    #[case::unmatched_interval(r"k\{4", r"Unmatched \{")]
+    #[case::empty_interval(r"k\{\}", r"Invalid content of \{\}")]
+    #[case::non_numeric_interval(r"k\{2,z\}", r"Invalid content of \{\}")]
+    #[case::reversed_interval(r"k\{5,2\}", r"Invalid content of \{\}")]
+    #[case::huge_interval(r"k\{40000\}", "Regular expression too big")]
+    #[case::unknown_class("[[:vowel:]]", "Invalid character class name")]
+    #[case::multi_char_collation("[[.ab.]]", "Invalid collation character")]
+    #[case::reversed_range("[m-c]", "Invalid range end")]
+    fn errors(#[case] pattern: &str, #[case] message: &str) {
+        assert_eq!(Bre::new(pattern).err().as_deref(), Some(message));
     }
 }

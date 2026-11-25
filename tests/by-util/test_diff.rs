@@ -60,15 +60,46 @@ fn differences_brief(#[values(&[][..], &["-u"], &["-c"], &["-e"])] format: &[&st
         .stdout_is("Files file1 and file2 differ\n");
 }
 
-#[test]
-fn missing_newline() {
+// An ed script cannot say that a newline is missing, so `-e` writes the
+// script anyway, treating the last line as if it had its newline, then warns
+// about each file that lacks one (#332).
+#[rstest]
+#[case::both("foo", "bar", "1c\nbar\n.\n", "file1 file2")]
+#[case::from("a\nb", "a\nc\n", "2c\nc\n.\n", "file1")]
+#[case::to("a\nb\n", "a\nc", "2c\nc\n.\n", "file2")]
+#[case::only_the_newline("a\n", "a", "", "file2")]
+#[case::same_content("a\nb", "a\nb", "", "file1 file2")]
+#[case::from_empty("", "a\nb", "0a\na\nb\n.\n", "file2")]
+fn missing_newline_ed(
+    #[case] from: &str,
+    #[case] to: &str,
+    #[case] script: &str,
+    #[case] warned: &str,
+) {
     let (at, ts) = at_and_ts!();
-    at.write("file1", "foo");
-    at.write("file2", "bar");
+    at.write("file1", from);
+    at.write("file2", to);
+    let warnings: String = warned
+        .split(' ')
+        .map(|name| format!("diff: {name}: No newline at end of file\n\n"))
+        .collect();
     ts.ucmd()
         .args(&["-e", "file1", "file2"])
         .fails_with_code(2)
-        .stderr_str_check(|s| s.starts_with("No newline at end of file"));
+        .stdout_is(script)
+        .stderr_is(warnings);
+}
+
+#[test]
+fn missing_newline_ed_brief() {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", "a\nb");
+    at.write("file2", "a\nc\n");
+    ts.ucmd()
+        .args(&["-e", "-q", "file1", "file2"])
+        .fails_with_code(2)
+        .stdout_is("Files file1 and file2 differ\n")
+        .stderr_is("diff: file1: No newline at end of file\n\n");
 }
 
 #[test]
@@ -916,6 +947,43 @@ fn ed_format(#[case] old: &str, #[case] new: &str, #[case] expected: &str) {
 }
 
 #[test]
+fn largest_context_length_wins_issue_340() {
+    // The case from issue #340, GNU diff merges both changes into one hunk.
+    let (at, ts) = at_and_ts!();
+    at.write("old", "a\nb\nc\nd\ne\nf\ng\nh\n");
+    at.write("new", "a\nB\nc\nd\ne\nf\nG\nh\n");
+    ts.ucmd()
+        .args(&["-U1", "-u", "old", "new"])
+        .fails_with_code(1)
+        .stdout_contains("\n@@ -1,8 +1,8 @@\n");
+}
+
+// With one changed line in the middle, the hunk header shows how many lines
+// of context were used.
+#[rstest]
+#[case::unified_then_bare(&["-U1", "-u"], "\n@@ -7,7 +7,7 @@\n")]
+#[case::bare_then_unified(&["-u", "-U1"], "\n@@ -7,7 +7,7 @@\n")]
+#[case::larger_unified(&["-U5", "-u"], "\n@@ -5,11 +5,11 @@\n")]
+#[case::two_unified(&["-U2", "-U1"], "\n@@ -8,5 +8,5 @@\n")]
+#[case::long_unified(&["--unified=1", "--unified"], "\n@@ -7,7 +7,7 @@\n")]
+#[case::number_u(&["-5u"], "\n@@ -5,11 +5,11 @@\n")]
+#[case::context_then_bare(&["-C1", "-c"], "\n*** 7,13 ****\n")]
+#[case::long_context_then_bare(&["--context=1", "--context"], "\n*** 7,13 ****\n")]
+#[case::bare_then_long_context(&["--context", "--context=1"], "\n*** 7,13 ****\n")]
+#[case::number_c(&["-5c"], "\n*** 5,15 ****\n")]
+fn largest_context_length_wins(#[case] options: &[&str], #[case] header: &str) {
+    let (at, ts) = at_and_ts!();
+    let lines: String = (1..=20).map(|i| format!("{i}\n")).collect();
+    at.write("old", &lines);
+    at.write("new", &lines.replace("\n10\n", "\nX\n"));
+    ts.ucmd()
+        .args(options)
+        .args(&["old", "new"])
+        .fails_with_code(1)
+        .stdout_contains(header);
+}
+
+#[test]
 fn function_lines() {
     let (at, ts) = at_and_ts!();
     at.write(
@@ -1201,6 +1269,51 @@ fn ignore_case_context_lines() {
         .args(&["-i", "-c", "c1", "c2"])
         .fails_with_code(1)
         .stdout_contains("  COMMON LINE\n! diff1\n--- 1,2 ----\n  common line\n! diff2\n");
+}
+
+#[test]
+fn width_option_forms() {
+    let (at, ts) = at_and_ts!();
+    at.write("w1", "x\n");
+    at.write("w2", "y\n");
+    for args in [
+        &["-W", "20"][..],
+        &["-W20"],
+        &["--width", "20"],
+        &["--width=20"],
+    ] {
+        ts.ucmd()
+            .arg("-y")
+            .args(args)
+            .args(&["w1", "w2"])
+            .succeeds()
+            .stderr_is("")
+            // Note: GNU diff side-by-side format prints changed lines side-by-side
+            // (e.g. "x     |\ty\n", see #396), while uutils side_diff currently emits
+            // diffs with '<' and '>'. We pin current behavior here.
+            .stdout_is("x     <\n      >\ty\n");
+    }
+    ts.ucmd()
+        .args(&["--tabsize", "4", "w1", "w2"])
+        .fails_with_code(1);
+}
+
+#[rstest]
+#[case::width_missing(&["file1", "file2", "-W"], "option '-W' requires an argument")]
+#[case::width_long_missing(&["file1", "file2", "--width"], "option '--width' requires an argument")]
+#[case::tabsize_missing(&["file1", "file2", "--tabsize"], "option '--tabsize' requires an argument")]
+#[case::width_invalid_zero(&["-y", "-W", "0", "file1", "file2"], "invalid width «0»")]
+#[case::width_invalid_text(&["-y", "--width", "abc", "file1", "file2"], "invalid width «abc»")]
+#[case::tabsize_invalid_zero(&["--tabsize", "0", "file1", "file2"], "invalid tabsize «0»")]
+#[case::tabsize_invalid_text(&["--tabsize", "foo", "file1", "file2"], "invalid tabsize «foo»")]
+fn width_and_tabsize_errors(#[case] args: &[&str], #[case] error: &str) {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", "foo\n");
+    at.write("file2", "bar\n");
+    ts.ucmd()
+        .args(args)
+        .fails_with_code(2)
+        .stderr_contains(error);
 }
 
 #[test]

@@ -8,6 +8,18 @@ use rstest::rstest;
 use std::fs::OpenOptions;
 use uutests::{at_and_ts, new_ucmd};
 
+#[rstest]
+#[case::alone(&["--help"])]
+#[case::missing_file(&["foo", "--help"])]
+#[case::stop_parsing(&["--help", "--invalid"])]
+#[case::incompatible_options(&["-l", "-s", "--help"])]
+fn cmp_help(#[case] args: &[&str]) {
+    new_ucmd!()
+        .args(args)
+        .succeeds()
+        .stdout_only("Usage: cmp <from> <to>\n");
+}
+
 // A file whose metadata length is 0 but which still yields bytes (/dev/zero)
 // collapses the offset column to two characters, so the padding subtraction
 // underflowed once the running offset reached three digits.
@@ -36,6 +48,56 @@ fn cmp_verbose_offset_width_after_skip() {
         .fails_with_code(1)
         .stdout_str_check(|s| s.starts_with("1 162 161\n2 163 162\n"))
         .stderr_str_check(|s| s.ends_with(" after byte 9\n"));
+}
+
+// With stdin on one side, the -l offset column is sized from the other operand,
+// which is a regular file.
+#[test]
+fn cmp_verbose_offset_width_stdin() {
+    let (at, ts) = at_and_ts!();
+    at.write("b", "abcdeXghiY");
+
+    ts.ucmd()
+        .env("LC_ALL", "C")
+        .args(&["-l", "-", "b"])
+        .pipe_in("abcdefghij")
+        .fails_with_code(1)
+        .stdout_is(" 6 146 130\n10 152 131\n");
+
+    ts.ucmd()
+        .env("LC_ALL", "C")
+        .args(&["-l", "b", "-"])
+        .pipe_in("abcdefghij")
+        .fails_with_code(1)
+        .stdout_is(" 6 130 146\n10 131 152\n");
+}
+
+// /dev/stdin is a pipe here, so its metadata reports a size of 0. That size must
+// not be used for the -s early exit, or equal input is reported as different.
+#[test]
+#[cfg(unix)]
+fn cmp_silent_pipe_operand_is_read() {
+    let (at, ts) = at_and_ts!();
+    at.write("b", "abcdefghij");
+    at.write("empty", "");
+
+    for args in [["-s", "/dev/stdin", "b"], ["-s", "b", "/dev/stdin"]] {
+        ts.ucmd()
+            .args(&args)
+            .pipe_in("abcdefghij")
+            .succeeds()
+            .no_output();
+        ts.ucmd()
+            .args(&args)
+            .pipe_in("abcdeXghij")
+            .fails_with_code(1)
+            .no_output();
+    }
+
+    // A character device on one side: /dev/null is empty, so it equals an empty
+    // file and differs from a non-empty one.
+    ts.ucmd().args(&["-s", "/dev/null", "empty"]).succeeds();
+    ts.ucmd().args(&["-s", "/dev/null", "b"]).fails_with_code(1);
 }
 
 #[test]

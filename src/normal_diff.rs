@@ -241,27 +241,17 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+    use rstest::rstest;
 
     use crate::utils::testcmds::PATCH_CMD;
 
-    #[test]
-    fn test_basic() {
-        let mut a = Vec::new();
-        a.write_all(b"a\n").unwrap();
-        let mut b = Vec::new();
-        b.write_all(b"b\n").unwrap();
-        let diff = diff(&a, &b, &Params::default());
-        let expected = b"1c1\n< a\n---\n> b\n".to_vec();
-        assert_eq!(diff, expected);
-    }
-
-    #[test]
-    fn test_single_line_added_or_deleted() {
-        // A one-line range is written as a single number, as for c.
-        let added = diff(b"a\n", b"a\nb\n", &Params::default());
-        assert_eq!(added, b"1a2\n> b\n".to_vec());
-        let deleted = diff(b"a\nb\n", b"a\n", &Params::default());
-        assert_eq!(deleted, b"2d1\n< b\n".to_vec());
+    #[rstest]
+    #[case::changed_line(b"a\n", b"b\n", b"1c1\n< a\n---\n> b\n")]
+    // A one-line range is written as a single number, as for c.
+    #[case::single_line_added(b"a\n", b"a\nb\n", b"1a2\n> b\n")]
+    #[case::single_line_deleted(b"a\nb\n", b"a\n", b"2d1\n< b\n")]
+    fn test_basic(#[case] from: &[u8], #[case] to: &[u8], #[case] expected: &[u8]) {
+        assert_eq!(diff(from, to, &Params::default()), expected);
     }
 
     #[test]
@@ -586,38 +576,20 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_stop_early() {
-        let from = ["a", "b", "c"].join("\n");
-        let to = ["a", "d", "c"].join("\n");
-
-        let diff_full = diff(from.as_bytes(), to.as_bytes(), &Params::default());
-        let expected_full = ["2c2", "< b", "---", "> d", ""].join("\n");
-        assert_eq!(diff_full, expected_full.as_bytes());
-
-        let diff_brief = diff(
-            from.as_bytes(),
-            to.as_bytes(),
-            &Params {
-                brief: true,
-                ..Default::default()
-            },
+    #[rstest]
+    #[case::full(false, "a\nd\nc", "2c2\n< b\n---\n> d\n")]
+    #[case::brief(true, "a\nd\nc", "\0")]
+    #[case::full_identical(false, "a\nb\nc", "")]
+    #[case::brief_identical(true, "a\nb\nc", "")]
+    fn test_stop_early(#[case] brief: bool, #[case] to: &str, #[case] expected: &str) {
+        let params = Params {
+            brief,
+            ..Default::default()
+        };
+        assert_eq!(
+            diff(b"a\nb\nc", to.as_bytes(), &params),
+            expected.as_bytes()
         );
-        let expected_brief = "\0".as_bytes();
-        assert_eq!(diff_brief, expected_brief);
-
-        let nodiff_full = diff(from.as_bytes(), from.as_bytes(), &Params::default());
-        assert!(nodiff_full.is_empty());
-
-        let nodiff_brief = diff(
-            from.as_bytes(),
-            from.as_bytes(),
-            &Params {
-                brief: true,
-                ..Default::default()
-            },
-        );
-        assert!(nodiff_brief.is_empty());
     }
 
     #[test]
