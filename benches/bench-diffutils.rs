@@ -26,7 +26,9 @@ mod diffutils_cmp {
     use diffutilslib::cmp;
     use divan::Bencher;
 
-    use crate::{binary, prepare::*, FILE_SIZE_KILO_BYTES};
+    #[cfg(not(codspeed))]
+    use crate::binary;
+    use crate::{prepare::*, FILE_SIZE_KILO_BYTES};
 
     #[divan::bench(args = FILE_SIZE_KILO_BYTES)]
     fn cmp_compare_files_equal(bencher: Bencher, kb: u64) {
@@ -56,6 +58,7 @@ mod diffutils_cmp {
     }
 
     // bench original GNU cmp
+    #[cfg(not(codspeed))]
     #[divan::bench(args = FILE_SIZE_KILO_BYTES)]
     fn cmd_cmp_gnu_equal(bencher: Bencher, bytes: u64) {
         let (from, to) = get_context().get_test_files_equal(bytes);
@@ -67,6 +70,7 @@ mod diffutils_cmp {
     }
 
     // bench the compiled release version
+    #[cfg(not(codspeed))]
     #[divan::bench(args = FILE_SIZE_KILO_BYTES)]
     fn cmd_cmp_release_equal(bencher: Bencher, bytes: u64) {
         let (from, to) = get_context().get_test_files_equal(bytes);
@@ -81,28 +85,45 @@ mod diffutils_cmp {
 
 #[cfg(not(feature = "feat_bench_not_diff"))]
 mod diffutils_diff {
-    // use std::hint::black_box;
+    use std::hint::black_box;
 
-    use crate::{binary, prepare::*, FILE_SIZE_KILO_BYTES};
-    // use diffutilslib::params;
+    #[cfg(not(codspeed))]
+    use crate::binary;
+    use crate::{prepare::*, FILE_SIZE_KILO_BYTES, MB};
+    use diffutilslib::{normal_diff, params};
     use divan::Bencher;
 
-    // bench the actual compare
-    // TODO diff does not have a diff function
-    //     #[divan::bench(args = [100_000,10_000])]
-    //     fn diff_compare_files(bencher: Bencher, bytes: u64) {
-    //         let (from, to) = gen_testfiles(lines, 0, "id");
-    //         let cmd = format!("cmp {from} {to}");
-    //         let opts = str_to_options(&cmd).into_iter().peekable();
-    //         let params = params::parse_params(opts).unwrap();
-    //
-    //         bencher
-    //             // .with_inputs(|| prepare::cmp_params_identical_testfiles(lines))
-    //             .with_inputs(|| params.clone())
-    //             .bench_refs(|params| diff::diff(&params).unwrap());
-    //     }
+    fn bench_diff(bencher: Bencher, from: &str, to: &str) {
+        let from_content = std::fs::read(from).expect("Failed to read from file");
+        let to_content = std::fs::read(to).expect("Failed to read to file");
+        let cmd = format!("diff {from} {to}");
+        let opts = str_to_options(&cmd).into_iter().peekable();
+        let (params, _) = params::parse_params(opts).unwrap();
+
+        bencher
+            .with_inputs(|| (&from_content, &to_content, &params))
+            .bench_refs(|(from, to, params)| black_box(normal_diff::diff(from, to, params)));
+    }
+
+    // bench the actual diff comparison in-process on identical files
+    #[divan::bench(args = FILE_SIZE_KILO_BYTES)]
+    fn diff_compare_files_equal(bencher: Bencher, bytes: u64) {
+        let (from, to) = get_context().get_test_files_equal(bytes);
+        bench_diff(bencher, from, to);
+    }
+
+    // bench the actual diff comparison in-process on differing files
+    // limiting to 100 KB and 1 MB because the current diff engine allocates O(N*M)
+    // memory on differing files, which causes OOM on 10MB/25MB in CodSpeed CI.
+    // this must be changed back once https://github.com/uutils/diffutils/issues/401 is resolved
+    #[divan::bench(args = [100, MB])]
+    fn diff_compare_files_different(bencher: Bencher, bytes: u64) {
+        let (from, to) = get_context().get_test_files_different(bytes);
+        bench_diff(bencher, from, to);
+    }
 
     // bench original GNU diff
+    #[cfg(not(codspeed))]
     #[divan::bench(args = FILE_SIZE_KILO_BYTES)]
     fn cmd_diff_gnu_equal(bencher: Bencher, bytes: u64) {
         let (from, to) = get_context().get_test_files_equal(bytes);
@@ -114,6 +135,7 @@ mod diffutils_diff {
     }
 
     // bench the compiled release version
+    #[cfg(not(codspeed))]
     #[divan::bench(args = FILE_SIZE_KILO_BYTES)]
     fn cmd_diff_release_equal(bencher: Bencher, bytes: u64) {
         let (from, to) = get_context().get_test_files_equal(bytes);
@@ -204,7 +226,6 @@ mod prepare {
             &self.files_equal[p]
         }
 
-        #[allow(unused)]
         pub fn get_test_files_different(&self, kb: u64) -> &(String, String) {
             let p = FILE_SIZE_KILO_BYTES.iter().position(|f| *f == kb).unwrap();
             &self.files_different[p]
@@ -357,8 +378,9 @@ mod prepare {
     }
 }
 
+#[cfg(not(codspeed))]
 mod binary {
-    use std::process::Command;
+    use std::process::{Command, Stdio};
 
     use crate::prepare::str_to_options;
 
@@ -366,6 +388,9 @@ mod binary {
         let args = str_to_options(cmd_args);
         Command::new(program)
             .args(args)
+            // Suppress output to prevent terminal I/O overhead from skewing benchmark measurements
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .status()
             .expect("Failed to execute binary")
     }
