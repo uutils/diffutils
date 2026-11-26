@@ -121,11 +121,17 @@ impl Default for Params {
     }
 }
 
-fn extra_operand(executable: &OsStr, param: &OsStr) -> String {
+/// A command-line error formatted the way GNU reports it: the utility
+/// name, the message and a pointer to --help.
+fn usage_error(executable: &OsStr, message: impl std::fmt::Display) -> String {
     let exe = executable.to_string_lossy();
-    format!(
-        "{exe}: extra operand '{}'\n{exe}: Try '{exe} --help' for more information.",
-        param.to_string_lossy()
+    format!("{exe}: {message}\n{exe}: Try '{exe} --help' for more information.")
+}
+
+fn extra_operand(executable: &OsStr, param: &OsStr) -> String {
+    usage_error(
+        executable,
+        format!("extra operand '{}'", param.to_string_lossy()),
     )
 }
 
@@ -158,7 +164,10 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
         let bytes = param.as_encoded_bytes();
         let label = if bytes == b"-L" || bytes == b"--label" {
             Some(opts.next().map(|(_, label)| label).ok_or_else(|| {
-                format!("option '{}' requires an argument", param.to_string_lossy())
+                usage_error(
+                    &params.executable,
+                    format!("option '{}' requires an argument", param.to_string_lossy()),
+                )
             })?)
         } else {
             bytes
@@ -174,7 +183,10 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
             } else if params.to_label.is_none() {
                 params.to_label = Some(label);
             } else {
-                return Err("too many file label options".to_string());
+                return Err(usage_error(
+                    &params.executable,
+                    "too many file label options",
+                ));
             }
             continue;
         }
@@ -220,13 +232,21 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
                 "auto" => ColorWhen::Auto,
                 "always" => ColorWhen::Always,
                 "never" => ColorWhen::Never,
-                _ => return Err(format!("invalid color '{when}'")),
+                _ => {
+                    return Err(usage_error(
+                        &params.executable,
+                        format!("invalid color '{when}'"),
+                    ))
+                }
             };
             continue;
         }
         if param == "--palette" {
             let Some((_, palette)) = opts.next() else {
-                return Err("option '--palette' requires an argument".to_string());
+                return Err(usage_error(
+                    &params.executable,
+                    "option '--palette' requires an argument",
+                ));
             };
             params.palette = Some(palette.to_string_lossy().into_owned());
             continue;
@@ -241,12 +261,14 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
         }
         if param == "-p" || param == "--show-c-function" {
             show_c_function = true;
-            push_function_line_pattern(&mut params, C_FUNCTION_PATTERN)?;
+            push_function_line_pattern(&mut params, C_FUNCTION_PATTERN)
+                .map_err(|e| format!("{}: {e}", params.executable.to_string_lossy()))?;
             continue;
         }
         if let Some(argument) = option_argument(&param, Some("-F"), "--show-function-line") {
-            let pattern = argument_value(argument, &param, &mut opts)?;
-            push_function_line_pattern(&mut params, &pattern.to_string_lossy())?;
+            let pattern = argument_value(argument, &param, &mut opts, &params.executable)?;
+            push_function_line_pattern(&mut params, &pattern.to_string_lossy())
+                .map_err(|e| format!("{}: {e}", params.executable.to_string_lossy()))?;
             continue;
         }
         if param == "--no-dereference" {
@@ -262,7 +284,12 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
             continue;
         }
         if let Some(argument) = option_argument(&param, Some("-S"), "--starting-file") {
-            params.starting_file = Some(argument_value(argument, &param, &mut opts)?);
+            params.starting_file = Some(argument_value(
+                argument,
+                &param,
+                &mut opts,
+                &params.executable,
+            )?);
             continue;
         }
         if param == "-r" || param == "--recursive" {
@@ -287,44 +314,63 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
         }
         if param == "--normal" {
             if format.is_some() && format != Some(Format::Normal) {
-                return Err("Conflicting output style options".to_string());
+                return Err(usage_error(
+                    &params.executable,
+                    "conflicting output style options",
+                ));
             }
             format = Some(Format::Normal);
             continue;
         }
         if param == "-e" || param == "--ed" {
             if format.is_some() && format != Some(Format::Ed) {
-                return Err("Conflicting output style options".to_string());
+                return Err(usage_error(
+                    &params.executable,
+                    "conflicting output style options",
+                ));
             }
             format = Some(Format::Ed);
             continue;
         }
         if param == "-y" || param == "--side-by-side" {
             if format.is_some() && format != Some(Format::SideBySide) {
-                return Err("Conflicting output style option".to_string());
+                return Err(usage_error(
+                    &params.executable,
+                    "conflicting output style options",
+                ));
             }
             format = Some(Format::SideBySide);
             continue;
         }
         if let Some(argument) = option_argument(&param, Some("-W"), "--width") {
-            let width_value = argument_value(argument, &param, &mut opts)?;
+            let width_value = argument_value(argument, &param, &mut opts, &params.executable)?;
             let width_str = width_value.to_string_lossy();
             params.width = match width_str.parse::<usize>() {
                 Ok(num) if num > 0 => num,
-                _ => return Err(format!("invalid width «{width_str}»")),
+                _ => {
+                    return Err(usage_error(
+                        &params.executable,
+                        format!("invalid width «{width_str}»"),
+                    ))
+                }
             };
             continue;
         }
         if let Some(argument) = option_argument(&param, None, "--tabsize") {
-            let tabsize_value = argument_value(argument, &param, &mut opts)?;
+            let tabsize_value = argument_value(argument, &param, &mut opts, &params.executable)?;
             let tabsize_str = tabsize_value.to_string_lossy();
             params.tabsize = match tabsize_str.parse::<usize>() {
                 Ok(num) if num > 0 && num <= MAX_TABSIZE => num,
-                _ => return Err(format!("invalid tabsize «{tabsize_str}»")),
+                _ => {
+                    return Err(usage_error(
+                        &params.executable,
+                        format!("invalid tabsize «{tabsize_str}»"),
+                    ))
+                }
             };
             continue;
         }
-        match match_context_diff_params(&param, next_param, format) {
+        match match_context_diff_params(&param, next_param, format, &params.executable) {
             Ok(DiffStyleMatch {
                 is_match,
                 context_count,
@@ -341,7 +387,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
             }
             Err(error) => return Err(error),
         }
-        match match_unified_diff_params(&param, next_param, format) {
+        match match_unified_diff_params(&param, next_param, format, &params.executable) {
             Ok(DiffStyleMatch {
                 is_match,
                 context_count,
@@ -359,7 +405,10 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
             Err(error) => return Err(error),
         }
         if param.to_string_lossy().starts_with('-') {
-            return Err(format!("unrecognized option '{}'", param.to_string_lossy()));
+            return Err(usage_error(
+                &params.executable,
+                format!("unrecognized option '{}'", param.to_string_lossy()),
+            ));
         }
         operand_positions.push(position);
         if from.is_none() {
@@ -376,9 +425,9 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
         operand_positions.push(position);
         param
     } else {
-        return Err(format!(
-            "Usage: {} <from> <to>",
-            params.executable.to_string_lossy()
+        return Err(usage_error(
+            &params.executable,
+            format!("Usage: {} <from> <to>", params.executable.to_string_lossy()),
         ));
     };
     params.to = if let Some(to) = to {
@@ -387,9 +436,9 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
         operand_positions.push(position);
         param
     } else {
-        return Err(format!(
-            "Usage: {} <from> <to>",
-            params.executable.to_string_lossy()
+        return Err(usage_error(
+            &params.executable,
+            format!("Usage: {} <from> <to>", params.executable.to_string_lossy()),
         ));
     };
     // Operands after `--` are not checked by the option loop above.
@@ -492,13 +541,16 @@ fn argument_value(
     argument: OptionArgument,
     param: &OsStr,
     opts: &mut impl Iterator<Item = (usize, OsString)>,
+    executable: &OsStr,
 ) -> Result<OsString, String> {
     match argument {
         OptionArgument::Attached(value) => Ok(value.into()),
-        OptionArgument::Separate => opts
-            .next()
-            .map(|(_, value)| value)
-            .ok_or_else(|| format!("option '{}' requires an argument", param.to_string_lossy())),
+        OptionArgument::Separate => opts.next().map(|(_, value)| value).ok_or_else(|| {
+            usage_error(
+                executable,
+                format!("option '{}' requires an argument", param.to_string_lossy()),
+            )
+        }),
     }
 }
 
@@ -526,6 +578,7 @@ fn match_context_diff_params(
     param: &OsString,
     next_param: Option<&OsString>,
     format: Option<Format>,
+    executable: &OsStr,
 ) -> Result<DiffStyleMatch, String> {
     const CONTEXT_RE: &str = r"^(-[cC](?<num1>\d*)|--context(=(?<num2>\d*))?|-(?<num3>\d+)c)$";
     let regex = Regex::new(CONTEXT_RE).unwrap();
@@ -534,7 +587,7 @@ fn match_context_diff_params(
     let mut next_param_consumed = false;
     if is_match {
         if format.is_some() && format != Some(Format::Context) {
-            return Err("Conflicting output style options".to_string());
+            return Err(usage_error(executable, "conflicting output style options"));
         }
         let captures = regex.captures(param.to_str().unwrap()).unwrap();
         let num = captures
@@ -554,7 +607,12 @@ fn match_context_diff_params(
                         context_count = Some(context_size);
                         next_param_consumed = true;
                     }
-                    Err(_) => return Err(format!("invalid context length '{size_str}'")),
+                    Err(_) => {
+                        return Err(usage_error(
+                            executable,
+                            format!("invalid context length '{size_str}'"),
+                        ))
+                    }
                 }
             }
         }
@@ -570,6 +628,7 @@ fn match_unified_diff_params(
     param: &OsString,
     next_param: Option<&OsString>,
     format: Option<Format>,
+    executable: &OsStr,
 ) -> Result<DiffStyleMatch, String> {
     const UNIFIED_RE: &str = r"^(-[uU](?<num1>\d*)|--unified(=(?<num2>\d*))?|-(?<num3>\d+)u)$";
     let regex = Regex::new(UNIFIED_RE).unwrap();
@@ -578,7 +637,7 @@ fn match_unified_diff_params(
     let mut next_param_consumed = false;
     if is_match {
         if format.is_some() && format != Some(Format::Unified) {
-            return Err("Conflicting output style options".to_string());
+            return Err(usage_error(executable, "conflicting output style options"));
         }
         let captures = regex.captures(param.to_str().unwrap()).unwrap();
         let num = captures
@@ -598,7 +657,12 @@ fn match_unified_diff_params(
                         context_count = Some(context_size);
                         next_param_consumed = true;
                     }
-                    Err(_) => return Err(format!("invalid context length '{size_str}'")),
+                    Err(_) => {
+                        return Err(usage_error(
+                            executable,
+                            format!("invalid context length '{size_str}'"),
+                        ))
+                    }
                 }
             }
         }
@@ -798,18 +862,18 @@ mod tests {
     }
 
     #[rstest]
-    #[case::tabsize_no_argument(&["foo", "bar", "--tabsize"], "option '--tabsize' requires an argument")]
-    #[case::width_short_no_argument(&["foo", "bar", "-W"], "option '-W' requires an argument")]
-    #[case::width_long_no_argument(&["foo", "bar", "--width"], "option '--width' requires an argument")]
-    #[case::width_short_separate_zero(&["foo", "bar", "-W", "0"], "invalid width «0»")]
-    #[case::width_short_attached_zero(&["foo", "bar", "-W0"], "invalid width «0»")]
-    #[case::width_long_equals_zero(&["foo", "bar", "--width=0"], "invalid width «0»")]
-    #[case::width_long_separate_zero(&["foo", "bar", "--width", "0"], "invalid width «0»")]
-    #[case::width_short_not_a_number(&["foo", "bar", "-W", "abc"], "invalid width «abc»")]
-    #[case::width_long_not_a_number(&["foo", "bar", "--width=abc"], "invalid width «abc»")]
+    #[case::tabsize_no_argument(&["foo", "bar", "--tabsize"], "diff: option '--tabsize' requires an argument\ndiff: Try 'diff --help' for more information.")]
+    #[case::width_short_no_argument(&["foo", "bar", "-W"], "diff: option '-W' requires an argument\ndiff: Try 'diff --help' for more information.")]
+    #[case::width_long_no_argument(&["foo", "bar", "--width"], "diff: option '--width' requires an argument\ndiff: Try 'diff --help' for more information.")]
+    #[case::width_short_separate_zero(&["foo", "bar", "-W", "0"], "diff: invalid width «0»\ndiff: Try 'diff --help' for more information.")]
+    #[case::width_short_attached_zero(&["foo", "bar", "-W0"], "diff: invalid width «0»\ndiff: Try 'diff --help' for more information.")]
+    #[case::width_long_equals_zero(&["foo", "bar", "--width=0"], "diff: invalid width «0»\ndiff: Try 'diff --help' for more information.")]
+    #[case::width_long_separate_zero(&["foo", "bar", "--width", "0"], "diff: invalid width «0»\ndiff: Try 'diff --help' for more information.")]
+    #[case::width_short_not_a_number(&["foo", "bar", "-W", "abc"], "diff: invalid width «abc»\ndiff: Try 'diff --help' for more information.")]
+    #[case::width_long_not_a_number(&["foo", "bar", "--width=abc"], "diff: invalid width «abc»\ndiff: Try 'diff --help' for more information.")]
     #[case::too_many_labels(
         &["--label=a", "-L", "b", "-Lc", "foo", "bar"],
-        "too many file label options",
+        "diff: too many file label options\ndiff: Try 'diff --help' for more information.",
     )]
     #[case::extra_operand(
         &["foo", "bar", "baz"],
@@ -827,7 +891,7 @@ mod tests {
         &["foo", "--", "bar", "baz"],
         "diff: extra operand 'baz'\ndiff: Try 'diff --help' for more information.",
     )]
-    #[case::function_line_trailing_backslash(&["-F", "oops\\", "foo", "bar"], "'oops\\': Trailing backslash")]
+    #[case::function_line_trailing_backslash(&["-F", "oops\\", "foo", "bar"], "diff: 'oops\\': Trailing backslash")]
     fn error_message(#[case] args: &[&str], #[case] expected: &str) {
         assert_eq!(parse(args), Err(expected.to_string()));
     }
@@ -837,7 +901,9 @@ mod tests {
     #[case::usize_max(usize::MAX)]
     fn tabsize_too_large(#[case] tabsize: usize) {
         assert_eq!(
-            Err(format!("invalid tabsize «{tabsize}»")),
+            Err(format!(
+                "diff: invalid tabsize «{tabsize}»\ndiff: Try 'diff --help' for more information."
+            )),
             parse(&[&format!("--tabsize={tabsize}"), "foo", "bar"])
         );
     }
