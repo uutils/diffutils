@@ -25,6 +25,17 @@ struct Mismatch {
     pub lines: Vec<DiffLine>,
 }
 
+// A final-newline mismatch can turn an equal line into a deletion and an
+// insertion only after earlier additions have been collected. Move those
+// additions after the deletion to preserve unified-diff ordering.
+fn take_trailing_actual_lines(lines: &mut Vec<DiffLine>) -> Vec<DiffLine> {
+    let mut start = lines.len();
+    while start > 0 && matches!(lines[start - 1], DiffLine::Actual(_)) {
+        start -= 1;
+    }
+    lines.drain(start..).collect()
+}
+
 impl Mismatch {
     fn new(line_number_expected: u32, line_number_actual: u32) -> Mismatch {
         Mismatch {
@@ -148,7 +159,9 @@ fn make_diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<Mismatch> {
                         debug_assert!(mismatch.lines.last() != Some(&DiffLine::MissingNL));
                         mismatch.lines.push(DiffLine::Context(line.to_vec()));
                     }
+                    let trailing_actual_lines = take_trailing_actual_lines(&mut mismatch.lines);
                     mismatch.lines.push(DiffLine::Expected(str.to_vec()));
+                    mismatch.lines.extend(trailing_actual_lines);
                     mismatch.lines.push(DiffLine::Actual(str.to_vec()));
                     mismatch.lines.push(DiffLine::MissingNL);
                     lines_since_mismatch = 0;
@@ -164,8 +177,10 @@ fn make_diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<Mismatch> {
                         debug_assert!(mismatch.lines.last() != Some(&DiffLine::MissingNL));
                         mismatch.lines.push(DiffLine::Context(line.to_vec()));
                     }
+                    let trailing_actual_lines = take_trailing_actual_lines(&mut mismatch.lines);
                     mismatch.lines.push(DiffLine::Expected(str.to_vec()));
                     mismatch.lines.push(DiffLine::MissingNL);
+                    mismatch.lines.extend(trailing_actual_lines);
                     mismatch.lines.push(DiffLine::Actual(str.to_vec()));
                     lines_since_mismatch = 0;
                 } else {
