@@ -11,6 +11,8 @@ use std::{
     process::ExitCode,
 };
 
+use diffutilslib::ses;
+
 mod bre;
 mod cmp;
 mod color;

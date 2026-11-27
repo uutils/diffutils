@@ -7,8 +7,11 @@ use std::collections::VecDeque;
 use std::io::Write;
 
 use crate::params::Params;
-use crate::utils::{comparison_lines, do_write_line, line_prefix};
-use crate::utils::{get_modification_time, write_file_header, FunctionLineFinder, TimestampStyle};
+use crate::ses;
+use crate::utils::{
+    comparison_lines, do_write_line, get_modification_time, line_prefix, write_file_header,
+    FunctionLineFinder, TimestampStyle,
+};
 
 #[derive(Debug, PartialEq)]
 pub enum DiffLine {
@@ -87,9 +90,10 @@ fn make_diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<Mismatch> {
         actual_lines.pop();
     }
 
-    for result in diff::slice(&expected_lines, &actual_lines) {
+    let differences = ses::diff_lines(&expected_lines, &actual_lines);
+    for result in differences.iter_changes() {
         match result {
-            diff::Result::Left(str) => {
+            ses::Change::Delete(str) => {
                 if lines_since_mismatch > max_gap {
                     results.push(mismatch);
                     mismatch = Mismatch::new(
@@ -107,7 +111,7 @@ fn make_diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<Mismatch> {
                 line_number_expected += 1;
                 lines_since_mismatch = 0;
             }
-            diff::Result::Right(str) => {
+            ses::Change::Insert(str) => {
                 if lines_since_mismatch > max_gap {
                     results.push(mismatch);
                     mismatch = Mismatch::new(
@@ -128,7 +132,7 @@ fn make_diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<Mismatch> {
                 line_number_actual += 1;
                 lines_since_mismatch = 0;
             }
-            diff::Result::Both(str, _) => {
+            ses::Change::Equal(str, _) => {
                 // if one of them is missing a newline and the other isn't, then they don't actually match
                 if (line_number_actual > actual_lines_count)
                     && (line_number_expected > expected_lines_count)

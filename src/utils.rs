@@ -159,6 +159,12 @@ impl<'a> std::ops::Deref for ComparisonLine<'a> {
     }
 }
 
+impl<'a> AsRef<[u8]> for ComparisonLine<'a> {
+    fn as_ref(&self) -> &[u8] {
+        &self.key
+    }
+}
+
 impl<'a> PartialEq for ComparisonLine<'a> {
     fn eq(&self, other: &Self) -> bool {
         self.key == other.key
