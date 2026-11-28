@@ -210,6 +210,29 @@ fn cmp_max_bytes_and_skip(#[case] options: &[&str], #[case] code: i32, #[case] e
         .stdout_only(expected);
 }
 
+// The limit ends the comparison even when the files differ, and differ in
+// length, after it: the shorter file has not reached EOF within the limit.
+#[rstest]
+#[case::before_difference(&["-n", "3"], 0, "")]
+#[case::before_difference_verbose(&["-l", "-n", "3"], 0, "")]
+#[case::at_difference(&["-n", "4"], 1, "a b differ: char 4, line 2\n")]
+fn cmp_max_bytes_files_of_different_length(
+    #[case] options: &[&str],
+    #[case] code: i32,
+    #[case] expected: &str,
+) {
+    let (at, ts) = at_and_ts!();
+    at.write("a", " a\nc\nb\n");
+    at.write("b", " a\nX\nYYYYYYYYYYYY\n");
+
+    ts.ucmd()
+        .args(options)
+        .args(&["a", "b"])
+        .run()
+        .code_is(code)
+        .stdout_only(expected);
+}
+
 #[rstest]
 #[case::option(&["-i", "3", "a", "b"], 0)]
 // A smaller positional skip does not override -i
