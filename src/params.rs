@@ -22,6 +22,7 @@ pub enum Format {
     Context,
     Ed,
     SideBySide,
+    Ifdef,
 }
 
 /// How to handle an operand that does not exist (`-N` and
@@ -72,6 +73,7 @@ pub struct Params {
     pub to_missing: bool,
     pub from_label: Option<OsString>,
     pub to_label: Option<OsString>,
+    pub ifdef_name: Option<OsString>,
 }
 
 impl Params {
@@ -117,6 +119,7 @@ impl Default for Params {
             to_missing: false,
             from_label: None,
             to_label: None,
+            ifdef_name: None,
         }
     }
 }
@@ -156,19 +159,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
         // the from-file in headers and messages, the second the to-file.
         // The label may be any bytes, so match on those, not on a str.
         let bytes = param.as_encoded_bytes();
-        let label = if bytes == b"-L" || bytes == b"--label" {
-            Some(opts.next().map(|(_, label)| label).ok_or_else(|| {
-                format!("option '{}' requires an argument", param.to_string_lossy())
-            })?)
-        } else {
-            bytes
-                .strip_prefix(b"--label=")
-                .or_else(|| bytes.strip_prefix(b"-L"))
-                // SAFETY: the bytes come from an OsStr and are split right
-                // after an ASCII prefix.
-                .map(|rest| unsafe { OsStr::from_encoded_bytes_unchecked(rest) }.to_os_string())
-        };
-        if let Some(label) = label {
+        if let Some(label) = option_os_value(bytes, &param, &mut opts, b"-L", b"--label")? {
             if params.from_label.is_none() {
                 params.from_label = Some(label);
             } else if params.to_label.is_none() {
@@ -176,6 +167,15 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
             } else {
                 return Err("too many file label options".to_string());
             }
+            continue;
+        }
+        // -D NAME, -DNAME, --ifdef NAME or --ifdef=NAME
+        if let Some(name) = option_os_value(bytes, &param, &mut opts, b"-D", b"--ifdef")? {
+            if format.is_some() && format != Some(Format::Ifdef) {
+                return Err("Conflicting output style options".to_string());
+            }
+            format = Some(Format::Ifdef);
+            params.ifdef_name = Some(name);
             continue;
         }
         let next_param = opts.peek().map(|(_, next_param)| next_param);
@@ -454,6 +454,32 @@ fn directory_entry(dir: &Path, name: &OsStr, params: &Params) -> OsString {
         }
     }
     name.to_os_string()
+}
+
+/// Parses `-X VALUE`, `-XVALUE`, `--long VALUE` or `--long=VALUE`.
+/// The value is kept as an `OsString` so a non-UTF-8 name is not mangled.
+fn option_os_value(
+    bytes: &[u8],
+    param: &OsStr,
+    opts: &mut impl Iterator<Item = (usize, OsString)>,
+    short: &[u8],
+    long: &[u8],
+) -> Result<Option<OsString>, String> {
+    if bytes == short || bytes == long {
+        return Ok(Some(opts.next().map(|(_, value)| value).ok_or_else(
+            || format!("option '{}' requires an argument", param.to_string_lossy()),
+        )?));
+    }
+
+    let attached = bytes
+        .strip_prefix(long)
+        .and_then(|rest| rest.strip_prefix(b"="))
+        .or_else(|| bytes.strip_prefix(short));
+    Ok(attached.map(|rest| {
+        // SAFETY: the bytes come from an OsStr and are split right
+        // after an ASCII prefix.
+        unsafe { OsStr::from_encoded_bytes_unchecked(rest) }.to_os_string()
+    }))
 }
 
 /// How the argument of an option is given.
@@ -890,6 +916,15 @@ mod tests {
         assert_eq!(params.to_label, Some(bytes(b"\xfenew")));
         assert_eq!(params.from, os("foo"));
         assert_eq!(params.to, os("bar"));
+
+        let params = parse_params(
+            [os("diff"), bytes(b"-D\xffmacro"), os("foo"), os("bar")]
+                .iter()
+                .cloned()
+                .peekable(),
+        )
+        .unwrap();
+        assert_eq!(params.ifdef_name, Some(bytes(b"\xffmacro")));
     }
 
     #[rstest]
