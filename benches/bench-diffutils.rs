@@ -146,6 +146,29 @@ mod diffutils_diff {
             .with_inputs(|| args_str.clone())
             .bench_refs(|cmd_args| binary::bench_binary("target/release/diffutils", cmd_args));
     }
+
+    // bench original GNU diff on differing files
+    #[cfg(not(codspeed))]
+    #[divan::bench(args = FILE_SIZE_KILO_BYTES)]
+    fn cmd_diff_gnu_different(bencher: Bencher, bytes: u64) {
+        let (from, to) = get_context().get_test_files_different(bytes);
+        let args_str = format!("{from} {to}");
+        bencher
+            .with_inputs(|| args_str.clone())
+            .bench_refs(|cmd_args| binary::bench_binary("diff", cmd_args));
+    }
+
+    // bench the compiled release version on differing files
+    #[cfg(not(codspeed))]
+    #[divan::bench(args = FILE_SIZE_KILO_BYTES)]
+    fn cmd_diff_release_different(bencher: Bencher, bytes: u64) {
+        let (from, to) = get_context().get_test_files_different(bytes);
+        let args_str = format!("diff {from} {to}");
+
+        bencher
+            .with_inputs(|| args_str.clone())
+            .bench_refs(|cmd_args| binary::bench_binary("target/release/diffutils", cmd_args));
+    }
 }
 
 mod parser {

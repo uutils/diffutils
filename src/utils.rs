@@ -165,6 +165,14 @@ impl<'a> PartialEq for ComparisonLine<'a> {
     }
 }
 
+impl<'a> Eq for ComparisonLine<'a> {}
+
+impl<'a> std::hash::Hash for ComparisonLine<'a> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.key.hash(state);
+    }
+}
+
 /// The marker to write before a line of the normal, context or unified
 /// format: `prefix`, without its trailing blanks if `line` is empty and
 /// `--suppress-blank-empty` is given.

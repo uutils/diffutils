@@ -266,7 +266,6 @@ version = "0.6.0"
 dependencies = [
  "codspeed-divan-compat",
  "ctor",
- "diff",
  "itoa",
  "jiff 1.0.3",
  "pretty_assertions",
@@ -274,6 +273,7 @@ dependencies = [
  "regex",
  "rstest",
  "same-file",
+ "similar",
  "tempfile",
  "unicode-width",
  "uutests",
@@ -1058,6 +1058,12 @@ name = "shlex"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
+
+[[package]]
+name = "similar"
+version = "3.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d2f8bec09ae8fae0f4f265a4559a9334be3929d8504e9b536df0a41302bd1733"
 
 [[package]]
 name = "smallvec"

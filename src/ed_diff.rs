@@ -5,6 +5,7 @@
 
 use std::io::Write;
 
+use crate::diff_engine::{diff_slices, Change};
 use crate::params::Params;
 use crate::utils::{comparison_lines, do_write_line};
 
@@ -53,9 +54,9 @@ fn make_diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<Mismatch> {
         actual_lines.pop();
     }
 
-    for result in diff::slice(&expected_lines, &actual_lines) {
+    for result in diff_slices(&expected_lines, &actual_lines) {
         match result {
-            diff::Result::Left(str) => {
+            Change::Left(str) => {
                 if !mismatch.actual.is_empty() {
                     results.push(mismatch);
                     mismatch = Mismatch::new(line_number_expected, line_number_actual);
@@ -63,11 +64,11 @@ fn make_diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<Mismatch> {
                 mismatch.expected.push(str.to_vec());
                 line_number_expected += 1;
             }
-            diff::Result::Right(str) => {
+            Change::Right(str) => {
                 mismatch.actual.push(str.to_vec());
                 line_number_actual += 1;
             }
-            diff::Result::Both(_str, _) => {
+            Change::Both(_str, _) => {
                 line_number_expected += 1;
                 line_number_actual += 1;
                 if !mismatch.actual.is_empty() || !mismatch.expected.is_empty() {
