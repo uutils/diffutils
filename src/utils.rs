@@ -115,29 +115,58 @@ fn expand_tabs_to_vec(line: &[u8], tabsize: usize) -> Vec<u8> {
 }
 
 /// A line of text for diff comparison that can optionally ignore differences
-/// caused by tab expansion (-E / --ignore-tab-expansion).
+/// caused by tab expansion (-E / --ignore-tab-expansion) or by case
+/// (-i / --ignore-case).
 #[derive(Debug)]
 pub struct ComparisonLine<'a> {
     pub raw: &'a [u8],
     key: Cow<'a, [u8]>,
 }
 
+/// How lines are compared: the options that change a line's comparison key.
+#[derive(Clone, Copy)]
+struct ComparisonRules {
+    ignore_tab_expansion: bool,
+    tabsize: usize,
+    /// `Some(utf8)` with -i: fold the case of all letters in a UTF-8 locale,
+    /// of ASCII letters only in the POSIX locale (as GNU diff does).
+    fold_case: Option<bool>,
+}
+
+impl ComparisonRules {
+    fn from_params(params: &Params) -> Self {
+        Self {
+            ignore_tab_expansion: params.ignore_tab_expansion,
+            tabsize: params.tabsize,
+            fold_case: params.ignore_case.then(|| !is_posix_locale("LC_CTYPE")),
+        }
+    }
+}
+
 impl<'a> ComparisonLine<'a> {
-    fn new(raw: &'a [u8], ignore_tab_expansion: bool, tabsize: usize) -> Self {
-        let key = if ignore_tab_expansion && (raw.contains(&b'\t') || raw.contains(&b'\x08')) {
-            Cow::Owned(expand_tabs_to_vec(raw, tabsize))
-        } else {
-            Cow::Borrowed(raw)
-        };
+    fn new(raw: &'a [u8], rules: ComparisonRules) -> Self {
+        let mut key =
+            if rules.ignore_tab_expansion && (raw.contains(&b'\t') || raw.contains(&b'\x08')) {
+                Cow::Owned(expand_tabs_to_vec(raw, rules.tabsize))
+            } else {
+                Cow::Borrowed(raw)
+            };
+        if let Some(utf8) = rules.fold_case {
+            key = Cow::Owned(match std::str::from_utf8(&key) {
+                Ok(text) if utf8 => text.to_lowercase().into_bytes(),
+                _ => key.to_ascii_lowercase(),
+            });
+        }
         Self { raw, key }
     }
 }
 
 /// Splits `content` into lines wrapped for comparison according to `params`.
 pub fn comparison_lines<'a>(content: &'a [u8], params: &Params) -> Vec<ComparisonLine<'a>> {
+    let rules = ComparisonRules::from_params(params);
     content
         .split(|&c| c == b'\n')
-        .map(|line| ComparisonLine::new(line, params.ignore_tab_expansion, params.tabsize))
+        .map(|line| ComparisonLine::new(line, rules))
         .collect()
 }
 
@@ -146,9 +175,10 @@ pub fn comparison_lines_inclusive<'a>(
     content: &'a [u8],
     params: &Params,
 ) -> Vec<ComparisonLine<'a>> {
+    let rules = ComparisonRules::from_params(params);
     content
         .split_inclusive(|&c| c == b'\n')
-        .map(|line| ComparisonLine::new(line, params.ignore_tab_expansion, params.tabsize))
+        .map(|line| ComparisonLine::new(line, rules))
         .collect()
 }
 
