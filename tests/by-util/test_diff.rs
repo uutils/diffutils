@@ -1212,6 +1212,248 @@ fn label_errors(#[case] args: &[&str], #[case] error: &str) {
         .stderr_contains(error);
 }
 
+#[rstest]
+// Symmetrical tie: repeated 'x' with shifting unique 'y'
+#[case::abstract_symmetrical_tie("x\nx\ny\nx\nx\n", "x\ny\nx\nx\nx\n", "2d1\n< x\n3a3\n> x\n")]
+// Asymmetrical tie 1: Delta = -1 (old has 4 lines, new has 5 lines)
+#[case::asymmetric_tie_insert_bias(
+    "a\na\nb\na\n",
+    "a\nb\na\na\na\n",
+    "2d1\n< a\n3a3,4\n> a\n> a\n"
+)]
+// Asymmetrical tie 2: Delta = +1 (old has 5 lines, new has 4 lines)
+#[case::asymmetric_tie_delete_bias(
+    "x\nx\nx\ny\nx\n",
+    "x\ny\nx\nx\n",
+    "2,3d1\n< x\n< x\n4a3\n> x\n"
+)]
+// Repeated brackets/braces near block end
+#[case::braces_shift("}\n}\n}\nend\n", "}\n}\nend\n}\n", "3d2\n< }\n4a4\n> }\n")]
+// Repeated code statements around unique variable assignment
+#[case::code_statement_tie(
+    "fn test() {\n    let a = 1;\n    let a = 1;\n    let a = 1;\n    let b = 2;\n}\n",
+    "fn test() {\n    let a = 1;\n    let a = 1;\n    let b = 2;\n    let a = 1;\n}\n",
+    "4d3\n<     let a = 1;\n5a5\n>     let a = 1;\n"
+)]
+// Interleaved repeating pattern
+#[case::interleaved_repeats(
+    "alpha\nbeta\nalpha\nbeta\nalpha\n",
+    "beta\nalpha\nbeta\nalpha\nbeta\n",
+    "1d0\n< alpha\n5a5\n> beta\n"
+)]
+// Repeated identical tokens at both start and end of hunk
+#[case::repeated_anchors("A\nB\nA\nB\n", "B\nA\nB\nA\n", "1d0\n< A\n4a4\n> A\n")]
+fn test_gnu_tie_breaking_edge_cases(
+    #[case] file1: &str,
+    #[case] file2: &str,
+    #[case] expected: &str,
+) {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", file1);
+    at.write("file2", file2);
+
+    ts.ucmd()
+        .args(&["file1", "file2"])
+        .fails_with_code(1)
+        .stdout_is(expected);
+}
+
+#[rstest]
+// Simple 2-line adjacent swap
+#[case::swap_adjacent_lines("alpha\nbeta\n", "beta\nalpha\n", "1d0\n< alpha\n2a2\n> alpha\n")]
+// 3-line cyclic rotation (A B C -> B C A)
+#[case::rotate_three_lines(
+    "first\nsecond\nthird\n",
+    "second\nthird\nfirst\n",
+    "1d0\n< first\n3a3\n> first\n"
+)]
+// 3-line full reversal (A B C -> C B A)
+#[case::reverse_three_lines(
+    "one\ntwo\nthree\n",
+    "three\ntwo\none\n",
+    "1,2d0\n< one\n< two\n3a2,3\n> two\n> one\n"
+)]
+fn test_gnu_permutation_edge_cases(
+    #[case] file1: &str,
+    #[case] file2: &str,
+    #[case] expected: &str,
+) {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", file1);
+    at.write("file2", file2);
+
+    ts.ucmd()
+        .args(&["file1", "file2"])
+        .fails_with_code(1)
+        .stdout_is(expected);
+}
+
+#[rstest]
+// Prepending lines at beginning of file
+#[case::prepend_lines("two\nthree\n", "zero\none\ntwo\nthree\n", "0a1,2\n> zero\n> one\n")]
+// Appending lines at end of file
+#[case::append_lines("one\ntwo\n", "one\ntwo\nthree\nfour\n", "2a3,4\n> three\n> four\n")]
+// Prepending AND appending in the same file
+#[case::prepend_and_append("two\n", "one\ntwo\nthree\n", "0a1\n> one\n1a3\n> three\n")]
+// Deleting all lines at the top of file
+#[case::delete_head("one\ntwo\nthree\n", "three\n", "1,2d0\n< one\n< two\n")]
+// Deleting all lines at the bottom of file
+#[case::delete_tail("one\ntwo\nthree\n", "one\n", "2,3d1\n< two\n< three\n")]
+// 100% disjoint files (every line replaced)
+#[case::completely_different(
+    "foo\nbar\nbaz\n",
+    "one\ntwo\nthree\n",
+    "1,3c1,3\n< foo\n< bar\n< baz\n---\n> one\n> two\n> three\n"
+)]
+// Single character change
+#[case::single_char_diff("a\n", "b\n", "1c1\n< a\n---\n> b\n")]
+fn test_gnu_extremity_edge_cases(#[case] file1: &str, #[case] file2: &str, #[case] expected: &str) {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", file1);
+    at.write("file2", file2);
+
+    ts.ucmd()
+        .args(&["file1", "file2"])
+        .fails_with_code(1)
+        .stdout_is(expected);
+}
+
+#[rstest]
+// Many-to-one replacement
+#[case::replace_many_to_one("a\nb\nc\n", "x\n", "1,3c1\n< a\n< b\n< c\n---\n> x\n")]
+// One-to-many replacement
+#[case::replace_one_to_many("x\n", "a\nb\nc\n", "1c1,3\n< x\n---\n> a\n> b\n> c\n")]
+// Many-to-many replacement
+#[case::replace_many_to_many(
+    "a\nb\nc\n",
+    "x\ny\nz\nw\n",
+    "1,3c1,4\n< a\n< b\n< c\n---\n> x\n> y\n> z\n> w\n"
+)]
+// Two distinct change hunks separated by common anchors
+#[case::two_separated_hunks(
+    "hunk1_a\ncommon1\ncommon2\nhunk2_a\n",
+    "hunk1_b\ncommon1\ncommon2\nhunk2_b\n",
+    "1c1\n< hunk1_a\n---\n> hunk1_b\n4c4\n< hunk2_a\n---\n> hunk2_b\n"
+)]
+// Inserting unique lines into a block of repeated lines
+#[case::insert_into_repeats(
+    "item\nitem\nitem\n",
+    "item\nitem\nnew_item\nitem\n",
+    "2a3\n> new_item\n"
+)]
+// Deleting unique line from a block of repeated lines
+#[case::delete_from_repeats(
+    "item\nitem\nold_item\nitem\n",
+    "item\nitem\nitem\n",
+    "3d2\n< old_item\n"
+)]
+fn test_gnu_replacement_hunk_edge_cases(
+    #[case] file1: &str,
+    #[case] file2: &str,
+    #[case] expected: &str,
+) {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", file1);
+    at.write("file2", file2);
+
+    ts.ucmd()
+        .args(&["file1", "file2"])
+        .fails_with_code(1)
+        .stdout_is(expected);
+}
+
+#[rstest]
+// Old file has no final newline, new file has newline
+#[case::no_newline_old(
+    "hello",
+    "hello\n",
+    "1c1\n< hello\n\\ No newline at end of file\n---\n> hello\n"
+)]
+// Old file has newline, new file has no final newline
+#[case::no_newline_new(
+    "hello\n",
+    "hello",
+    "1c1\n< hello\n---\n> hello\n\\ No newline at end of file\n"
+)]
+// Both files have no final newline and are different
+#[case::both_no_newline(
+    "hello",
+    "world",
+    "1c1\n< hello\n\\ No newline at end of file\n---\n> world\n\\ No newline at end of file\n"
+)]
+// Multi-line file where replacement occurs on the line without newline
+#[case::replace_on_unterminated_line(
+    "a\nb",
+    "a\nc",
+    "2c2\n< b\n\\ No newline at end of file\n---\n> c\n\\ No newline at end of file\n"
+)]
+fn test_gnu_missing_newline_edge_cases(
+    #[case] file1: &str,
+    #[case] file2: &str,
+    #[case] expected: &str,
+) {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", file1);
+    at.write("file2", file2);
+
+    ts.ucmd()
+        .args(&["file1", "file2"])
+        .fails_with_code(1)
+        .stdout_is(expected);
+}
+
+#[rstest]
+#[case::unified_code_tie(
+    "fn test() {\n    let a = 1;\n    let a = 1;\n    let a = 1;\n    let b = 2;\n}\n",
+    "fn test() {\n    let a = 1;\n    let a = 1;\n    let b = 2;\n    let a = 1;\n}\n",
+    "@@ -1,6 +1,6 @@\n fn test() {\n     let a = 1;\n     let a = 1;\n-    let a = 1;\n     let b = 2;\n+    let a = 1;\n }\n"
+)]
+#[case::unified_swap_adjacent(
+    "apple\norange\nbanana\ngrape\n",
+    "apple\nbanana\norange\ngrape\n",
+    "@@ -1,4 +1,4 @@\n apple\n-orange\n banana\n+orange\n grape\n"
+)]
+#[case::unified_append(
+    "one\ntwo\n",
+    "one\ntwo\nthree\nfour\n",
+    "@@ -1,2 +1,4 @@\n one\n two\n+three\n+four\n"
+)]
+fn test_gnu_unified_diff_hunk_alignment(
+    #[case] file1: &str,
+    #[case] file2: &str,
+    #[case] expected_hunk: &str,
+) {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", file1);
+    at.write("file2", file2);
+
+    ts.ucmd()
+        .args(&["-u", "--label", "a", "--label", "b", "file1", "file2"])
+        .fails_with_code(1)
+        .stdout_contains(expected_hunk);
+}
+
+#[test]
+fn test_large_input_diff() {
+    let (at, ts) = at_and_ts!();
+    let mut file1 = String::new();
+    let mut file2 = String::new();
+    for i in 0..5000 {
+        file1.push_str(&format!("line {i}\n"));
+        if i == 2500 {
+            file2.push_str("modified line 2500\n");
+        } else {
+            file2.push_str(&format!("line {i}\n"));
+        }
+    }
+    at.write("file1", &file1);
+    at.write("file2", &file2);
+    ts.ucmd()
+        .args(&["-u", "file1", "file2"])
+        .fails_with_code(1)
+        .stdout_contains("@@ -2498,7 +2498,7 @@\n line 2497\n line 2498\n line 2499\n-line 2500\n+modified line 2500\n line 2501\n line 2502\n line 2503\n");
+}
+
 #[test]
 fn width_option_forms() {
     let (at, ts) = at_and_ts!();
