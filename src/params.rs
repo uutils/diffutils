@@ -65,6 +65,7 @@ pub struct Params {
     /// (`-S`).
     pub starting_file: Option<OsString>,
     pub ignore_file_name_case: bool,
+    pub ignore_blank_lines: bool,
     pub no_dereference: bool,
     /// Set when `from` did not exist and was compared as an empty file.
     pub from_missing: bool,
@@ -112,6 +113,7 @@ impl Default for Params {
             recursive: false,
             starting_file: None,
             ignore_file_name_case: false,
+            ignore_blank_lines: false,
             no_dereference: false,
             from_missing: false,
             to_missing: false,
@@ -255,6 +257,10 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
         }
         if param == "--ignore-file-name-case" {
             params.ignore_file_name_case = true;
+            continue;
+        }
+        if param == "-B" || param == "--ignore-blank-lines" {
+            params.ignore_blank_lines = true;
             continue;
         }
         if param == "--no-ignore-file-name-case" {
@@ -973,5 +979,18 @@ mod tests {
     fn ignore_file_name_case(#[case] args: &[&str], #[case] expected: bool) {
         let args = [args, &["foo", "bar"]].concat();
         assert_eq!(parse(&args).unwrap().ignore_file_name_case, expected);
+    }
+
+    #[test]
+    fn ignore_blank_lines() {
+        for arg in ["-B", "--ignore-blank-lines"] {
+            let params = parse_params(
+                [os("diff"), os(arg), os("foo"), os("bar")]
+                    .into_iter()
+                    .peekable(),
+            )
+            .unwrap();
+            assert!(params.ignore_blank_lines);
+        }
     }
 }

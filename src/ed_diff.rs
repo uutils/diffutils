@@ -6,7 +6,7 @@
 use std::io::Write;
 
 use crate::params::Params;
-use crate::utils::{comparison_lines, do_write_line};
+use crate::utils::{comparison_lines, do_write_line, has_non_blank_lines};
 
 #[derive(Debug, PartialEq)]
 struct Mismatch {
@@ -29,7 +29,7 @@ impl Mismatch {
 
 // Produces a diff between the expected output and actual output.
 fn make_diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<Mismatch> {
-    let stop_early = params.brief;
+    let stop_early = params.brief && !params.ignore_blank_lines;
     let mut line_number_expected = 1;
     let mut line_number_actual = 1;
     let mut results = Vec::new();
@@ -94,7 +94,10 @@ fn make_diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<Mismatch> {
 
 pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
     let mut output = Vec::new();
-    let diff_results = make_diff(expected, actual, params);
+    let mut diff_results = make_diff(expected, actual, params);
+    if params.ignore_blank_lines {
+        diff_results.retain(|m| has_non_blank_lines(m.expected.iter().chain(&m.actual)));
+    }
     if params.brief && !diff_results.is_empty() {
         write!(&mut output, "\0").unwrap();
         return output;
