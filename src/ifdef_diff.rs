@@ -105,19 +105,15 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> (Vec<u8>, bool) 
                     current_expected.push(line1);
                     current_actual.push(line2);
                 } else {
-                    if flush_hunk(
+                    differs |= flush_hunk(
                         &mut output,
                         &mut current_expected,
                         &mut current_actual,
                         ifdef_name,
                         params.expand_tabs,
                         params.tabsize,
-                    ) {
-                        differs = true;
-                    }
-                    do_write_line(&mut output, line1, params.expand_tabs, params.tabsize, b"")
-                        .expect("write to Vec is infallible");
-                    output.push(b'\n');
+                    );
+                    write_lines(&mut output, &[line1], params.expand_tabs, params.tabsize);
                 }
                 line_number_expected += 1;
                 line_number_actual += 1;
@@ -125,16 +121,14 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> (Vec<u8>, bool) 
         }
     }
 
-    if flush_hunk(
+    differs |= flush_hunk(
         &mut output,
         &mut current_expected,
         &mut current_actual,
         ifdef_name,
         params.expand_tabs,
         params.tabsize,
-    ) {
-        differs = true;
-    }
+    );
 
     (output, differs)
 }
