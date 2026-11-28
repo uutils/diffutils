@@ -47,6 +47,8 @@ pub struct Params {
     pub report_identical_files: bool,
     pub brief: bool,
     pub expand_tabs: bool,
+    pub ignore_tab_expansion: bool,
+    pub suppress_blank_empty: bool,
     pub tabsize: usize,
     pub width: usize,
     pub missing_file: MissingFile,
@@ -101,6 +103,8 @@ impl Default for Params {
             report_identical_files: false,
             brief: false,
             expand_tabs: false,
+            ignore_tab_expansion: false,
+            suppress_blank_empty: false,
             tabsize: 8,
             width: 130,
             missing_file: MissingFile::default(),
@@ -153,8 +157,6 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
     let mut format = None;
     let mut context = None;
     let mut show_c_function = false;
-    let tabsize_re = Regex::new(r"^--tabsize=(?<num>\d+)$").unwrap();
-    let width_re = Regex::new(r"^--width=(?P<long>\d+)$").unwrap();
     while let Some((position, param)) = opts.next() {
         // -L LABEL, -LLABEL, --label LABEL or --label=LABEL: the first names
         // the from-file in headers and messages, the second the to-file.
@@ -248,7 +250,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
             push_function_line_pattern(&mut params, C_FUNCTION_PATTERN)?;
             continue;
         }
-        if let Some(argument) = option_argument(&param, "-F", "--show-function-line") {
+        if let Some(argument) = option_argument(&param, Some("-F"), "--show-function-line") {
             let pattern = argument_value(argument, &param, &mut opts)?;
             push_function_line_pattern(&mut params, &pattern.to_string_lossy())?;
             continue;
@@ -265,7 +267,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
             params.ignore_file_name_case = false;
             continue;
         }
-        if let Some(argument) = option_argument(&param, "-S", "--starting-file") {
+        if let Some(argument) = option_argument(&param, Some("-S"), "--starting-file") {
             params.starting_file = Some(argument_value(argument, &param, &mut opts)?);
             continue;
         }
@@ -279,6 +281,14 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
         }
         if param == "-t" || param == "--expand-tabs" {
             params.expand_tabs = true;
+            continue;
+        }
+        if param == "-E" || param == "--ignore-tab-expansion" {
+            params.ignore_tab_expansion = true;
+            continue;
+        }
+        if param == "--suppress-blank-empty" {
+            params.suppress_blank_empty = true;
             continue;
         }
         if param == "--normal" {
@@ -302,42 +312,22 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
             format = Some(Format::SideBySide);
             continue;
         }
-        if width_re.is_match(param.to_string_lossy().as_ref()) {
-            let param = param.into_string().unwrap();
-            let width_str: &str = width_re
-                .captures(param.as_str())
-                .unwrap()
-                .name("long")
-                .unwrap()
-                .as_str();
-
+        if let Some(argument) = option_argument(&param, Some("-W"), "--width") {
+            let width_value = argument_value(argument, &param, &mut opts)?;
+            let width_str = width_value.to_string_lossy();
             params.width = match width_str.parse::<usize>() {
-                Ok(num) => {
-                    if num == 0 {
-                        return Err("invalid width «0»".to_string());
-                    }
-
-                    num
-                }
-                Err(_) => return Err(format!("invalid width «{width_str}»")),
+                Ok(num) if num > 0 => num,
+                _ => return Err(format!("invalid width «{width_str}»")),
             };
             continue;
         }
-        if tabsize_re.is_match(param.to_string_lossy().as_ref()) {
-            // Because param matches the regular expression,
-            // it is safe to assume it is valid UTF-8.
-            let param = param.into_string().unwrap();
-            let tabsize_str = tabsize_re
-                .captures(param.as_str())
-                .unwrap()
-                .name("num")
-                .unwrap()
-                .as_str();
+        if let Some(argument) = option_argument(&param, None, "--tabsize") {
+            let tabsize_value = argument_value(argument, &param, &mut opts)?;
+            let tabsize_str = tabsize_value.to_string_lossy();
             params.tabsize = match tabsize_str.parse::<usize>() {
-                Ok(num) if num != 0 && num <= MAX_TABSIZE => num,
+                Ok(num) if num > 0 && num <= MAX_TABSIZE => num,
                 _ => return Err(format!("invalid tabsize «{tabsize_str}»")),
             };
-
             continue;
         }
         match match_context_diff_params(&param, next_param, format) {
@@ -348,9 +338,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
             }) => {
                 if is_match {
                     format = Some(Format::Context);
-                    if context_count.is_some() {
-                        context = context_count;
-                    }
+                    context = Some(largest_context(context, context_count));
                     if next_param_consumed {
                         opts.next();
                     }
@@ -367,9 +355,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
             }) => {
                 if is_match {
                     format = Some(Format::Unified);
-                    if context_count.is_some() {
-                        context = context_count;
-                    }
+                    context = Some(largest_context(context, context_count));
                     if next_param_consumed {
                         opts.next();
                     }
@@ -486,16 +472,24 @@ enum OptionArgument<'a> {
 
 /// Returns how the argument of the option named `short` (like `-F`) or
 /// `long` is given, if `param` is that option.
-fn option_argument<'a>(param: &'a OsStr, short: &str, long: &str) -> Option<OptionArgument<'a>> {
-    if param == short || param == long {
+fn option_argument<'a>(
+    param: &'a OsStr,
+    short: Option<&str>,
+    long: &str,
+) -> Option<OptionArgument<'a>> {
+    if short.is_some_and(|s| param == s) || param == long {
         return Some(OptionArgument::Separate);
     }
     let param = param.to_str()?;
-    param
-        .strip_prefix(long)
-        .and_then(|rest| rest.strip_prefix('='))
-        .or_else(|| param.strip_prefix(short).filter(|value| !value.is_empty()))
-        .map(OptionArgument::Attached)
+    if let Some(rest) = param.strip_prefix(long).and_then(|r| r.strip_prefix('=')) {
+        return Some(OptionArgument::Attached(rest));
+    }
+    if let Some(short) = short {
+        if let Some(rest) = param.strip_prefix(short).filter(|value| !value.is_empty()) {
+            return Some(OptionArgument::Attached(rest));
+        }
+    }
+    None
 }
 
 /// Returns the value of the argument of the option `param`, taking the next
@@ -519,6 +513,13 @@ fn push_function_line_pattern(params: &mut Params, pattern: &str) -> Result<(), 
     let bre = Bre::new(pattern).map_err(|error| format!("'{pattern}': {error}"))?;
     params.function_line_patterns.push(bre);
     Ok(())
+}
+
+/// GNU diff uses the largest context length given, and a bare -c or -u
+/// counts as a request for the default length.
+fn largest_context(current: Option<usize>, given: Option<usize>) -> usize {
+    let given = given.unwrap_or_else(|| Params::default().context_count);
+    current.map_or(given, |current| current.max(given))
 }
 
 struct DiffStyleMatch {
@@ -618,6 +619,7 @@ fn match_unified_diff_params(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
     fn parse_params<I: Iterator<Item = OsString>>(opts: Peekable<I>) -> Result<Params, String> {
         super::parse_params(opts).map(|(params, _)| params)
@@ -625,603 +627,238 @@ mod tests {
     fn os(s: &str) -> OsString {
         OsString::from(s)
     }
-    #[test]
-    fn basics() {
-        assert_eq!(
-            Ok(Params {
-                executable: os("diff"),
-                from: os("foo"),
-                to: os("bar"),
-                ..Default::default()
-            }),
-            parse_params(
-                [os("diff"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-        assert_eq!(
-            Ok(Params {
-                executable: os("diff"),
-                from: os("foo"),
-                to: os("bar"),
-                ..Default::default()
-            }),
-            parse_params(
-                [os("diff"), os("--normal"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-    }
-    #[test]
-    fn basics_ed() {
-        for arg in ["-e", "--ed"] {
-            assert_eq!(
-                Ok(Params {
-                    executable: os("diff"),
-                    from: os("foo"),
-                    to: os("bar"),
-                    format: Format::Ed,
-                    ..Default::default()
-                }),
-                parse_params(
-                    [os("diff"), os(arg), os("foo"), os("bar")]
-                        .iter()
-                        .cloned()
-                        .peekable()
-                )
-            );
-        }
-    }
-    #[test]
-    fn context_valid() {
-        for args in [vec!["-c"], vec!["--context"], vec!["--context="]] {
-            let mut params = vec!["diff"];
-            params.extend(args);
-            params.extend(["foo", "bar"]);
-            assert_eq!(
-                Ok(Params {
-                    executable: os("diff"),
-                    from: os("foo"),
-                    to: os("bar"),
-                    format: Format::Context,
-                    ..Default::default()
-                }),
-                parse_params(params.iter().map(|x| os(x)).peekable())
-            );
-        }
-        for args in [
-            vec!["-c42"],
-            vec!["-C42"],
-            vec!["-C", "42"],
-            vec!["--context=42"],
-            vec!["-42c"],
-        ] {
-            let mut params = vec!["diff"];
-            params.extend(args);
-            params.extend(["foo", "bar"]);
-            assert_eq!(
-                Ok(Params {
-                    executable: os("diff"),
-                    from: os("foo"),
-                    to: os("bar"),
-                    format: Format::Context,
-                    context_count: 42,
-                    ..Default::default()
-                }),
-                parse_params(params.iter().map(|x| os(x)).peekable())
-            );
-        }
-    }
-    #[test]
-    fn context_invalid() {
-        for args in [
-            vec!["-c", "42"],
-            vec!["-c=42"],
-            vec!["-c="],
-            vec!["-C"],
-            vec!["-C=42"],
-            vec!["-C="],
-            vec!["--context42"],
-            vec!["--context", "42"],
-            vec!["-42C"],
-        ] {
-            let mut params = vec!["diff"];
-            params.extend(args);
-            params.extend(["foo", "bar"]);
-            assert!(parse_params(params.iter().map(|x| os(x)).peekable()).is_err());
-        }
-    }
-    #[test]
-    fn unified_valid() {
-        for args in [vec!["-u"], vec!["--unified"], vec!["--unified="]] {
-            let mut params = vec!["diff"];
-            params.extend(args);
-            params.extend(["foo", "bar"]);
-            assert_eq!(
-                Ok(Params {
-                    executable: os("diff"),
-                    from: os("foo"),
-                    to: os("bar"),
-                    format: Format::Unified,
-                    ..Default::default()
-                }),
-                parse_params(params.iter().map(|x| os(x)).peekable())
-            );
-        }
-        for args in [
-            vec!["-u42"],
-            vec!["-U42"],
-            vec!["-U", "42"],
-            vec!["--unified=42"],
-            vec!["-42u"],
-        ] {
-            let mut params = vec!["diff"];
-            params.extend(args);
-            params.extend(["foo", "bar"]);
-            assert_eq!(
-                Ok(Params {
-                    executable: os("diff"),
-                    from: os("foo"),
-                    to: os("bar"),
-                    format: Format::Unified,
-                    context_count: 42,
-                    ..Default::default()
-                }),
-                parse_params(params.iter().map(|x| os(x)).peekable())
-            );
-        }
-    }
-    #[test]
-    fn unified_invalid() {
-        for args in [
-            vec!["-u", "42"],
-            vec!["-u=42"],
-            vec!["-u="],
-            vec!["-U"],
-            vec!["-U=42"],
-            vec!["-U="],
-            vec!["--unified42"],
-            vec!["--unified", "42"],
-            vec!["-42U"],
-        ] {
-            let mut params = vec!["diff"];
-            params.extend(args);
-            params.extend(["foo", "bar"]);
-            assert!(parse_params(params.iter().map(|x| os(x)).peekable()).is_err());
-        }
-    }
-    #[test]
-    fn context_count() {
-        assert_eq!(
-            Ok(Params {
-                executable: os("diff"),
-                from: os("foo"),
-                to: os("bar"),
-                format: Format::Unified,
-                context_count: 54,
-                ..Default::default()
-            }),
-            parse_params(
-                [os("diff"), os("-u54"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-        assert_eq!(
-            Ok(Params {
-                executable: os("diff"),
-                from: os("foo"),
-                to: os("bar"),
-                format: Format::Unified,
-                context_count: 54,
-                ..Default::default()
-            }),
-            parse_params(
-                [os("diff"), os("-U54"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-        assert_eq!(
-            Ok(Params {
-                executable: os("diff"),
-                from: os("foo"),
-                to: os("bar"),
-                format: Format::Unified,
-                context_count: 54,
-                ..Default::default()
-            }),
-            parse_params(
-                [os("diff"), os("-U"), os("54"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-        assert_eq!(
-            Ok(Params {
-                executable: os("diff"),
-                from: os("foo"),
-                to: os("bar"),
-                format: Format::Context,
-                context_count: 54,
-                ..Default::default()
-            }),
-            parse_params(
-                [os("diff"), os("-c54"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-    }
-    #[test]
-    fn report_identical_files() {
-        assert_eq!(
-            Ok(Params {
-                executable: os("diff"),
-                from: os("foo"),
-                to: os("bar"),
-                ..Default::default()
-            }),
-            parse_params(
-                [os("diff"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-        assert_eq!(
-            Ok(Params {
-                executable: os("diff"),
-                from: os("foo"),
-                to: os("bar"),
-                report_identical_files: true,
-                ..Default::default()
-            }),
-            parse_params(
-                [os("diff"), os("-s"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-        assert_eq!(
-            Ok(Params {
-                executable: os("diff"),
-                from: os("foo"),
-                to: os("bar"),
-                report_identical_files: true,
-                ..Default::default()
-            }),
-            parse_params(
-                [
-                    os("diff"),
-                    os("--report-identical-files"),
-                    os("foo"),
-                    os("bar"),
-                ]
-                .iter()
-                .cloned()
-                .peekable()
-            )
-        );
-    }
-    #[test]
-    fn brief() {
-        assert_eq!(
-            Ok(Params {
-                executable: os("diff"),
-                from: os("foo"),
-                to: os("bar"),
-                ..Default::default()
-            }),
-            parse_params(
-                [os("diff"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-        assert_eq!(
-            Ok(Params {
-                executable: os("diff"),
-                from: os("foo"),
-                to: os("bar"),
-                brief: true,
-                ..Default::default()
-            }),
-            parse_params(
-                [os("diff"), os("-q"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-        assert_eq!(
-            Ok(Params {
-                executable: os("diff"),
-                from: os("foo"),
-                to: os("bar"),
-                brief: true,
-                ..Default::default()
-            }),
-            parse_params(
-                [os("diff"), os("--brief"), os("foo"), os("bar"),]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-    }
-    #[test]
-    fn text() {
-        for option in ["-a", "--text"] {
-            assert_eq!(
-                Ok(Params {
-                    executable: os("diff"),
-                    from: os("old.bin"),
-                    to: os("new.bin"),
-                    text: true,
-                    ..Default::default()
-                }),
-                parse_params(
-                    [os("diff"), os(option), os("old.bin"), os("new.bin")]
-                        .iter()
-                        .cloned()
-                        .peekable()
-                )
-            );
-        }
-    }
-    #[test]
-    fn expand_tabs() {
-        assert_eq!(
-            Ok(Params {
-                executable: os("diff"),
-                from: os("foo"),
-                to: os("bar"),
-                ..Default::default()
-            }),
-            parse_params(
-                [os("diff"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-        for option in ["-t", "--expand-tabs"] {
-            assert_eq!(
-                Ok(Params {
-                    executable: os("diff"),
-                    from: os("foo"),
-                    to: os("bar"),
-                    expand_tabs: true,
-                    ..Default::default()
-                }),
-                parse_params(
-                    [os("diff"), os(option), os("foo"), os("bar")]
-                        .iter()
-                        .cloned()
-                        .peekable()
-                )
-            );
-        }
-    }
-    #[test]
-    fn tabsize() {
-        assert_eq!(
-            Ok(Params {
-                executable: os("diff"),
-                from: os("foo"),
-                to: os("bar"),
-                ..Default::default()
-            }),
-            parse_params(
-                [os("diff"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-        assert_eq!(
-            Ok(Params {
-                executable: os("diff"),
-                from: os("foo"),
-                to: os("bar"),
-                tabsize: 1,
-                ..Default::default()
-            }),
-            parse_params(
-                [os("diff"), os("--tabsize=1"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-        assert_eq!(
-            Ok(Params {
-                executable: os("diff"),
-                from: os("foo"),
-                to: os("bar"),
-                tabsize: 42,
-                ..Default::default()
-            }),
-            parse_params(
-                [os("diff"), os("--tabsize=42"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-        assert!(parse_params(
-            [os("diff"), os("--tabsize"), os("foo"), os("bar")]
-                .iter()
-                .cloned()
-                .peekable()
+    fn parse(args: &[&str]) -> Result<Params, String> {
+        parse_params(
+            std::iter::once("diff")
+                .chain(args.iter().copied())
+                .map(os)
+                .peekable(),
         )
-        .is_err());
-        assert!(parse_params(
-            [os("diff"), os("--tabsize="), os("foo"), os("bar")]
-                .iter()
-                .cloned()
-                .peekable()
-        )
-        .is_err());
-        assert!(parse_params(
-            [os("diff"), os("--tabsize=r2"), os("foo"), os("bar")]
-                .iter()
-                .cloned()
-                .peekable()
-        )
-        .is_err());
-        assert!(parse_params(
-            [os("diff"), os("--tabsize=-1"), os("foo"), os("bar")]
-                .iter()
-                .cloned()
-                .peekable()
-        )
-        .is_err());
-        assert!(parse_params(
-            [os("diff"), os("--tabsize=r2"), os("foo"), os("bar")]
-                .iter()
-                .cloned()
-                .peekable()
-        )
-        .is_err());
-        assert!(parse_params(
-            [
-                os("diff"),
-                os("--tabsize=92233720368547758088"),
-                os("foo"),
-                os("bar")
-            ]
-            .iter()
-            .cloned()
-            .peekable()
-        )
-        .is_err());
-        for too_large in [(MAX_TABSIZE + 1).to_string(), usize::MAX.to_string()] {
-            assert_eq!(
-                Err(format!("invalid tabsize «{too_large}»")),
-                parse_params(
-                    [
-                        os("diff"),
-                        os(&format!("--tabsize={too_large}")),
-                        os("foo"),
-                        os("bar")
-                    ]
-                    .iter()
-                    .cloned()
-                    .peekable()
-                )
-            );
+    }
+    fn operands(from: &str, to: &str) -> Params {
+        Params {
+            executable: os("diff"),
+            from: os(from),
+            to: os(to),
+            ..Default::default()
         }
+    }
+    fn foo_bar() -> Params {
+        operands("foo", "bar")
+    }
+
+    #[rstest]
+    #[case::basics(&["foo", "bar"], foo_bar())]
+    #[case::normal(&["--normal", "foo", "bar"], foo_bar())]
+    #[case::ed_short(&["-e", "foo", "bar"], Params { format: Format::Ed, ..foo_bar() })]
+    #[case::ed_long(&["--ed", "foo", "bar"], Params { format: Format::Ed, ..foo_bar() })]
+    #[case::context_short(&["-c", "foo", "bar"], Params { format: Format::Context, ..foo_bar() })]
+    #[case::context_long(&["--context", "foo", "bar"], Params { format: Format::Context, ..foo_bar() })]
+    #[case::context_long_empty(&["--context=", "foo", "bar"], Params { format: Format::Context, ..foo_bar() })]
+    #[case::context_attached(
+        &["-c42", "foo", "bar"],
+        Params { format: Format::Context, context_count: 42, ..foo_bar() },
+    )]
+    #[case::context_upper_attached(
+        &["-C42", "foo", "bar"],
+        Params { format: Format::Context, context_count: 42, ..foo_bar() },
+    )]
+    #[case::context_upper_separate(
+        &["-C", "42", "foo", "bar"],
+        Params { format: Format::Context, context_count: 42, ..foo_bar() },
+    )]
+    #[case::context_long_count(
+        &["--context=42", "foo", "bar"],
+        Params { format: Format::Context, context_count: 42, ..foo_bar() },
+    )]
+    #[case::context_count_prefix(
+        &["-42c", "foo", "bar"],
+        Params { format: Format::Context, context_count: 42, ..foo_bar() },
+    )]
+    #[case::context_count_54(
+        &["-c54", "foo", "bar"],
+        Params { format: Format::Context, context_count: 54, ..foo_bar() },
+    )]
+    #[case::unified_short(&["-u", "foo", "bar"], Params { format: Format::Unified, ..foo_bar() })]
+    #[case::unified_long(&["--unified", "foo", "bar"], Params { format: Format::Unified, ..foo_bar() })]
+    #[case::unified_long_empty(&["--unified=", "foo", "bar"], Params { format: Format::Unified, ..foo_bar() })]
+    #[case::unified_attached(
+        &["-u42", "foo", "bar"],
+        Params { format: Format::Unified, context_count: 42, ..foo_bar() },
+    )]
+    #[case::unified_upper_attached(
+        &["-U42", "foo", "bar"],
+        Params { format: Format::Unified, context_count: 42, ..foo_bar() },
+    )]
+    #[case::unified_upper_separate(
+        &["-U", "42", "foo", "bar"],
+        Params { format: Format::Unified, context_count: 42, ..foo_bar() },
+    )]
+    #[case::unified_long_count(
+        &["--unified=42", "foo", "bar"],
+        Params { format: Format::Unified, context_count: 42, ..foo_bar() },
+    )]
+    #[case::unified_count_prefix(
+        &["-42u", "foo", "bar"],
+        Params { format: Format::Unified, context_count: 42, ..foo_bar() },
+    )]
+    #[case::unified_count_54(
+        &["-u54", "foo", "bar"],
+        Params { format: Format::Unified, context_count: 54, ..foo_bar() },
+    )]
+    #[case::unified_upper_count_54(
+        &["-U54", "foo", "bar"],
+        Params { format: Format::Unified, context_count: 54, ..foo_bar() },
+    )]
+    #[case::unified_upper_separate_count_54(
+        &["-U", "54", "foo", "bar"],
+        Params { format: Format::Unified, context_count: 54, ..foo_bar() },
+    )]
+    #[case::report_identical_files_short(
+        &["-s", "foo", "bar"],
+        Params { report_identical_files: true, ..foo_bar() },
+    )]
+    #[case::report_identical_files_long(
+        &["--report-identical-files", "foo", "bar"],
+        Params { report_identical_files: true, ..foo_bar() },
+    )]
+    #[case::brief_short(&["-q", "foo", "bar"], Params { brief: true, ..foo_bar() })]
+    #[case::brief_long(&["--brief", "foo", "bar"], Params { brief: true, ..foo_bar() })]
+    #[case::text_short(&["-a", "old.bin", "new.bin"], Params { text: true, ..operands("old.bin", "new.bin") })]
+    #[case::text_long(&["--text", "old.bin", "new.bin"], Params { text: true, ..operands("old.bin", "new.bin") })]
+    #[case::expand_tabs_short(&["-t", "foo", "bar"], Params { expand_tabs: true, ..foo_bar() })]
+    #[case::expand_tabs_long(&["--expand-tabs", "foo", "bar"], Params { expand_tabs: true, ..foo_bar() })]
+    #[case::ignore_tab_expansion_short(&["-E", "foo", "bar"], Params { ignore_tab_expansion: true, ..foo_bar() })]
+    #[case::ignore_tab_expansion_long(
+        &["--ignore-tab-expansion", "foo", "bar"],
+        Params { ignore_tab_expansion: true, ..foo_bar() },
+    )]
+    #[case::tabsize_separate(&["--tabsize", "42", "foo", "bar"], Params { tabsize: 42, ..foo_bar() })]
+    #[case::tabsize_equals(&["--tabsize=42", "foo", "bar"], Params { tabsize: 42, ..foo_bar() })]
+    #[case::width_short_separate(&["-W", "100", "foo", "bar"], Params { width: 100, ..foo_bar() })]
+    #[case::width_short_attached(&["-W100", "foo", "bar"], Params { width: 100, ..foo_bar() })]
+    #[case::width_long_separate(&["--width", "100", "foo", "bar"], Params { width: 100, ..foo_bar() })]
+    #[case::width_long_equals(&["--width=100", "foo", "bar"], Params { width: 100, ..foo_bar() })]
+    #[case::width_suffix_is_an_operand(&["xyz--width=5", "foo"], operands("xyz--width=5", "foo"))]
+    #[case::labels(
+        &["--label", "old", "-Lnew", "foo", "bar"],
+        Params { from_label: Some(os("old")), to_label: Some(os("new")), ..foo_bar() },
+    )]
+    #[case::double_dash(&["--", "-g", "-h"], operands("-g", "-h"))]
+    #[case::stdin_to(&["foo", "-"], operands("foo", "-"))]
+    #[case::stdin_from(&["-", "bar"], operands("-", "bar"))]
+    #[case::stdin_both(&["-", "-"], operands("-", "-"))]
+    fn valid(#[case] args: &[&str], #[case] expected: Params) {
+        assert_eq!(parse(args), Ok(expected));
+    }
+
+    #[rstest]
+    #[case::context_separate_count(&["-c", "42", "foo", "bar"])]
+    #[case::context_equals_count(&["-c=42", "foo", "bar"])]
+    #[case::context_equals_empty(&["-c=", "foo", "bar"])]
+    #[case::context_upper_no_count(&["-C", "foo", "bar"])]
+    #[case::context_upper_equals_count(&["-C=42", "foo", "bar"])]
+    #[case::context_upper_equals_empty(&["-C=", "foo", "bar"])]
+    #[case::context_long_attached(&["--context42", "foo", "bar"])]
+    #[case::context_long_separate(&["--context", "42", "foo", "bar"])]
+    #[case::context_upper_count_prefix(&["-42C", "foo", "bar"])]
+    #[case::unified_separate_count(&["-u", "42", "foo", "bar"])]
+    #[case::unified_equals_count(&["-u=42", "foo", "bar"])]
+    #[case::unified_equals_empty(&["-u=", "foo", "bar"])]
+    #[case::unified_upper_no_count(&["-U", "foo", "bar"])]
+    #[case::unified_upper_equals_count(&["-U=42", "foo", "bar"])]
+    #[case::unified_upper_equals_empty(&["-U=", "foo", "bar"])]
+    #[case::unified_long_attached(&["--unified42", "foo", "bar"])]
+    #[case::unified_long_separate(&["--unified", "42", "foo", "bar"])]
+    #[case::unified_upper_count_prefix(&["-42U", "foo", "bar"])]
+    #[case::tabsize_takes_operand(&["--tabsize", "foo", "bar"])]
+    #[case::tabsize_empty(&["--tabsize=", "foo", "bar"])]
+    #[case::tabsize_not_a_number(&["--tabsize=r2", "foo", "bar"])]
+    #[case::tabsize_negative(&["--tabsize=-1", "foo", "bar"])]
+    #[case::tabsize_overflow(&["--tabsize=92233720368547758088", "foo", "bar"])]
+    #[case::extra_stdin_operand(&["foo", "bar", "-"])]
+    #[case::three_stdin_operands(&["-", "-", "-"])]
+    #[case::no_operand(&[])]
+    #[case::one_operand(&["foo"])]
+    #[case::unknown_option(&["-g", "foo", "bar"])]
+    #[case::unknown_option_one_operand(&["-g", "bar"])]
+    #[case::unknown_option_alone(&["-g"])]
+    #[case::conflicting_unified_context(&["-u", "-c", "foo", "bar"])]
+    #[case::conflicting_unified_ed(&["-u", "-e", "foo", "bar"])]
+    #[case::conflicting_context_unified(&["-c", "-u", "foo", "bar"])]
+    #[case::conflicting_context_unified_count(&["-c", "-U42", "foo", "bar"])]
+    #[case::conflicting_unified_normal(&["-u", "--normal", "foo", "bar"])]
+    #[case::conflicting_normal_ed(&["--normal", "-e", "foo", "bar"])]
+    #[case::conflicting_context_normal(&["--context", "--normal", "foo", "bar"])]
+    #[case::color_unknown_option(&["--colorful", "foo", "bar"])]
+    #[case::color_empty(&["--color=", "foo", "bar"])]
+    #[case::color_invalid(&["--color=yes", "foo", "bar"])]
+    #[case::starting_file_no_argument(&["foo", "bar", "-S"])]
+    fn invalid(#[case] args: &[&str]) {
+        assert!(parse(args).is_err());
+    }
+
+    #[test]
+    fn empty() {
+        assert!(parse_params([].iter().cloned().peekable()).is_err());
+    }
+
+    #[rstest]
+    #[case::tabsize_no_argument(&["foo", "bar", "--tabsize"], "option '--tabsize' requires an argument")]
+    #[case::width_short_no_argument(&["foo", "bar", "-W"], "option '-W' requires an argument")]
+    #[case::width_long_no_argument(&["foo", "bar", "--width"], "option '--width' requires an argument")]
+    #[case::width_short_separate_zero(&["foo", "bar", "-W", "0"], "invalid width «0»")]
+    #[case::width_short_attached_zero(&["foo", "bar", "-W0"], "invalid width «0»")]
+    #[case::width_long_equals_zero(&["foo", "bar", "--width=0"], "invalid width «0»")]
+    #[case::width_long_separate_zero(&["foo", "bar", "--width", "0"], "invalid width «0»")]
+    #[case::width_short_not_a_number(&["foo", "bar", "-W", "abc"], "invalid width «abc»")]
+    #[case::width_long_not_a_number(&["foo", "bar", "--width=abc"], "invalid width «abc»")]
+    #[case::too_many_labels(
+        &["--label=a", "-L", "b", "-Lc", "foo", "bar"],
+        "too many file label options",
+    )]
+    #[case::extra_operand(
+        &["foo", "bar", "baz"],
+        "diff: extra operand 'baz'\ndiff: Try 'diff --help' for more information.",
+    )]
+    #[case::extra_stdin_operand(
+        &["-", "-", "-"],
+        "diff: extra operand '-'\ndiff: Try 'diff --help' for more information.",
+    )]
+    #[case::extra_operand_after_double_dash(
+        &["--", "foo", "bar", "baz"],
+        "diff: extra operand 'baz'\ndiff: Try 'diff --help' for more information.",
+    )]
+    #[case::extra_operand_around_double_dash(
+        &["foo", "--", "bar", "baz"],
+        "diff: extra operand 'baz'\ndiff: Try 'diff --help' for more information.",
+    )]
+    #[case::function_line_trailing_backslash(&["-F", "oops\\", "foo", "bar"], "'oops\\': Trailing backslash")]
+    fn error_message(#[case] args: &[&str], #[case] expected: &str) {
+        assert_eq!(parse(args), Err(expected.to_string()));
+    }
+
+    #[rstest]
+    #[case::max_plus_one(MAX_TABSIZE + 1)]
+    #[case::usize_max(usize::MAX)]
+    fn tabsize_too_large(#[case] tabsize: usize) {
+        assert_eq!(
+            Err(format!("invalid tabsize «{tabsize}»")),
+            parse(&[&format!("--tabsize={tabsize}"), "foo", "bar"])
+        );
+    }
+
+    #[test]
+    fn tabsize_max() {
         assert_eq!(
             Ok(Params {
-                executable: os("diff"),
-                from: os("foo"),
-                to: os("bar"),
                 tabsize: MAX_TABSIZE,
-                ..Default::default()
+                ..foo_bar()
             }),
-            parse_params(
-                [
-                    os("diff"),
-                    os(&format!("--tabsize={MAX_TABSIZE}")),
-                    os("foo"),
-                    os("bar")
-                ]
-                .iter()
-                .cloned()
-                .peekable()
-            )
+            parse(&[&format!("--tabsize={MAX_TABSIZE}"), "foo", "bar"])
         );
     }
-    #[test]
-    fn width() {
-        assert_eq!(
-            Ok(Params {
-                executable: os("diff"),
-                from: os("foo"),
-                to: os("bar"),
-                width: 100,
-                ..Default::default()
-            }),
-            parse_params(
-                [os("diff"), os("--width=100"), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-    }
-    #[test]
-    fn labels() {
-        assert_eq!(
-            Ok(Params {
-                executable: os("diff"),
-                from: os("foo"),
-                to: os("bar"),
-                from_label: Some(os("old")),
-                to_label: Some(os("new")),
-                ..Default::default()
-            }),
-            parse_params(
-                [
-                    os("diff"),
-                    os("--label"),
-                    os("old"),
-                    os("-Lnew"),
-                    os("foo"),
-                    os("bar")
-                ]
-                .iter()
-                .cloned()
-                .peekable()
-            )
-        );
-        assert_eq!(
-            Err("too many file label options".to_string()),
-            parse_params(
-                [
-                    os("diff"),
-                    os("--label=a"),
-                    os("-L"),
-                    os("b"),
-                    os("-Lc"),
-                    os("foo"),
-                    os("bar")
-                ]
-                .iter()
-                .cloned()
-                .peekable()
-            )
-        );
-    }
-    #[test]
-    fn width_suffix_is_an_operand() {
-        assert_eq!(
-            Ok(Params {
-                executable: os("diff"),
-                from: os("xyz--width=5"),
-                to: os("foo"),
-                ..Default::default()
-            }),
-            parse_params(
-                [os("diff"), os("xyz--width=5"), os("foo")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-    }
+
     #[cfg(unix)]
     #[test]
     fn width_non_utf8_is_not_an_option() {
@@ -1260,255 +897,87 @@ mod tests {
         assert_eq!(params.from, os("foo"));
         assert_eq!(params.to, os("bar"));
     }
-    #[test]
-    fn double_dash() {
-        assert_eq!(
-            Ok(Params {
-                executable: os("diff"),
-                from: os("-g"),
-                to: os("-h"),
-                ..Default::default()
-            }),
-            parse_params(
-                [os("diff"), os("--"), os("-g"), os("-h")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-        );
-    }
-    #[test]
-    fn default_to_stdin() {
-        assert_eq!(
-            Ok(Params {
-                executable: os("diff"),
-                from: os("foo"),
-                to: os("-"),
-                ..Default::default()
-            }),
-            parse_params([os("diff"), os("foo"), os("-")].iter().cloned().peekable())
-        );
-        assert_eq!(
-            Ok(Params {
-                executable: os("diff"),
-                from: os("-"),
-                to: os("bar"),
-                ..Default::default()
-            }),
-            parse_params([os("diff"), os("-"), os("bar")].iter().cloned().peekable())
-        );
-        assert_eq!(
-            Ok(Params {
-                executable: os("diff"),
-                from: os("-"),
-                to: os("-"),
-                ..Default::default()
-            }),
-            parse_params([os("diff"), os("-"), os("-")].iter().cloned().peekable())
-        );
-        assert!(parse_params(
-            [os("diff"), os("foo"), os("bar"), os("-")]
-                .iter()
-                .cloned()
-                .peekable()
-        )
-        .is_err());
-        assert!(parse_params(
-            [os("diff"), os("-"), os("-"), os("-")]
-                .iter()
-                .cloned()
-                .peekable()
-        )
-        .is_err());
-    }
-    #[test]
-    fn extra_operand_is_an_error() {
-        for args in [
-            &["diff", "foo", "bar", "baz"][..],
-            &["diff", "-", "-", "-"],
-            &["diff", "--", "foo", "bar", "baz"],
-            &["diff", "foo", "--", "bar", "baz"],
-        ] {
-            assert_eq!(
-                parse_params(args.iter().map(|x| os(x)).peekable()).err(),
-                Some(format!(
-                    "diff: extra operand '{0}'\ndiff: Try 'diff --help' for more information.",
-                    args[args.len() - 1]
-                )),
-                "{args:?}"
-            );
-        }
-    }
-    #[test]
-    fn missing_arguments() {
-        assert!(parse_params([os("diff")].iter().cloned().peekable()).is_err());
-        assert!(parse_params([os("diff"), os("foo")].iter().cloned().peekable()).is_err());
-    }
-    #[test]
-    fn unknown_argument() {
-        assert!(parse_params(
-            [os("diff"), os("-g"), os("foo"), os("bar")]
-                .iter()
-                .cloned()
-                .peekable()
-        )
-        .is_err());
-        assert!(
-            parse_params([os("diff"), os("-g"), os("bar")].iter().cloned().peekable()).is_err()
-        );
-        assert!(parse_params([os("diff"), os("-g")].iter().cloned().peekable()).is_err());
-    }
-    #[test]
-    fn empty() {
-        assert!(parse_params([].iter().cloned().peekable()).is_err());
-    }
-    #[test]
-    fn conflicting_output_styles() {
-        for (arg1, arg2) in [
-            ("-u", "-c"),
-            ("-u", "-e"),
-            ("-c", "-u"),
-            ("-c", "-U42"),
-            ("-u", "--normal"),
-            ("--normal", "-e"),
-            ("--context", "--normal"),
-        ] {
-            assert!(parse_params(
-                [os("diff"), os(arg1), os(arg2), os("foo"), os("bar")]
-                    .iter()
-                    .cloned()
-                    .peekable()
-            )
-            .is_err());
-        }
+
+    #[rstest]
+    #[case::auto(&["--color"], ColorWhen::Auto)]
+    #[case::never(&["--color=never"], ColorWhen::Never)]
+    #[case::always_after_palette(&["--palette", "ad=35", "--color=always"], ColorWhen::Always)]
+    fn color(#[case] args: &[&str], #[case] expected: ColorWhen) {
+        let args = [args, &["foo", "bar"]].concat();
+        assert_eq!(parse(&args).unwrap().color, expected);
     }
 
-    #[test]
-    fn color_options() {
-        let parse = |args: &[&str]| {
-            let args = std::iter::once("diff")
+    #[rstest]
+    #[case::separate(&["--palette", "ad=35", "--color=always"], "ad=35")]
+    #[case::equals(&["--palette=hd=4"], "hd=4")]
+    fn palette(#[case] args: &[&str], #[case] expected: &str) {
+        let args = [args, &["foo", "bar"]].concat();
+        assert_eq!(parse(&args).unwrap().palette.as_deref(), Some(expected));
+    }
+
+    #[rstest]
+    #[case::show_c_function(&["-p"], Format::Context, &[C_FUNCTION_PATTERN])]
+    #[case::show_c_function_unified(&["-u", "-p"], Format::Unified, &[C_FUNCTION_PATTERN])]
+    #[case::several_patterns(
+        &["-F", "^fn", "-Fx", "--show-function-line=^#", "-e"],
+        Format::Ed,
+        &["^fn", "x", "^#"],
+    )]
+    // -F alone selects no output format.
+    #[case::no_format(&["-F", "^fn"], Format::Normal, &["^fn"])]
+    fn function_lines(#[case] args: &[&str], #[case] format: Format, #[case] patterns: &[&str]) {
+        let args = [args, &["foo", "bar"]].concat();
+        let params = parse(&args).unwrap();
+        assert_eq!(params.format, format);
+        let patterns: Vec<Bre> = patterns
+            .iter()
+            .map(|pattern| Bre::new(pattern).unwrap())
+            .collect();
+        assert_eq!(params.function_line_patterns, patterns);
+    }
+
+    #[rstest]
+    #[case::between_operands(&["-u", "old", "-r", "new"], &["-u", "-r"])]
+    // An option argument equal to an operand stays with its option.
+    #[case::argument_equal_to_operand(&["-F", "new", "old", "new"], &["-F", "new"])]
+    #[case::double_dash(&["-q", "--", "-old", "new"], &["-q", "--"])]
+    #[case::after_stdin(&["-", "new", "-t"], &["-t"])]
+    fn option_arguments(#[case] args: &[&str], #[case] expected: &[&str]) {
+        let (_, options) = super::parse_params(
+            std::iter::once("diff")
                 .chain(args.iter().copied())
-                .chain(["foo", "bar"]);
-            parse_params(args.map(os).peekable())
-        };
-        assert_eq!(parse(&["--color"]).unwrap().color, ColorWhen::Auto);
-        assert_eq!(parse(&["--color=never"]).unwrap().color, ColorWhen::Never);
-        let params = parse(&["--palette", "ad=35", "--color=always"]).unwrap();
-        assert_eq!(params.color, ColorWhen::Always);
-        assert_eq!(params.palette.as_deref(), Some("ad=35"));
-        assert_eq!(
-            parse(&["--palette=hd=4"]).unwrap().palette.as_deref(),
-            Some("hd=4")
-        );
-        for option in ["--colorful", "--color=", "--color=yes"] {
-            assert!(parse(&[option]).is_err(), "{option}");
-        }
-    }
-
-    #[test]
-    fn function_lines() {
-        let patterns = |patterns: &[&str]| -> Vec<Bre> {
-            patterns
-                .iter()
-                .map(|pattern| Bre::new(pattern).unwrap())
-                .collect()
-        };
-        let parse = |args: &[&str]| {
-            let args = std::iter::once("diff")
-                .chain(args.iter().copied())
-                .chain(["foo", "bar"]);
-            parse_params(args.map(os).peekable())
-        };
-        let params = parse(&["-p"]).unwrap();
-        assert_eq!(params.format, Format::Context);
-        assert_eq!(
-            params.function_line_patterns,
-            patterns(&[C_FUNCTION_PATTERN])
-        );
-
-        let params = parse(&["-u", "-p"]).unwrap();
-        assert_eq!(params.format, Format::Unified);
-
-        let params = parse(&["-F", "^fn", "-Fx", "--show-function-line=^#", "-e"]).unwrap();
-        assert_eq!(params.format, Format::Ed);
-        assert_eq!(params.function_line_patterns, patterns(&["^fn", "x", "^#"]));
-
-        // -F alone selects no output format.
-        assert_eq!(parse(&["-F", "^fn"]).unwrap().format, Format::Normal);
-
-        assert_eq!(
-            parse(&["-F", "oops\\"]),
-            Err("'oops\\': Trailing backslash".to_string())
-        );
-    }
-
-    #[test]
-    fn option_arguments() {
-        let options = |args: &[&str]| {
-            let (_, options) =
-                super::parse_params(args.iter().copied().map(os).peekable()).unwrap();
-            options
-        };
-        assert_eq!(
-            options(&["diff", "-u", "old", "-r", "new"]),
-            [os("-u"), os("-r")]
-        );
-        // An option argument equal to an operand stays with its option.
-        assert_eq!(
-            options(&["diff", "-F", "new", "old", "new"]),
-            [os("-F"), os("new")]
-        );
-        assert_eq!(
-            options(&["diff", "-q", "--", "-old", "new"]),
-            [os("-q"), os("--")]
-        );
-        assert_eq!(options(&["diff", "-", "new", "-t"]), [os("-t")]);
-    }
-
-    #[test]
-    fn starting_file() {
-        for args in [
-            &["-S", "mid"][..],
-            &["-Smid"],
-            &["--starting-file=mid"],
-            &["--starting-file", "mid"],
-        ] {
-            let args = std::iter::once("diff")
-                .chain(args.iter().copied())
-                .chain(["foo", "bar"]);
-            let params = parse_params(args.map(os).peekable()).unwrap();
-            assert_eq!(params.starting_file, Some(os("mid")));
-            assert_eq!(params.from, os("foo"));
-        }
-        assert!(parse_params(
-            [os("diff"), os("foo"), os("bar"), os("-S")]
-                .into_iter()
-                .peekable()
+                .map(os)
+                .peekable(),
         )
-        .is_err());
+        .unwrap();
+        assert_eq!(
+            options,
+            expected.iter().copied().map(os).collect::<Vec<_>>()
+        );
     }
-    #[test]
-    fn ignore_file_name_case() {
-        // The last of --ignore-file-name-case and --no-ignore-file-name-case
-        // wins.
-        for (args, expected) in [
-            (&[][..], false),
-            (&["--ignore-file-name-case"], true),
-            (&["--no-ignore-file-name-case"], false),
-            (
-                &["--ignore-file-name-case", "--no-ignore-file-name-case"],
-                false,
-            ),
-            (
-                &["--no-ignore-file-name-case", "--ignore-file-name-case"],
-                true,
-            ),
-        ] {
-            let args = std::iter::once("diff")
-                .chain(args.iter().copied())
-                .chain(["foo", "bar"]);
-            let params = parse_params(args.map(os).peekable()).unwrap();
-            assert_eq!(params.ignore_file_name_case, expected);
-        }
+
+    #[rstest]
+    #[case::short_separate(&["-S", "mid"])]
+    #[case::short_attached(&["-Smid"])]
+    #[case::long_equals(&["--starting-file=mid"])]
+    #[case::long_separate(&["--starting-file", "mid"])]
+    fn starting_file(#[case] args: &[&str]) {
+        let args = [args, &["foo", "bar"]].concat();
+        let params = parse(&args).unwrap();
+        assert_eq!(params.starting_file, Some(os("mid")));
+        assert_eq!(params.from, os("foo"));
+    }
+
+    // The last of --ignore-file-name-case and --no-ignore-file-name-case
+    // wins.
+    #[rstest]
+    #[case::default(&[], false)]
+    #[case::ignore(&["--ignore-file-name-case"], true)]
+    #[case::no_ignore(&["--no-ignore-file-name-case"], false)]
+    #[case::ignore_then_no_ignore(&["--ignore-file-name-case", "--no-ignore-file-name-case"], false)]
+    #[case::no_ignore_then_ignore(&["--no-ignore-file-name-case", "--ignore-file-name-case"], true)]
+    fn ignore_file_name_case(#[case] args: &[&str], #[case] expected: bool) {
+        let args = [args, &["foo", "bar"]].concat();
+        assert_eq!(parse(&args).unwrap().ignore_file_name_case, expected);
     }
 }

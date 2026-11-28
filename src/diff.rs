@@ -101,6 +101,13 @@ pub fn compare_files(params: &Params, header: Option<&[u8]>) -> Outcome {
         return Outcome::Trouble;
     }
 
+    // identical contents need no diff, unless side by side output shows their
+    // lines or an ed script warns about a missing newline
+    if from_content == to_content && !matches!(params.format, Format::SideBySide | Format::Ed) {
+        maybe_report_identical_files();
+        return Outcome::Identical;
+    }
+
     if !params.text && (is_binary(&from_content) || is_binary(&to_content)) {
         if from_content == to_content {
             maybe_report_identical_files();
@@ -123,22 +130,8 @@ pub fn compare_files(params: &Params, header: Option<&[u8]>) -> Outcome {
         ..params.clone()
     };
 
-    if params.brief {
-        let has_diff = from_content != to_content;
-        // NOTE: If features with content normalization (such as --ignore-case (-i),
-        // --ignore-all-space (-w), --ignore-blank-lines (-B), or are implemented in the future,
-        // extra checks will be needed here as `has_diff` only checks if the bytes are same for now
-        return if has_diff {
-            print_files_differ("Files", params);
-            Outcome::Different
-        } else {
-            maybe_report_identical_files();
-            Outcome::Identical
-        };
-    }
-
     // run diff
-    let (result, has_diff) = match params.format {
+    let (result, has_diff): (Vec<u8>, bool) = match params.format {
         Format::Normal => {
             let result = normal_diff::diff(&from_content, &to_content, params);
             let has_diff = !result.is_empty();
@@ -154,43 +147,85 @@ pub fn compare_files(params: &Params, header: Option<&[u8]>) -> Outcome {
             let has_diff = !result.is_empty();
             (result, has_diff)
         }
-        Format::Ed => match ed_diff::diff(&from_content, &to_content, params) {
-            Ok(result) => {
-                let has_diff = !result.is_empty();
-                (result, has_diff)
-            }
-            Err(error) => {
-                eprintln!("{error}");
-                return Outcome::Trouble;
-            }
-        },
-        Format::SideBySide => {
-            let mut result = Vec::new();
-            let has_diff = side_diff::diff(&from_content, &to_content, &mut result, params);
+        Format::Ed => {
+            let result = ed_diff::diff(&from_content, &to_content, params);
+            let has_diff = !result.is_empty();
             (result, has_diff)
         }
-    };
-    let header = if has_diff {
-        header.unwrap_or_default()
-    } else {
-        &[][..]
-    };
-    let colored = output_palette(params).map(|palette| colorize(&result, params.format, &palette));
-    let mut stdout = stdout().lock();
-    let written = stdout
-        .write_all(header)
-        .and_then(|()| stdout.write_all(colored.as_deref().unwrap_or(&result)))
-        .and_then(|()| stdout.flush());
-    if let Err(error) = written {
-        // A reader that went away, as with `| head`, is not worth a message.
-        if error.kind() != io::ErrorKind::BrokenPipe {
-            report_failure_to_read_input_file(
-                &params.executable,
-                &OsString::from("standard output"),
-                &error,
-            );
+        // Side by side output is streamed, unless a header may have to come
+        // first (or `-q` suppresses the diff output).
+        Format::SideBySide if params.brief => {
+            let has_diff = side_diff::diff(&from_content, &to_content, &mut io::sink(), params);
+            (Vec::new(), has_diff)
         }
-        return Outcome::Trouble;
+        Format::SideBySide => {
+            let has_diff = match header {
+                None => {
+                    let mut out = stdout().lock();
+                    let has_diff = side_diff::diff(&from_content, &to_content, &mut out, params);
+                    let _ = out.flush();
+                    has_diff
+                }
+                Some(header) => {
+                    let mut output = Vec::new();
+                    let has_diff = side_diff::diff(&from_content, &to_content, &mut output, params);
+                    if has_diff {
+                        output.splice(0..0, header.iter().copied());
+                    }
+                    if stdout().write_all(&output).is_err() {
+                        return Outcome::Trouble;
+                    }
+                    has_diff
+                }
+            };
+            (Vec::new(), has_diff)
+        }
+    };
+    if params.brief && has_diff {
+        print_files_differ("Files", params);
+    } else if params.format != Format::SideBySide {
+        let header = if has_diff {
+            header.unwrap_or_default()
+        } else {
+            &[][..]
+        };
+        let colored =
+            output_palette(params).map(|palette| colorize(&result, params.format, &palette));
+        let mut stdout = stdout().lock();
+        let written = stdout
+            .write_all(header)
+            .and_then(|()| stdout.write_all(colored.as_deref().unwrap_or(&result)))
+            .and_then(|()| stdout.flush());
+        if let Err(error) = written {
+            // A reader that went away, as with `| head`, is not worth a message.
+            if error.kind() != io::ErrorKind::BrokenPipe {
+                report_failure_to_read_input_file(
+                    &params.executable,
+                    &OsString::from("standard output"),
+                    &error,
+                );
+            }
+            return Outcome::Trouble;
+        }
+    }
+    // An ed script cannot say that a file's last line lacks its newline, so,
+    // like GNU diff, write the script anyway, then warn about each such file
+    // and report trouble.
+    if params.format == Format::Ed {
+        let mut missing_newline = false;
+        for (name, content) in [(&params.from, &from_content), (&params.to, &to_content)] {
+            if content.last().is_some_and(|&byte| byte != b'\n') {
+                eprintln!(
+                    "{}: {}: No newline at end of file\n",
+                    params.executable.to_string_lossy(),
+                    name.to_string_lossy()
+                );
+                missing_newline = true;
+            }
+        }
+        if missing_newline {
+            return Outcome::Trouble;
+        }
     }
     if !has_diff {
         maybe_report_identical_files();

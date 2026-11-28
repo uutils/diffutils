@@ -119,11 +119,15 @@ pub fn colorize(output: &[u8], format: Format, palette: &Palette) -> Vec<u8> {
                 } else if line.starts_with(b"--- ") {
                     in_new_file_part = true;
                     LineKind::LineNumbers
-                } else if line.starts_with(b"- ") {
+                } else if line.starts_with(b"- ") || line == b"-\n" {
                     LineKind::Deleted
-                } else if line.starts_with(b"+ ") {
+                } else if line.starts_with(b"+ ") || line == b"+\n" {
                     LineKind::Added
-                } else if line.starts_with(b"! ") || line.starts_with(b"  ") {
+                } else if line.starts_with(b"! ")
+                    || line.starts_with(b"  ")
+                    || line == b"!\n"
+                    || line == b"\n"
+                {
                     if in_new_file_part {
                         LineKind::Added
                     } else {
@@ -167,65 +171,60 @@ fn push_sgr(output: &mut Vec<u8>, parameters: &str) {
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+    use rstest::rstest;
 
-    fn colorize_str(output: &str, format: Format) -> String {
-        String::from_utf8(colorize(output.as_bytes(), format, &Palette::default())).unwrap()
-    }
-
-    #[test]
-    fn normal() {
-        assert_eq!(
-            colorize_str("3,4c3\n< owl\n< elk\n---\n> yak\n", Format::Normal),
-            "\x1b[36m3,4c3\x1b[0m\n\x1b[31m< owl\x1b[0m\n\x1b[31m< elk\x1b[0m\n---\n\x1b[32m> yak\x1b[0m\n"
-        );
-    }
-
-    #[test]
-    fn unified() {
-        // The deleted text looks like a header line, but only the first two
-        // lines are headers.
-        let output = "--- left\n+++ right\n@@ -2 +2 @@\n--- not a header\n+++ nor this\n";
-        assert_eq!(
-            colorize_str(output, Format::Unified),
-            "\x1b[1m--- left\x1b[0m\n\x1b[1m+++ right\x1b[0m\n\x1b[36m@@ -2 +2 @@\x1b[0m\n\
-             \x1b[31m--- not a header\x1b[0m\n\x1b[32m+++ nor this\x1b[0m\n"
-        );
-    }
-
-    #[test]
-    fn context() {
-        let output = "*** left\n--- right\n***************\n*** 1,2 ****\n  cat\n! dog\n\
-                      --- 1,3 ----\n  cat\n! cow\n+ pig\n";
-        assert_eq!(
-            colorize_str(output, Format::Context),
-            "\x1b[1m*** left\x1b[0m\n\x1b[1m--- right\x1b[0m\n***************\n\
-             \x1b[36m*** 1,2 ****\x1b[0m\n\x1b[31m  cat\x1b[0m\n\x1b[31m! dog\x1b[0m\n\
-             \x1b[36m--- 1,3 ----\x1b[0m\n\x1b[32m  cat\x1b[0m\n\x1b[32m! cow\x1b[0m\n\x1b[32m+ pig\x1b[0m\n"
-        );
-    }
-
-    #[test]
-    fn context_lines_take_the_color_of_their_part() {
-        // Unchanged lines are colored too, whatever their text looks like,
-        // but not the marker of a missing newline.
-        let output = "*** left\n--- right\n***************\n*** 1,3 ****\n  - ant\n  \n! bee\n\
-                      \\ No newline at end of file\n--- 1,3 ----\n  - ant\n  \n! fly\n";
-        assert_eq!(
-            colorize_str(output, Format::Context),
-            "\x1b[1m*** left\x1b[0m\n\x1b[1m--- right\x1b[0m\n***************\n\
-             \x1b[36m*** 1,3 ****\x1b[0m\n\x1b[31m  - ant\x1b[0m\n\x1b[31m  \x1b[0m\n\
-             \x1b[31m! bee\x1b[0m\n\\ No newline at end of file\n\
-             \x1b[36m--- 1,3 ----\x1b[0m\n\x1b[32m  - ant\x1b[0m\n\x1b[32m  \x1b[0m\n\
-             \x1b[32m! fly\x1b[0m\n"
-        );
-    }
-
-    #[test]
-    fn missing_newline_marker_is_plain() {
-        assert_eq!(
-            colorize_str("1c1\n< ant\n---\n> bee\n\\ No newline at end of file\n", Format::Normal),
-            "\x1b[36m1c1\x1b[0m\n\x1b[31m< ant\x1b[0m\n---\n\x1b[32m> bee\x1b[0m\n\\ No newline at end of file\n"
-        );
+    #[rstest]
+    #[case::normal(
+        Format::Normal,
+        "3,4c3\n< owl\n< elk\n---\n> yak\n",
+        "\x1b[36m3,4c3\x1b[0m\n\x1b[31m< owl\x1b[0m\n\x1b[31m< elk\x1b[0m\n---\n\x1b[32m> yak\x1b[0m\n"
+    )]
+    // The deleted text looks like a header line, but only the first two
+    // lines are headers.
+    #[case::unified(
+        Format::Unified,
+        "--- left\n+++ right\n@@ -2 +2 @@\n--- not a header\n+++ nor this\n",
+        "\x1b[1m--- left\x1b[0m\n\x1b[1m+++ right\x1b[0m\n\x1b[36m@@ -2 +2 @@\x1b[0m\n\
+         \x1b[31m--- not a header\x1b[0m\n\x1b[32m+++ nor this\x1b[0m\n"
+    )]
+    #[case::context(
+        Format::Context,
+        "*** left\n--- right\n***************\n*** 1,2 ****\n  cat\n! dog\n\
+         --- 1,3 ----\n  cat\n! cow\n+ pig\n",
+        "\x1b[1m*** left\x1b[0m\n\x1b[1m--- right\x1b[0m\n***************\n\
+         \x1b[36m*** 1,2 ****\x1b[0m\n\x1b[31m  cat\x1b[0m\n\x1b[31m! dog\x1b[0m\n\
+         \x1b[36m--- 1,3 ----\x1b[0m\n\x1b[32m  cat\x1b[0m\n\x1b[32m! cow\x1b[0m\n\x1b[32m+ pig\x1b[0m\n"
+    )]
+    // Unchanged lines are colored too, whatever their text looks like,
+    // but not the marker of a missing newline.
+    #[case::context_lines_take_the_color_of_their_part(
+        Format::Context,
+        "*** left\n--- right\n***************\n*** 1,3 ****\n  - ant\n  \n! bee\n\
+         \\ No newline at end of file\n--- 1,3 ----\n  - ant\n  \n! fly\n",
+        "\x1b[1m*** left\x1b[0m\n\x1b[1m--- right\x1b[0m\n***************\n\
+         \x1b[36m*** 1,3 ****\x1b[0m\n\x1b[31m  - ant\x1b[0m\n\x1b[31m  \x1b[0m\n\
+         \x1b[31m! bee\x1b[0m\n\\ No newline at end of file\n\
+         \x1b[36m--- 1,3 ----\x1b[0m\n\x1b[32m  - ant\x1b[0m\n\x1b[32m  \x1b[0m\n\
+         \x1b[32m! fly\x1b[0m\n"
+    )]
+    #[case::context_lines_without_blank_after_the_marker(
+        Format::Context,
+        "*** left\n--- right\n***************\n*** 1,3 ****\n-\n\n! bee\n\
+         --- 1,3 ----\n\n! fly\n!\n+\n",
+        "\x1b[1m*** left\x1b[0m\n\x1b[1m--- right\x1b[0m\n***************\n\
+         \x1b[36m*** 1,3 ****\x1b[0m\n\x1b[31m-\x1b[0m\n\x1b[31m\x1b[0m\n\
+         \x1b[31m! bee\x1b[0m\n\
+         \x1b[36m--- 1,3 ----\x1b[0m\n\x1b[32m\x1b[0m\n\x1b[32m! fly\x1b[0m\n\
+         \x1b[32m!\x1b[0m\n\x1b[32m+\x1b[0m\n"
+    )]
+    #[case::missing_newline_marker_is_plain(
+        Format::Normal,
+        "1c1\n< ant\n---\n> bee\n\\ No newline at end of file\n",
+        "\x1b[36m1c1\x1b[0m\n\x1b[31m< ant\x1b[0m\n---\n\x1b[32m> bee\x1b[0m\n\\ No newline at end of file\n"
+    )]
+    fn colorize_output(#[case] format: Format, #[case] output: &str, #[case] expected: &str) {
+        let colored = colorize(output.as_bytes(), format, &Palette::default());
+        assert_eq!(String::from_utf8(colored).unwrap(), expected);
     }
 
     #[test]
@@ -234,10 +233,12 @@ mod tests {
         assert_eq!(palette.added, "1;34");
         assert_eq!(palette.line_numbers, "35");
         assert_eq!(palette.deleted, Palette::default().deleted);
-        assert_eq!(Palette::parse("ad"), Err(PaletteError::Unparsable));
-        assert_eq!(
-            Palette::parse("xx=1"),
-            Err(PaletteError::UnrecognizedPrefix("xx".to_string()))
-        );
+    }
+
+    #[rstest]
+    #[case::missing_value("ad", PaletteError::Unparsable)]
+    #[case::unknown_prefix("xx=1", PaletteError::UnrecognizedPrefix("xx".to_string()))]
+    fn palette_errors(#[case] spec: &str, #[case] error: PaletteError) {
+        assert_eq!(Palette::parse(spec), Err(error));
     }
 }

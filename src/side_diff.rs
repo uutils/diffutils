@@ -9,6 +9,7 @@ use std::io::Write;
 use unicode_width::UnicodeWidthStr;
 
 use crate::params::Params;
+use crate::utils::comparison_lines_inclusive;
 
 const GUTTER_WIDTH_MIN: usize = 3;
 
@@ -321,8 +322,8 @@ fn push_output<T: Write>(
 pub fn diff<T: Write>(from_file: &[u8], to_file: &[u8], output: &mut T, params: &Params) -> bool {
     //      ^ The left file  ^ The right file
 
-    let mut left_lines: Vec<&[u8]> = from_file.split_inclusive(|&c| c == b'\n').collect();
-    let mut right_lines: Vec<&[u8]> = to_file.split_inclusive(|&c| c == b'\n').collect();
+    let mut left_lines = comparison_lines_inclusive(from_file, params);
+    let mut right_lines = comparison_lines_inclusive(to_file, params);
     let config = Config::new(
         params.width,
         params.tabsize,
@@ -331,11 +332,11 @@ pub fn diff<T: Write>(from_file: &[u8], to_file: &[u8], output: &mut T, params: 
         params.suppress_common_lines,
     );
 
-    if left_lines.last() == Some(&&b""[..]) {
+    if left_lines.last().is_some_and(|l| l.raw.is_empty()) {
         left_lines.pop();
     }
 
-    if right_lines.last() == Some(&&b""[..]) {
+    if right_lines.last().is_some_and(|l| l.raw.is_empty()) {
         right_lines.pop();
     }
 
@@ -368,20 +369,20 @@ pub fn diff<T: Write>(from_file: &[u8], to_file: &[u8], output: &mut T, params: 
         match result {
             Result::Left(left_ln) => {
                 has_diff = true;
-                push_output(left_ln, b"", b'<', output, &config).unwrap()
+                push_output(left_ln.raw, b"", b'<', output, &config).unwrap()
             }
             Result::Right(right_ln) => {
                 has_diff = true;
-                push_output(b"", right_ln, b'>', output, &config).unwrap()
+                push_output(b"", right_ln.raw, b'>', output, &config).unwrap()
             }
             Result::Both(left_ln, right_ln) => {
                 if config.suppress_common_lines {
                     continue;
                 }
                 if config.left_column {
-                    push_output(left_ln, b"", b'(', output, &config).unwrap();
+                    push_output(left_ln.raw, b"", b'(', output, &config).unwrap();
                 } else {
-                    push_output(left_ln, right_ln, b' ', output, &config).unwrap();
+                    push_output(left_ln.raw, right_ln.raw, b' ', output, &config).unwrap();
                 }
             }
         }
@@ -395,105 +396,40 @@ mod tests {
     const DEF_TAB_SIZE: usize = 4;
 
     use super::*;
+    use rstest::rstest;
 
     mod format_tabs_and_spaces {
         use super::*;
 
-        const CONFIG_E_T: Config = Config {
-            sdiff_half_width: 60,
-            tab_size: DEF_TAB_SIZE,
-            expanded: true,
-            sdiff_column_two_offset: 0,
-            separator_pos: 0,
-            left_column: false,
-            suppress_common_lines: false,
-        };
-
-        const CONFIG_E_F: Config = Config {
-            sdiff_half_width: 60,
-            tab_size: DEF_TAB_SIZE,
-            expanded: false,
-            sdiff_column_two_offset: 0,
-            separator_pos: 0,
-            left_column: false,
-            suppress_common_lines: false,
-        };
-
-        #[test]
-        fn test_format_tabs_and_spaces_expanded_false() {
+        #[rstest]
+        #[case::expanded_false(0, 5, false, b"\t ")]
+        #[case::expanded_true(0, 5, true, b"     ")]
+        #[case::from_greater_than_to(6, 5, false, b"")]
+        #[case::from_non_zero_position(2, 7, false, b"\t   ")]
+        #[case::multiple_full_tabs_needed(0, 12, false, b"\t\t\t")]
+        #[case::uneven_tab_boundary_with_spaces(3, 10, false, b"\t\t  ")]
+        #[case::expanded_true_with_offset(3, 9, true, b"      ")]
+        #[case::exact_tab_boundary_from_midpoint(4, 8, false, b"\t")]
+        #[case::mixed_tabs_and_spaces_edge_case(5, 9, false, b"\t ")]
+        #[case::minimal_gap_with_tab(7, 8, false, b"\t")]
+        #[case::expanded_false_with_tab_at_end(6, 8, false, b"\t")]
+        fn format(
+            #[case] from: usize,
+            #[case] to: usize,
+            #[case] expanded: bool,
+            #[case] expected: &[u8],
+        ) {
+            let config = Config {
+                sdiff_half_width: 60,
+                tab_size: DEF_TAB_SIZE,
+                expanded,
+                sdiff_column_two_offset: 0,
+                separator_pos: 0,
+                ..Default::default()
+            };
             let mut buf = vec![];
-            format_tabs_and_spaces(0, 5, &CONFIG_E_F, &mut buf).unwrap();
-            assert_eq!(buf, vec![b'\t', b' ']);
-        }
-
-        #[test]
-        fn test_format_tabs_and_spaces_expanded_true() {
-            let mut buf = vec![];
-            format_tabs_and_spaces(0, 5, &CONFIG_E_T, &mut buf).unwrap();
-            assert_eq!(buf, vec![b' '; 5]);
-        }
-
-        #[test]
-        fn test_format_tabs_and_spaces_from_greater_than_to() {
-            let mut buf = vec![];
-            format_tabs_and_spaces(6, 5, &CONFIG_E_F, &mut buf).unwrap();
-            assert!(buf.is_empty());
-        }
-
-        #[test]
-        fn test_format_from_non_zero_position() {
-            let mut buf = vec![];
-            format_tabs_and_spaces(2, 7, &CONFIG_E_F, &mut buf).unwrap();
-            assert_eq!(buf, vec![b'\t', b' ', b' ', b' ']);
-        }
-
-        #[test]
-        fn test_multiple_full_tabs_needed() {
-            let mut buf = vec![];
-            format_tabs_and_spaces(0, 12, &CONFIG_E_F, &mut buf).unwrap();
-            assert_eq!(buf, vec![b'\t', b'\t', b'\t']);
-        }
-
-        #[test]
-        fn test_uneven_tab_boundary_with_spaces() {
-            let mut buf = vec![];
-            format_tabs_and_spaces(3, 10, &CONFIG_E_F, &mut buf).unwrap();
-            assert_eq!(buf, vec![b'\t', b'\t', b' ', b' ']);
-        }
-
-        #[test]
-        fn test_expanded_true_with_offset() {
-            let mut buf = vec![];
-            format_tabs_and_spaces(3, 9, &CONFIG_E_T, &mut buf).unwrap();
-            assert_eq!(buf, vec![b' '; 6]);
-        }
-
-        #[test]
-        fn test_exact_tab_boundary_from_midpoint() {
-            let mut buf = vec![];
-            format_tabs_and_spaces(4, 8, &CONFIG_E_F, &mut buf).unwrap();
-            assert_eq!(buf, vec![b'\t']);
-        }
-
-        #[test]
-        fn test_mixed_tabs_and_spaces_edge_case() {
-            let mut buf = vec![];
-            format_tabs_and_spaces(5, 9, &CONFIG_E_F, &mut buf).unwrap();
-            assert_eq!(buf, vec![b'\t', b' ']);
-        }
-
-        #[test]
-        fn test_minimal_gap_with_tab() {
-            let mut buf = vec![];
-            format_tabs_and_spaces(7, 8, &CONFIG_E_F, &mut buf).unwrap();
-            assert_eq!(buf, vec![b'\t']);
-        }
-
-        #[test]
-        fn test_expanded_false_with_tab_at_end() {
-            let mut buf = vec![];
-            format_tabs_and_spaces(6, 8, &CONFIG_E_F, &mut buf).unwrap();
-            assert_eq!(buf, vec![b'\t']);
+            format_tabs_and_spaces(from, to, &config, &mut buf).unwrap();
+            assert_eq!(buf, expected);
         }
     }
 
@@ -512,107 +448,126 @@ mod tests {
             }
         }
 
-        #[test]
-        fn test_empty_line_left_expanded_false() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
+        #[rstest]
+        #[case::empty_line_left_expanded_false(b"", 10, false, false, false, b"\t\t   ")]
+        #[case::tabs_unexpanded(b"\tabc", 8, false, false, false, b"\tabc\t ")]
+        #[case::utf8_multibyte("😉😉😉".as_bytes(), 3, false, false, false, "😉\t".as_bytes())]
+        #[case::newline_handling(b"abc\ndef", 5, false, false, false, b"abc\t  ")]
+        #[case::carriage_return(
+            b"\rxyz",
+            5,
+            true,
+            false,
+            false,
+            &[b"\r".as_slice(), &[b'\t'; 15], b"xyz"].concat()
+        )]
+        #[case::exact_width_fit(b"abcd", 4, false, false, true, b"abcd ")]
+        // ISO-8859-1
+        #[case::non_utf8_bytes(b"caf\xE9", 5, false, false, false, b"caf\xE9  ")]
+        // UTF-32LE, 4 bytes per char: 'c', 'a', 'f', 'é'
+        #[case::non_utf8_bytes_ignore_padding_bytes(
+            b"c\0\0\0a\0\0\0f\0\0\0\xE9\0\0\0",
+            6,
+            false,
+            false,
+            false,
+            b"c\0\0\0a\0\0\0f\0\0\0\xE9\0\0\0   "
+        )]
+        // GB18030: \xA8\x80 is 'é', the cut breaks its encoding
+        #[case::non_utf8_non_preserve_ascii_bytes_cut(
+            b"caf\xA8\x80",
+            4,
+            false,
+            false,
+            false,
+            b"caf\xA8 "
+        )]
+        #[case::mixed_tabs_spaces(b"\t  \t", 10, false, false, false, b"\t  \t   ")]
+        #[case::overflow_multibyte("日本語".as_bytes(), 5, false, false, false, "日本  ".as_bytes())]
+        #[case::white_space_gutter(b"abc", 3, false, true, false, b"abc\t  ")]
+        #[case::expanded_true(b"abc", 10, false, false, true, b"abc        ")]
+        #[case::expanded_true_with_gutter(b"abc", 10, false, true, true, b"abc          ")]
+        #[case::width0_chars(b"abc\0\x0B\x07\x0C", 4, false, false, false, b"abc\0\x0B\x07\x0C\t ")]
+        #[case::left_empty_white_space_gutter(b"", 9, false, true, false, b"\t\t\t")]
+        #[case::s_size_eq_max_width_p1(b"abcdefghij", 10, false, false, false, b"abcdefghij ")]
+        #[case::mixed_tabs_and_spaces_inversion(b" \t \t ", 10, false, false, false, b" \t \t   ")]
+        #[case::expanded_with_tabs(b" \t \t ", 10, false, false, true, b"           ")]
+        #[case::expanded_with_tabs_and_space_gutter(
+            b" \t \t ",
+            10,
+            false,
+            true,
+            true,
+            b"             "
+        )]
+        #[case::zero_width_unicode_chars(
+            "\u{200B}".as_bytes(),
+            10,
+            false,
+            false,
+            false,
+            "\u{200B}\t\t   ".as_bytes()
+        )]
+        #[case::multiple_carriage_returns(
+            b"\r\r",
+            10,
+            false,
+            false,
+            false,
+            &[b"\r".as_slice(), &[b'\t'; 15], b"\r", &[b'\t'; 17], b"   "].concat()
+        )]
+        #[case::multiple_carriage_returns_is_right_true(
+            b"\r\r",
+            10,
+            true,
+            false,
+            false,
+            &[b"\r".as_slice(), &[b'\t'; 15], b"\r", &[b'\t'; 15]].concat()
+        )]
+        #[case::mixed_invalid_utf8_with_valid(
+            b"abc\xFF\xFEdef",
+            10,
+            false,
+            false,
+            false,
+            b"abc\xFF\xFEdef   "
+        )]
+        #[case::max_width_zero(b"foo bar", 0, false, false, false, b" ")]
+        #[case::line_only_with_tabs(b"\t\t\t", 10, false, false, false, b"\t\t   ")]
+        #[case::tabs_expanded(b"\t\t\t", 12, false, false, true, &b" ".repeat(13))]
+        #[case::mixed_tabs(b"a\tb\tc\t", 10, false, false, false, b"a\tb\tc  ")]
+        #[case::mixed_tabs_with_gutter(b"a\tb\tc\t", 10, false, true, false, b"a\tb\tc\t ")]
+        #[case::mixed_tabs_expanded(b"a\tb\tc\t", 10, false, false, true, b"a   b   c  ")]
+        #[case::mixed_tabs_expanded_with_gutter(
+            b"a\tb\tc\t",
+            10,
+            false,
+            true,
+            true,
+            b"a   b   c    "
+        )]
+        #[case::break_if_invalid_max_width(b"a\tb\tc\t", 61, false, true, true, b"")]
+        #[case::new_line(b"abc", 10, false, false, false, b"abc\t\t   ")]
+        fn output(
+            #[case] line: &[u8],
+            #[case] max_width: usize,
+            #[case] is_right: bool,
+            #[case] white_space_gutter: bool,
+            #[case] expanded: bool,
+            #[case] expected: &[u8],
+        ) {
+            let config = create_test_config(expanded, DEF_TAB_SIZE);
             let mut buf = vec![];
-            process_half_line(b"", 10, false, false, &config, &mut buf).unwrap();
-            assert_eq!(buf.len(), 5);
-            assert_eq!(buf, vec![b'\t', b'\t', b' ', b' ', b' ']);
-        }
-
-        #[test]
-        fn test_tabs_unexpanded() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            process_half_line(b"\tabc", 8, false, false, &config, &mut buf).unwrap();
-            assert_eq!(buf, vec![b'\t', b'a', b'b', b'c', b'\t', b' ']);
-        }
-
-        #[test]
-        fn test_utf8_multibyte() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = "😉😉😉".as_bytes();
-            process_half_line(s, 3, false, false, &config, &mut buf).unwrap();
-            let mut r = vec![];
-            r.write_all("😉\t".as_bytes()).unwrap();
-            assert_eq!(buf, r)
-        }
-
-        #[test]
-        fn test_newline_handling() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            process_half_line(b"abc\ndef", 5, false, false, &config, &mut buf).unwrap();
-            assert_eq!(buf, vec![b'a', b'b', b'c', b'\t', b' ', b' ']);
-        }
-
-        #[test]
-        fn test_carriage_return() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            process_half_line(b"\rxyz", 5, true, false, &config, &mut buf).unwrap();
-            let mut r = vec![b'\r'];
-            r.extend(vec![b'\t'; 15]);
-            r.extend(vec![b'x', b'y', b'z']);
-            assert_eq!(buf, r);
-        }
-
-        #[test]
-        fn test_exact_width_fit() {
-            let config = create_test_config(true, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            process_half_line(b"abcd", 4, false, false, &config, &mut buf).unwrap();
-            assert_eq!(buf.len(), 5);
-            assert_eq!(buf, b"abcd ".to_vec());
-        }
-
-        #[test]
-        fn test_non_utf8_bytes() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            // ISO-8859-1
             process_half_line(
-                &[0x63, 0x61, 0x66, 0xE9],
-                5,
-                false,
-                false,
+                line,
+                max_width,
+                is_right,
+                white_space_gutter,
                 &config,
                 &mut buf,
             )
             .unwrap();
-            assert_eq!(&buf, &[0x63, 0x61, 0x66, 0xE9, b' ', b' ']);
-            assert!(String::from_utf8(buf).is_err());
-        }
-
-        #[test]
-        fn test_non_utf8_bytes_ignore_padding_bytes() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-
-            let utf32le_bytes = [
-                0x63, 0x00, 0x00, 0x00, // 'c'
-                0x61, 0x00, 0x00, 0x00, // 'a'
-                0x66, 0x00, 0x00, 0x00, // 'f'
-                0xE9, 0x00, 0x00, 0x00, // 'é'
-            ];
-            // utf8 little endiand 32 bits (or 4 bytes per char)
-            process_half_line(&utf32le_bytes, 6, false, false, &config, &mut buf).unwrap();
-            let mut r = utf32le_bytes.to_vec();
-            r.extend(vec![b' '; 3]);
-            assert_eq!(buf, r);
-        }
-
-        #[test]
-        fn test_non_utf8_non_preserve_ascii_bytes_cut() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-
-            let gb18030 = b"\x63\x61\x66\xA8\x80"; // some random chinese encoding
-                                                   //                                   ^ é char, start multi byte
-            process_half_line(gb18030, 4, false, false, &config, &mut buf).unwrap();
-            assert_eq!(buf, b"\x63\x61\x66\xA8 "); // break the encoding of 'é' letter
+            assert_eq!(buf, expected);
         }
 
         #[test]
@@ -621,233 +576,6 @@ mod tests {
             let mut buf = vec![];
             process_half_line(b"xyz", 5, true, true, &config, &mut buf).unwrap();
             assert_eq!(buf.len(), 3);
-        }
-
-        #[test]
-        fn test_mixed_tabs_spaces() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            process_half_line(b"\t  \t", 10, false, false, &config, &mut buf).unwrap();
-            assert_eq!(buf, vec![b'\t', b' ', b' ', b'\t', b' ', b' ', b' ']);
-        }
-
-        #[test]
-        fn test_overflow_multibyte() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = "日本語".as_bytes();
-            process_half_line(s, 5, false, false, &config, &mut buf).unwrap();
-            assert_eq!(buf, "日本  ".as_bytes());
-        }
-
-        #[test]
-        fn test_white_space_gutter() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b"abc";
-            process_half_line(s, 3, false, true, &config, &mut buf).unwrap();
-            assert_eq!(buf, b"abc\t  ");
-        }
-
-        #[test]
-        fn test_expanded_true() {
-            let config = create_test_config(true, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b"abc";
-            process_half_line(s, 10, false, false, &config, &mut buf).unwrap();
-            assert_eq!(buf, b"abc        ")
-        }
-
-        #[test]
-        fn test_expanded_true_with_gutter() {
-            let config = create_test_config(true, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b"abc";
-            process_half_line(s, 10, false, true, &config, &mut buf).unwrap();
-            assert_eq!(buf, b"abc          ")
-        }
-
-        #[test]
-        fn test_width0_chars() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b"abc\0\x0B\x07\x0C";
-            process_half_line(s, 4, false, false, &config, &mut buf).unwrap();
-            assert_eq!(buf, b"abc\0\x0B\x07\x0C\t ")
-        }
-
-        #[test]
-        fn test_left_empty_white_space_gutter() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b"";
-            process_half_line(s, 9, false, true, &config, &mut buf).unwrap();
-            assert_eq!(buf, b"\t\t\t");
-        }
-
-        #[test]
-        fn test_s_size_eq_max_width_p1() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b"abcdefghij";
-            process_half_line(s, 10, false, false, &config, &mut buf).unwrap();
-            assert_eq!(buf, b"abcdefghij ");
-        }
-
-        #[test]
-        fn test_mixed_tabs_and_spaces_inversion() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b" \t \t ";
-            process_half_line(s, 10, false, false, &config, &mut buf).unwrap();
-            assert_eq!(buf, b" \t \t   ");
-        }
-
-        #[test]
-        fn test_expanded_with_tabs() {
-            let config = create_test_config(true, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b" \t \t ";
-            process_half_line(s, 10, false, false, &config, &mut buf).unwrap();
-            assert_eq!(buf, b"           ");
-        }
-
-        #[test]
-        fn test_expanded_with_tabs_and_space_gutter() {
-            let config = create_test_config(true, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b" \t \t ";
-            process_half_line(s, 10, false, true, &config, &mut buf).unwrap();
-            assert_eq!(buf, b"             ");
-        }
-
-        #[test]
-        fn test_zero_width_unicode_chars() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = "\u{200B}".as_bytes();
-            process_half_line(s, 10, false, false, &config, &mut buf).unwrap();
-            assert_eq!(buf, "\u{200B}\t\t   ".as_bytes());
-        }
-
-        #[test]
-        fn test_multiple_carriage_returns() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b"\r\r";
-            process_half_line(s, 10, false, false, &config, &mut buf).unwrap();
-            let mut r = vec![b'\r'];
-            r.extend(vec![b'\t'; 15]);
-            r.push(b'\r');
-            r.extend(vec![b'\t'; 15]);
-            r.extend(vec![b'\t'; 2]);
-            r.extend(vec![b' '; 3]);
-            assert_eq!(buf, r);
-        }
-
-        #[test]
-        fn test_multiple_carriage_returns_is_right_true() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b"\r\r";
-            process_half_line(s, 10, true, false, &config, &mut buf).unwrap();
-            let mut r = vec![b'\r'];
-            r.extend(vec![b'\t'; 15]);
-            r.push(b'\r');
-            r.extend(vec![b'\t'; 15]);
-            assert_eq!(buf, r);
-        }
-
-        #[test]
-        fn test_mixed_invalid_utf8_with_valid() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b"abc\xFF\xFEdef";
-            process_half_line(s, 10, false, false, &config, &mut buf).unwrap();
-            assert!(String::from_utf8(s.to_vec()).is_err());
-            assert_eq!(buf, b"abc\xFF\xFEdef   ");
-        }
-
-        #[test]
-        fn test_max_width_zero() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b"foo bar";
-            process_half_line(s, 0, false, false, &config, &mut buf).unwrap();
-            assert_eq!(buf, vec![b' ']);
-        }
-
-        #[test]
-        fn test_line_only_with_tabs() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b"\t\t\t";
-            process_half_line(s, 10, false, false, &config, &mut buf).unwrap();
-            assert_eq!(buf, vec![b'\t', b'\t', b' ', b' ', b' '])
-        }
-
-        #[test]
-        fn test_tabs_expanded() {
-            let config = create_test_config(true, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b"\t\t\t";
-            process_half_line(s, 12, false, false, &config, &mut buf).unwrap();
-            assert_eq!(buf, b" ".repeat(13));
-        }
-
-        #[test]
-        fn test_mixed_tabs() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b"a\tb\tc\t";
-            process_half_line(s, 10, false, false, &config, &mut buf).unwrap();
-            assert_eq!(buf, b"a\tb\tc  ");
-        }
-
-        #[test]
-        fn test_mixed_tabs_with_gutter() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b"a\tb\tc\t";
-            process_half_line(s, 10, false, true, &config, &mut buf).unwrap();
-            assert_eq!(buf, b"a\tb\tc\t ");
-        }
-
-        #[test]
-        fn test_mixed_tabs_expanded() {
-            let config = create_test_config(true, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b"a\tb\tc\t";
-            process_half_line(s, 10, false, false, &config, &mut buf).unwrap();
-            assert_eq!(buf, b"a   b   c  ");
-        }
-
-        #[test]
-        fn test_mixed_tabs_expanded_with_gutter() {
-            let config = create_test_config(true, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b"a\tb\tc\t";
-            process_half_line(s, 10, false, true, &config, &mut buf).unwrap();
-            assert_eq!(buf, b"a   b   c    ");
-        }
-
-        #[test]
-        fn test_break_if_invalid_max_width() {
-            let config = create_test_config(true, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b"a\tb\tc\t";
-            process_half_line(s, 61, false, true, &config, &mut buf).unwrap();
-            assert_eq!(buf, b"");
-            assert_eq!(buf.len(), 0);
-        }
-
-        #[test]
-        fn test_new_line() {
-            let config = create_test_config(false, DEF_TAB_SIZE);
-            let mut buf = vec![];
-            let s = b"abc";
-            process_half_line(s, 10, false, false, &config, &mut buf).unwrap();
-            assert_eq!(buf, b"abc\t\t   ");
         }
     }
 
@@ -862,130 +590,68 @@ mod tests {
             }
         }
 
-        fn create_test_config_def() -> Config {
-            Config::default()
-        }
-
-        #[test]
-        fn test_left_empty_right_not_added() {
-            let config = create_test_config_def();
-            let left_ln = b"";
-            let right_ln = b"bar";
-            let symbol = b'>';
+        #[rstest]
+        #[case::left_empty_right_not_added("", "bar", b'>', false, "\t\t\t\t\t\t\t      >\tbar\n")]
+        #[case::right_empty_left_not_del("bar", "", b'>', false, "bar\t\t\t\t\t\t\t      >\n")]
+        #[case::both_empty("", "", b' ', false, "\n")]
+        #[case::output_cut_with_maximization(
+            &"a".repeat(62),
+            &"a".repeat(62),
+            b' ',
+            false,
+            &format!("{0}\t{0}\n", "a".repeat(61))
+        )]
+        #[case::both_lines_non_empty_with_space_symbol_max_tabs(
+            "left",
+            "right",
+            b' ',
+            false,
+            "left\t\t\t\t\t\t\t\tright\n"
+        )]
+        // impossible case, just to use different symbol
+        #[case::non_space_symbol_with_padding(
+            "data",
+            "",
+            b'<',
+            false,
+            "data\t\t\t\t\t\t\t      <\n"
+        )]
+        #[case::lines_exceeding_half_width(
+            &"a".repeat(100),
+            &"b".repeat(100),
+            b' ',
+            false,
+            &format!("{}\t{}\n", "a".repeat(61), "b".repeat(61))
+        )]
+        #[case::tabs_in_lines_expanded(
+            "\tleft",
+            "\tright",
+            b' ',
+            true,
+            &format!("{:<61}   {}\n", "        left", "        right")
+        )]
+        #[case::unicode_characters("áéíóú", "😀😃😄", b' ', false, "áéíóú\t\t\t\t\t\t\t\t😀😃😄\n")]
+        fn output(
+            #[case] left_ln: &str,
+            #[case] right_ln: &str,
+            #[case] symbol: u8,
+            #[case] expanded: bool,
+            #[case] expected: &str,
+        ) {
+            let config = Config {
+                expanded,
+                ..Config::default()
+            };
             let mut buf = vec![];
-            push_output(&left_ln[..], &right_ln[..], symbol, &mut buf, &config).unwrap();
-            assert_eq!(buf, b"\t\t\t\t\t\t\t      >\tbar\n");
-        }
-
-        #[test]
-        fn test_right_empty_left_not_del() {
-            let config = create_test_config_def();
-            let left_ln = b"bar";
-            let right_ln = b"";
-            let symbol = b'>';
-            let mut buf = vec![];
-            push_output(&left_ln[..], &right_ln[..], symbol, &mut buf, &config).unwrap();
-            assert_eq!(buf, b"bar\t\t\t\t\t\t\t      >\n");
-        }
-
-        #[test]
-        fn test_both_empty() {
-            let config = create_test_config_def();
-            let left_ln = b"";
-            let right_ln = b"";
-            let symbol = b' ';
-            let mut buf = vec![];
-            push_output(&left_ln[..], &right_ln[..], symbol, &mut buf, &config).unwrap();
-            assert_eq!(buf, b"\n");
-        }
-
-        #[test]
-        fn test_output_cut_with_maximization() {
-            let config = create_test_config_def();
-            let left_ln = b"a".repeat(62);
-            let right_ln = b"a".repeat(62);
-            let symbol = b' ';
-            let mut buf = vec![];
-            push_output(&left_ln[..], &right_ln[..], symbol, &mut buf, &config).unwrap();
-            assert_eq!(buf.len(), 61 * 2 + 2);
-            assert_eq!(&buf[0..61], vec![b'a'; 61]);
-            assert_eq!(&buf[61..62], b"\t");
-            let mut end = b"a".repeat(61);
-            end.push(b'\n');
-            assert_eq!(&buf[62..], end);
-        }
-
-        #[test]
-        fn test_both_lines_non_empty_with_space_symbol_max_tabs() {
-            let config = create_test_config_def();
-            let left_ln = b"left";
-            let right_ln = b"right";
-            let symbol = b' ';
-            let mut buf = vec![];
-            push_output(left_ln, right_ln, symbol, &mut buf, &config).unwrap();
-            let expected_left = "left\t\t\t\t\t\t\t\t";
-            let expected_right = "right";
-            assert_eq!(buf, format!("{expected_left}{expected_right}\n").as_bytes());
-        }
-
-        #[test]
-        fn test_non_space_symbol_with_padding() {
-            let config = create_test_config_def();
-            let left_ln = b"data";
-            let right_ln = b"";
-            let symbol = b'<'; // impossible case, just to use different symbol
-            let mut buf = vec![];
-            push_output(left_ln, right_ln, symbol, &mut buf, &config).unwrap();
-            assert_eq!(buf, "data\t\t\t\t\t\t\t      <\n".as_bytes());
-        }
-
-        #[test]
-        fn test_lines_exceeding_half_width() {
-            let config = create_test_config_def();
-            let left_ln = vec![b'a'; 100];
-            let left_ln = left_ln.as_slice();
-            let right_ln = vec![b'b'; 100];
-            let right_ln = right_ln.as_slice();
-            let symbol = b' ';
-            let mut buf = vec![];
-            push_output(left_ln, right_ln, symbol, &mut buf, &config).unwrap();
-            let expected_left = "a".repeat(61);
-            let expected_right = "b".repeat(61);
-            assert_eq!(buf.len(), 61 + 1 + 61 + 1);
-            assert_eq!(&buf[0..61], expected_left.as_bytes());
-            assert_eq!(buf[61], b'\t');
-            assert_eq!(&buf[62..123], expected_right.as_bytes());
-            assert_eq!(&buf[123..], b"\n");
-        }
-
-        #[test]
-        fn test_tabs_in_lines_expanded() {
-            let mut config = create_test_config_def();
-            config.expanded = true;
-            let left_ln = b"\tleft";
-            let right_ln = b"\tright";
-            let symbol = b' ';
-            let mut buf = vec![];
-            push_output(left_ln, right_ln, symbol, &mut buf, &config).unwrap();
-            let expected_left = "        left".to_string() + &" ".repeat(61 - 12);
-            let expected_right = "        right";
-            assert_eq!(
-                buf,
-                format!("{}{}{}\n", expected_left, "   ", expected_right).as_bytes()
-            );
-        }
-
-        #[test]
-        fn test_unicode_characters() {
-            let config = create_test_config_def();
-            let left_ln = "áéíóú".as_bytes();
-            let right_ln = "😀😃😄".as_bytes();
-            let symbol = b' ';
-            let mut buf = vec![];
-            push_output(left_ln, right_ln, symbol, &mut buf, &config).unwrap();
-            let expected_left = "áéíóú\t\t\t\t\t\t\t\t";
-            let expected_right = "😀😃😄";
-            assert_eq!(buf, format!("{expected_left}{expected_right}\n").as_bytes());
+            push_output(
+                left_ln.as_bytes(),
+                right_ln.as_bytes(),
+                symbol,
+                &mut buf,
+                &config,
+            )
+            .unwrap();
+            assert_eq!(buf, expected.as_bytes());
         }
     }
 
@@ -1013,29 +679,83 @@ mod tests {
             vec.windows(pattern.len()).filter(|s| s == &pattern).count()
         }
 
-        fn calc_lines(input: &Vec<u8>) -> usize {
-            let mut lines_counter = 0;
-
-            for c in input {
-                if c == &b'\n' {
-                    lines_counter += 1;
-                }
-            }
-
-            lines_counter
+        fn calc_lines(input: &[u8]) -> usize {
+            input.iter().filter(|&&c| c == b'\n').count()
         }
 
-        #[test]
-        fn test_equal_lines() {
+        #[rstest]
+        #[case::equal_lines("equal", "equal", 1, 0, 0, &[("equal", 2)])]
+        #[case::different_lines("eq", "ne", 2, 1, 1, &[("eq", 1), ("ne", 1)])]
+        #[case::added_line("", "new line", 1, 0, 1, &[("new line", 1)])]
+        #[case::removed_line("old line", "", 1, 1, 0, &[("old line", 1)])]
+        #[case::multiple_changes("line1\nline2\nline3", "line1\nmodified\nline4", 5, 2, 2, &[])]
+        #[case::unicode_and_special_chars(
+            "á\t€",
+            "€\t😊",
+            2,
+            1,
+            1,
+            &[("á", 1), ("€", 2), ("😊", 1)]
+        )]
+        #[case::mixed_whitespace("  \tspaces", "\t\t tabs", 2, 1, 1, &[("spaces", 1), ("tabs", 1)])]
+        #[case::partially_matching_lines("match\nchange", "match\nupdated", 3, 1, 1, &[("match", 2)])]
+        #[case::interleaved_add_remove(
+            "A\nB\nC\nD",
+            "B\nX\nD\nY",
+            7,
+            3,
+            3,
+            &[("A", 1), ("X", 1), ("Y", 1)]
+        )]
+        #[case::swapped_lines("1\n2\n3\n4", "4\n3\n2\n1", 7, 3, 3, &[])]
+        #[case::gap_between_changes(
+            "Start\nKeep1\nRemove\nKeep2\nEnd",
+            "Start\nNew1\nKeep1\nKeep2\nNew2\nEnd",
+            7,
+            1,
+            2,
+            &[("Remove", 1), ("New1", 1), ("New2", 1)]
+        )]
+        #[case::mixed_operations_complex(
+            "Same\nOld1\nSameMid\nOld2\nSameEnd",
+            "Same\nNew1\nSameMid\nNew2\nNew3\nSameEnd",
+            8,
+            2,
+            3,
+            &[]
+        )]
+        #[case::insert_remove_middle(
+            "Header\nContent1\nFooter",
+            "Header\nContent2\nFooter",
+            4,
+            1,
+            1,
+            &[("Content1", 1), ("Content2", 1)]
+        )]
+        #[case::multiple_adjacent_changes("A\nB\nC\nD\nE", "A\nX\nY\nD\nZ", 8, 3, 3, &[])]
+        fn output(
+            #[case] from_file: &str,
+            #[case] to_file: &str,
+            #[case] lines: usize,
+            #[case] removed: usize,
+            #[case] added: usize,
+            #[case] words: &[(&str, usize)],
+        ) {
             let params = generate_params();
-            let from_file = b"equal";
-            let to_file = b"equal";
             let mut output = vec![];
-            diff(from_file, to_file, &mut output, &params);
-            assert_eq!(calc_lines(&output), 1);
-            assert!(!output.contains(&b'<'));
-            assert!(!output.contains(&b'>'));
-            assert_eq!(contains_string(&output, "equal"), 2)
+            diff(
+                from_file.as_bytes(),
+                to_file.as_bytes(),
+                &mut output,
+                &params,
+            );
+
+            assert_eq!(calc_lines(&output), lines);
+            assert_eq!(contains_string(&output, "<"), removed);
+            assert_eq!(contains_string(&output, ">"), added);
+            for (word, count) in words {
+                assert_eq!(contains_string(&output, word), *count, "{word:?}");
+            }
         }
 
         // Regression for #269: the `-y` marker must sit at the gutter middle at any width.
@@ -1059,268 +779,40 @@ mod tests {
         }
 
         #[test]
-        fn test_different_lines() {
-            let params = generate_params();
-            let from_file = b"eq";
-            let to_file = b"ne";
-            let mut output = vec![];
-            diff(from_file, to_file, &mut output, &params);
-            assert_eq!(calc_lines(&output), 2);
-            assert!(output.contains(&b'>'));
-            assert!(output.contains(&b'<'));
-            assert_eq!(contains_string(&output, "eq"), 1);
-            assert_eq!(contains_string(&output, "ne"), 1);
-        }
-
-        #[test]
-        fn test_added_line() {
-            let params = generate_params();
-            let from_file = b"";
-            let to_file = b"new line";
-            let mut output = vec![];
-            diff(from_file, to_file, &mut output, &params);
-
-            assert_eq!(calc_lines(&output), 1);
-            assert_eq!(contains_string(&output, ">"), 1);
-            assert_eq!(contains_string(&output, "new line"), 1);
-        }
-
-        #[test]
-        fn test_removed_line() {
-            let params = generate_params();
-            let from_file = b"old line";
-            let to_file = b"";
-            let mut output = vec![];
-            diff(from_file, to_file, &mut output, &params);
-
-            assert_eq!(calc_lines(&output), 1);
-            assert_eq!(contains_string(&output, "<"), 1);
-            assert_eq!(contains_string(&output, "old line"), 1);
-        }
-
-        #[test]
-        fn test_multiple_changes() {
-            let params = generate_params();
-            let from_file = b"line1\nline2\nline3";
-            let to_file = b"line1\nmodified\nline4";
-            let mut output = vec![];
-            diff(from_file, to_file, &mut output, &params);
-
-            assert_eq!(calc_lines(&output), 5);
-            assert_eq!(contains_string(&output, "<"), 2);
-            assert_eq!(contains_string(&output, ">"), 2);
-        }
-
-        #[test]
-        fn test_unicode_and_special_chars() {
-            let params = generate_params();
-            let from_file = "á\t€".as_bytes();
-            let to_file = "€\t😊".as_bytes();
-            let mut output = vec![];
-            diff(from_file, to_file, &mut output, &params);
-
-            assert!(String::from_utf8_lossy(&output).contains("á"));
-            assert!(String::from_utf8_lossy(&output).contains("€"));
-            assert!(String::from_utf8_lossy(&output).contains("😊"));
-            assert_eq!(contains_string(&output, "<"), 1);
-            assert_eq!(contains_string(&output, ">"), 1);
-        }
-
-        #[test]
-        fn test_mixed_whitespace() {
-            let params = generate_params();
-            let from_file = b"  \tspaces";
-            let to_file = b"\t\t tabs";
-            let mut output = vec![];
-            diff(from_file, to_file, &mut output, &params);
-
-            assert!(output.contains(&b'<'));
-            assert!(output.contains(&b'>'));
-            assert!(String::from_utf8_lossy(&output).contains("spaces"));
-            assert!(String::from_utf8_lossy(&output).contains("tabs"));
-        }
-
-        #[test]
         fn test_empty_files() {
             let params = generate_params();
-            let from_file = b"";
-            let to_file = b"";
-            let mut output: Vec<u8> = vec![];
-            diff(from_file, to_file, &mut output, &params);
-
-            assert!(output.is_empty());
-        }
-
-        #[test]
-        fn test_partially_matching_lines() {
-            let params = generate_params();
-            let from_file = b"match\nchange";
-            let to_file = b"match\nupdated";
             let mut output = vec![];
-            diff(from_file, to_file, &mut output, &params);
-
-            assert_eq!(calc_lines(&output), 3);
-            assert_eq!(contains_string(&output, "match"), 2);
-            assert_eq!(contains_string(&output, "<"), 1);
-            assert_eq!(contains_string(&output, ">"), 1);
-        }
-
-        #[test]
-        fn test_interleaved_add_remove() {
-            let params = generate_params();
-            let from_file = b"A\nB\nC\nD";
-            let to_file = b"B\nX\nD\nY";
-            let mut output = vec![];
-            diff(from_file, to_file, &mut output, &params);
-
-            assert_eq!(calc_lines(&output), 7);
-            assert_eq!(contains_string(&output, "A"), 1);
-            assert_eq!(contains_string(&output, "X"), 1);
-            assert_eq!(contains_string(&output, "Y"), 1);
-            assert_eq!(contains_string(&output, "<"), 3);
-            assert_eq!(contains_string(&output, ">"), 3);
-        }
-
-        #[test]
-        fn test_swapped_lines() {
-            let params = generate_params();
-            let from_file = b"1\n2\n3\n4";
-            let to_file = b"4\n3\n2\n1";
-            let mut output = vec![];
-            diff(from_file, to_file, &mut output, &params);
-
-            assert_eq!(calc_lines(&output), 7);
-            assert_eq!(contains_string(&output, "<"), 3);
-            assert_eq!(contains_string(&output, ">"), 3);
-        }
-
-        #[test]
-        fn test_gap_between_changes() {
-            let params = generate_params();
-            let from_file = b"Start\nKeep1\nRemove\nKeep2\nEnd";
-            let to_file = b"Start\nNew1\nKeep1\nKeep2\nNew2\nEnd";
-            let mut output = vec![];
-            diff(from_file, to_file, &mut output, &params);
-
-            assert_eq!(calc_lines(&output), 7);
-            assert_eq!(contains_string(&output, "Remove"), 1);
-            assert_eq!(contains_string(&output, "New1"), 1);
-            assert_eq!(contains_string(&output, "New2"), 1);
-            assert_eq!(contains_string(&output, "<"), 1);
-            assert_eq!(contains_string(&output, ">"), 2);
-        }
-
-        #[test]
-        fn test_mixed_operations_complex() {
-            let params = generate_params();
-            let from_file = b"Same\nOld1\nSameMid\nOld2\nSameEnd";
-            let to_file = b"Same\nNew1\nSameMid\nNew2\nNew3\nSameEnd";
-            let mut output = vec![];
-            diff(from_file, to_file, &mut output, &params);
-
-            assert_eq!(calc_lines(&output), 8);
-            assert_eq!(contains_string(&output, "<"), 2);
-            assert_eq!(contains_string(&output, ">"), 3);
-        }
-
-        #[test]
-        fn test_insert_remove_middle() {
-            let params = generate_params();
-            let from_file = b"Header\nContent1\nFooter";
-            let to_file = b"Header\nContent2\nFooter";
-            let mut output = vec![];
-            diff(from_file, to_file, &mut output, &params);
-
-            assert_eq!(calc_lines(&output), 4);
-            assert_eq!(contains_string(&output, "Content1"), 1);
-            assert_eq!(contains_string(&output, "Content2"), 1);
-            assert_eq!(contains_string(&output, "<"), 1);
-            assert_eq!(contains_string(&output, ">"), 1);
-        }
-
-        #[test]
-        fn test_multiple_adjacent_changes() {
-            let params = generate_params();
-            let from_file = b"A\nB\nC\nD\nE";
-            let to_file = b"A\nX\nY\nD\nZ";
-            let mut output = vec![];
-            diff(from_file, to_file, &mut output, &params);
-
-            assert_eq!(calc_lines(&output), 8);
-            assert_eq!(contains_string(&output, "<"), 3);
-            assert_eq!(contains_string(&output, ">"), 3);
+            diff(b"", b"", &mut output, &params);
+            assert_eq!(output, Vec::<u8>::new());
         }
     }
 
     mod config {
         use super::*;
 
-        fn create_config(full_width: usize, tab_size: usize, expanded: bool) -> Config {
-            Config::new(full_width, tab_size, expanded, false, false)
-        }
-
-        #[test]
-        fn test_full_width_80_tab_4() {
-            let config = create_config(80, 4, false);
-            assert_eq!(config.sdiff_half_width, 37);
-            assert_eq!(config.sdiff_column_two_offset, 40);
-            assert_eq!(config.separator_pos, 38);
-        }
-
-        #[test]
-        fn test_full_width_40_tab_8() {
-            let config = create_config(40, 8, true);
-            assert_eq!(config.sdiff_half_width, 16);
-            assert_eq!(config.sdiff_column_two_offset, 24);
-            assert_eq!(config.separator_pos, 19); // (16 +24 -1) /2 = 19.5
-        }
-
-        #[test]
-        fn test_full_width_30_tab_2() {
-            let config = create_config(30, 2, false);
-            assert_eq!(config.sdiff_half_width, 13);
-            assert_eq!(config.sdiff_column_two_offset, 16);
-            assert_eq!(config.separator_pos, 14);
-        }
-
-        #[test]
-        fn test_small_width_10_tab_4() {
-            let config = create_config(10, 4, false);
-            assert_eq!(config.sdiff_half_width, 2);
-            assert_eq!(config.sdiff_column_two_offset, 8);
-            assert_eq!(config.separator_pos, 4);
-        }
-
-        #[test]
-        fn test_minimal_width_3_tab_4() {
-            let config = create_config(3, 4, false);
-            assert_eq!(config.sdiff_half_width, 0);
-            assert_eq!(config.sdiff_column_two_offset, 3);
-            assert_eq!(config.separator_pos, 1);
-        }
-
-        #[test]
-        fn test_odd_width_7_tab_3() {
-            let config = create_config(7, 3, false);
-            assert_eq!(config.sdiff_half_width, 1);
-            assert_eq!(config.sdiff_column_two_offset, 6);
-            assert_eq!(config.separator_pos, 3);
-        }
-
-        #[test]
-        fn test_max_tab_size() {
-            // `tab_size + GUTTER_WIDTH_MIN` must not overflow `isize`.
-            let config = create_config(130, crate::params::MAX_TABSIZE, false);
-            assert_eq!(config.sdiff_half_width, 0);
-            assert_eq!(config.sdiff_column_two_offset, 130);
-        }
-
-        #[test]
-        fn test_tab_size_larger_than_width() {
-            let config = create_config(5, 10, false);
-            assert_eq!(config.sdiff_half_width, 0);
-            assert_eq!(config.sdiff_column_two_offset, 5);
-            assert_eq!(config.separator_pos, 2);
+        #[rstest]
+        #[case::full_width_80_tab_4(80, 4, false, 37, 40, 38)]
+        // (16 + 24 - 1) / 2 = 19.5
+        #[case::full_width_40_tab_8(40, 8, true, 16, 24, 19)]
+        #[case::full_width_30_tab_2(30, 2, false, 13, 16, 14)]
+        #[case::small_width_10_tab_4(10, 4, false, 2, 8, 4)]
+        #[case::minimal_width_3_tab_4(3, 4, false, 0, 3, 1)]
+        #[case::odd_width_7_tab_3(7, 3, false, 1, 6, 3)]
+        // `tab_size + GUTTER_WIDTH_MIN` must not overflow `isize`.
+        #[case::max_tab_size(130, crate::params::MAX_TABSIZE, false, 0, 130, 64)]
+        #[case::tab_size_larger_than_width(5, 10, false, 0, 5, 2)]
+        fn new(
+            #[case] full_width: usize,
+            #[case] tab_size: usize,
+            #[case] expanded: bool,
+            #[case] half_width: usize,
+            #[case] column_two_offset: usize,
+            #[case] separator_pos: usize,
+        ) {
+            let config = Config::new(full_width, tab_size, expanded, false, false);
+            assert_eq!(config.sdiff_half_width, half_width);
+            assert_eq!(config.sdiff_column_two_offset, column_two_offset);
+            assert_eq!(config.separator_pos, separator_pos);
         }
     }
 

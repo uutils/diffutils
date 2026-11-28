@@ -4,6 +4,7 @@
 // files that was distributed with this source code.
 
 use crate::bre::Bre;
+use crate::params::Params;
 use regex::Regex;
 use std::{
     borrow::Cow,
@@ -43,37 +44,78 @@ impl From<Outcome> for ExitCode {
 /// The spaces are written in small chunks, so a huge tab size does not
 /// need a huge buffer.
 /// This assumes that line does not contain any line breaks (if it does, the result is undefined).
+///
+/// The column moves the way it would on a terminal: a carriage return goes
+/// back to the start of the line, and `marker` (the `< ` or `! ` in front of
+/// the line) is written again after it when more text follows. A backspace
+/// goes one column back, or is dropped at the start of the line, and other
+/// control characters take no room.
 pub fn do_expand_tabs<W: Write>(
     output: &mut W,
     line: &[u8],
     tabsize: usize,
+    marker: &[u8],
 ) -> std::io::Result<()> {
     const SPACES: [u8; 64] = [b' '; 64];
-    let tab = b'\t';
-    let mut offset = 0;
-
-    let mut iter = line.split(|c| *c == tab).peekable();
-    while let Some(chunk) = iter.next() {
-        match std::str::from_utf8(chunk) {
-            Ok(s) => offset += UnicodeWidthStr::width(s),
-            Err(_) => offset += chunk.len(),
-        }
-        output.write_all(chunk)?;
-        if iter.peek().is_some() {
-            let mut spaces = tabsize - offset % tabsize;
-            while spaces > 0 {
-                let n = spaces.min(SPACES.len());
-                output.write_all(&SPACES[..n])?;
-                spaces -= n;
+    let mut column = 0;
+    let mut rest = line;
+    while !rest.is_empty() {
+        let text_len = rest
+            .iter()
+            .position(u8::is_ascii_control)
+            .unwrap_or(rest.len());
+        let (text, after) = rest.split_at(text_len);
+        column += text_width(text);
+        output.write_all(text)?;
+        let Some((&control, after)) = after.split_first() else {
+            break;
+        };
+        match control {
+            b'\t' => {
+                let mut spaces = tabsize - column % tabsize;
+                column += spaces;
+                while spaces > 0 {
+                    let n = spaces.min(SPACES.len());
+                    output.write_all(&SPACES[..n])?;
+                    spaces -= n;
+                }
             }
-            offset = 0;
+            b'\r' => {
+                column = 0;
+                output.write_all(&[control])?;
+                if !after.is_empty() {
+                    output.write_all(marker)?;
+                }
+            }
+            b'\x08' if column == 0 => {}
+            b'\x08' => {
+                column -= 1;
+                output.write_all(&[control])?;
+            }
+            _ => output.write_all(&[control])?,
         }
+        rest = after;
     }
-
     Ok(())
 }
 
-/// Write a single line to an output stream, expanding tabs to space if necessary.
+/// Number of columns `text` takes, where bytes that are not valid UTF-8 take
+/// one column each and control characters none.
+fn text_width(text: &[u8]) -> usize {
+    text.utf8_chunks()
+        .map(|chunk| {
+            let valid: usize = chunk
+                .valid()
+                .split(char::is_control)
+                .map(UnicodeWidthStr::width)
+                .sum();
+            valid + chunk.invalid().len()
+        })
+        .sum()
+}
+
+/// Write `marker` (the `< ` or `! ` in front of the line, possibly empty) and
+/// then a single line to an output stream, expanding tabs to space if necessary.
 /// This assumes that line does not contain any line breaks
 /// (if it does and tabs are to be expanded to spaces, the result is undefined).
 pub fn do_write_line<W: Write>(
@@ -81,11 +123,82 @@ pub fn do_write_line<W: Write>(
     line: &[u8],
     expand_tabs: bool,
     tabsize: usize,
+    marker: &[u8],
 ) -> std::io::Result<()> {
+    output.write_all(marker)?;
     if expand_tabs {
-        do_expand_tabs(output, line, tabsize)
+        do_expand_tabs(output, line, tabsize, marker)
     } else {
         output.write_all(line)
+    }
+}
+
+/// Returns the line with tabs expanded according to `tabsize` and terminal column rules.
+fn expand_tabs_to_vec(line: &[u8], tabsize: usize) -> Vec<u8> {
+    let mut expanded = Vec::with_capacity(line.len());
+    let _ = do_expand_tabs(&mut expanded, line, tabsize, b"");
+    expanded
+}
+
+/// A line of text for diff comparison that can optionally ignore differences
+/// caused by tab expansion (-E / --ignore-tab-expansion).
+#[derive(Debug)]
+pub struct ComparisonLine<'a> {
+    pub raw: &'a [u8],
+    key: Cow<'a, [u8]>,
+}
+
+impl<'a> ComparisonLine<'a> {
+    fn new(raw: &'a [u8], ignore_tab_expansion: bool, tabsize: usize) -> Self {
+        let key = if ignore_tab_expansion && (raw.contains(&b'\t') || raw.contains(&b'\x08')) {
+            Cow::Owned(expand_tabs_to_vec(raw, tabsize))
+        } else {
+            Cow::Borrowed(raw)
+        };
+        Self { raw, key }
+    }
+}
+
+/// Splits `content` into lines wrapped for comparison according to `params`.
+pub fn comparison_lines<'a>(content: &'a [u8], params: &Params) -> Vec<ComparisonLine<'a>> {
+    content
+        .split(|&c| c == b'\n')
+        .map(|line| ComparisonLine::new(line, params.ignore_tab_expansion, params.tabsize))
+        .collect()
+}
+
+/// Splits `content` into inclusive lines (preserving trailing newlines) wrapped for comparison.
+pub fn comparison_lines_inclusive<'a>(
+    content: &'a [u8],
+    params: &Params,
+) -> Vec<ComparisonLine<'a>> {
+    content
+        .split_inclusive(|&c| c == b'\n')
+        .map(|line| ComparisonLine::new(line, params.ignore_tab_expansion, params.tabsize))
+        .collect()
+}
+
+impl<'a> std::ops::Deref for ComparisonLine<'a> {
+    type Target = [u8];
+    fn deref(&self) -> &Self::Target {
+        self.raw
+    }
+}
+
+impl<'a> PartialEq for ComparisonLine<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        self.key == other.key
+    }
+}
+
+/// The marker to write before a line of the normal, context or unified
+/// format: `prefix`, without its trailing blanks if `line` is empty and
+/// `--suppress-blank-empty` is given.
+pub fn line_prefix<'a>(prefix: &'a [u8], line: &[u8], params: &Params) -> &'a [u8] {
+    if params.suppress_blank_empty && line.is_empty() {
+        prefix.trim_ascii_end()
+    } else {
+        prefix
     }
 }
 
@@ -293,7 +406,6 @@ pub fn is_posix_locale(category: &str) -> bool {
 /// A file that was `missing` and compared as empty is dated at the Unix Epoch.
 /// If an error occurs, it returns the current system time
 pub fn get_modification_time(file_path: &str, style: TimestampStyle, missing: bool) -> String {
-    use chrono::{DateTime, Local};
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -305,12 +417,13 @@ pub fn get_modification_time(file_path: &str, style: TimestampStyle, missing: bo
             .unwrap_or(SystemTime::now())
     };
 
-    let modification_time: DateTime<Local> = modification_time.into();
+    let zoned =
+        jiff::ZonedDateTime::try_from(modification_time).unwrap_or(jiff::ZonedDateTime::now());
     let format = match style {
-        TimestampStyle::Iso => "%Y-%m-%d %H:%M:%S%.9f %z",
+        TimestampStyle::Iso => "%Y-%m-%d %H:%M:%S.%9f %z",
         TimestampStyle::Traditional => "%a %b %e %H:%M:%S %Y",
     };
-    modification_time.format(format).to_string()
+    zoned.strftime(format).to_string()
 }
 
 pub fn format_failure_to_read_input_file(
@@ -458,46 +571,52 @@ mod tests {
     mod expand_tabs {
         use super::*;
         use pretty_assertions::assert_eq;
+        use rstest::rstest;
 
-        fn expand(line: &[u8], tabsize: usize) -> Vec<u8> {
+        #[rstest]
+        #[case::no_tabs(b"foo barr   baz", 8, b"", b"foo barr   baz")]
+        #[case::tabsize_8(b"foo\tbarr\tbaz", 8, b"", b"foo     barr    baz")]
+        #[case::tabsize_5(b"foo\tbarr\tbaz", 5, b"", b"foo  barr baz")]
+        #[case::tabsize_2(b"foo\tbarr\tbaz", 2, b"", b"foo barr  baz")]
+        #[case::multibyte_chars("foo\tépée\tbaz".as_bytes(), 8, b"", "foo     épée    baz".as_bytes())]
+        #[case::emoji("foo\t😉\tbaz".as_bytes(), 5, b"", "foo  😉   baz".as_bytes())]
+        // Note: The Woman Scientist emoji (👩‍🔬) is a ZWJ sequence combining
+        // the Woman emoji (👩) and the Microscope emoji (🔬). On supported platforms
+        // it is displayed as a single emoji and has a print size of 2 columns.
+        // Terminal emulators tend to not support this, and display the two emojis
+        // side by side, thus accounting for a print size of 4 columns, but the
+        // unicode_width crate reports a correct size of 2.
+        #[case::zwj_sequence("foo\t👩‍🔬\tbaz".as_bytes(), 6, b"", "foo   👩‍🔬    baz".as_bytes())]
+        // [240, 240, 152, 137] is an invalid UTF-8 sequence, so it is handled as 4 bytes
+        #[case::invalid_utf8(
+            &[240, 240, 152, 137, 9, 102, 111, 111],
+            8,
+            b"",
+            &[240, 240, 152, 137, 32, 32, 32, 32, 102, 111, 111]
+        )]
+        // Only the invalid byte counts as a column, not the whole chunk.
+        #[case::invalid_byte_before_valid_char(b"\xff\xc3\xa9\tx", 4, b"< ", b"\xff\xc3\xa9  x")]
+        // A carriage return restarts the line behind the marker again.
+        #[case::carriage_return(b"ab\rc\td", 8, b"< ", b"ab\r< c       d")]
+        #[case::two_carriage_returns(b"ab\r\r\tc", 4, b"< ", b"ab\r< \r<     c")]
+        #[case::trailing_carriage_return(b"ab\r", 8, b"< ", b"ab\r")]
+        #[case::carriage_return_then_tab(b"x\r\ty\r", 4, b"< ", b"x\r<     y\r")]
+        // A backspace moves one column back, but not before the start.
+        #[case::backspace(b"abc\x08d\te", 8, b"< ", b"abc\x08d     e")]
+        #[case::backspaces_at_start(b"\x08\x08x\ty", 8, b"< ", b"x       y")]
+        #[case::backspace_at_start(b"\x08x", 8, b"< ", b"x")]
+        // Other control characters, C1 ones included, take no room.
+        #[case::control_chars(b"a\x01\x7f\x1bb\tc", 8, b"< ", b"a\x01\x7f\x1bb      c")]
+        #[case::c1_control_char("a\u{80}b\tc".as_bytes(), 4, b"< ", "a\u{80}b  c".as_bytes())]
+        fn expansion(
+            #[case] line: &[u8],
+            #[case] tabsize: usize,
+            #[case] marker: &[u8],
+            #[case] expected: &[u8],
+        ) {
             let mut output = Vec::new();
-            assert!(do_expand_tabs(&mut output, line, tabsize).is_ok());
-            output
-        }
-
-        fn assert_tab_expansion(line: &str, tabsize: usize, expected: &str) {
-            assert_eq!(expand(line.as_bytes(), tabsize), expected.as_bytes());
-        }
-
-        #[test]
-        fn basics() {
-            assert_tab_expansion("foo barr   baz", 8, "foo barr   baz");
-            assert_tab_expansion("foo\tbarr\tbaz", 8, "foo     barr    baz");
-            assert_tab_expansion("foo\tbarr\tbaz", 5, "foo  barr baz");
-            assert_tab_expansion("foo\tbarr\tbaz", 2, "foo barr  baz");
-        }
-
-        #[test]
-        fn multibyte_chars() {
-            assert_tab_expansion("foo\tépée\tbaz", 8, "foo     épée    baz");
-            assert_tab_expansion("foo\t😉\tbaz", 5, "foo  😉   baz");
-
-            // Note: The Woman Scientist emoji (👩‍🔬) is a ZWJ sequence combining
-            // the Woman emoji (👩) and the Microscope emoji (🔬). On supported platforms
-            // it is displayed as a single emoji and has a print size of 2 columns.
-            // Terminal emulators tend to not support this, and display the two emojis
-            // side by side, thus accounting for a print size of 4 columns, but the
-            // unicode_width crate reports a correct size of 2.
-            assert_tab_expansion("foo\t👩‍🔬\tbaz", 6, "foo   👩‍🔬    baz");
-        }
-
-        #[test]
-        fn invalid_utf8() {
-            // [240, 240, 152, 137] is an invalid UTF-8 sequence, so it is handled as 4 bytes
-            assert_eq!(
-                expand(&[240, 240, 152, 137, 9, 102, 111, 111], 8),
-                &[240, 240, 152, 137, 32, 32, 32, 32, 102, 111, 111]
-            );
+            assert!(do_expand_tabs(&mut output, line, tabsize, marker).is_ok());
+            assert_eq!(output, expected);
         }
 
         #[test]
@@ -506,7 +625,9 @@ mod tests {
             // tab size neither overflows nor needs a huge buffer up front.
             let mut buf = [0u8; 1000];
             let mut output = &mut buf[..];
-            assert!(do_expand_tabs(&mut output, b"a\tb\tc", crate::params::MAX_TABSIZE).is_err());
+            assert!(
+                do_expand_tabs(&mut output, b"a\tb\tc", crate::params::MAX_TABSIZE, b"").is_err()
+            );
             let mut expected = b"a".to_vec();
             expected.resize(1000, b' ');
             assert_eq!(buf[..], expected[..]);
@@ -516,73 +637,73 @@ mod tests {
     mod quoting {
         use super::*;
         use pretty_assertions::assert_eq;
+        use rstest::rstest;
 
-        fn quoted_name(name: &[u8]) -> String {
-            String::from_utf8(quote_file_name(name).into_owned()).unwrap()
-        }
-
-        fn quoted_arg(arg: &str) -> String {
-            String::from_utf8(quote_shell_argument(arg.as_bytes()).into_owned()).unwrap()
+        #[rstest]
+        #[case::plain(b"src/main.rs", "src/main.rs")]
+        #[case::shell_specials(b"why?*$'#~", "why?*$'#~")]
+        #[case::space(b"two words", r#""two words""#)]
+        #[case::double_quotes(b"say \"hi\"", r#""say \"hi\"""#)]
+        #[case::control_escapes(b"\x07\x08\t\n\x0b\x0c\r", r#""\a\b\t\n\v\f\r""#)]
+        #[case::octal_escape(b"\x1bx\x7f", "\"\\033x\x7f\"")]
+        #[case::non_ascii("caf\u{e9}".as_bytes(), r#""caf\303\251""#)]
+        #[case::invalid_utf8(b"\xfe", r#""\376""#)]
+        fn file_names(#[case] name: &[u8], #[case] expected: &str) {
+            assert_eq!(quoted_name(name), expected);
         }
 
         #[test]
-        fn file_names() {
-            assert_eq!(quoted_name(b"src/main.rs"), "src/main.rs");
-            assert_eq!(quoted_name(b"why?*$'#~"), "why?*$'#~");
-            assert_eq!(quoted_name(b"two words"), r#""two words""#);
-            assert_eq!(quoted_name(b"say \"hi\""), r#""say \"hi\"""#);
+        fn file_names_with_backslashes() {
             if cfg!(windows) {
                 assert_eq!(quoted_name(b"C:\\temp"), r"C:\temp");
                 assert_eq!(quoted_name(b"C:\\my docs"), r#""C:\my docs""#);
             } else {
                 assert_eq!(quoted_name(b"C:\\temp"), r#""C:\\temp""#);
             }
-            assert_eq!(
-                quoted_name(b"\x07\x08\t\n\x0b\x0c\r"),
-                r#""\a\b\t\n\v\f\r""#
-            );
-            assert_eq!(quoted_name(b"\x1bx\x7f"), "\"\\033x\x7f\"");
-            assert_eq!(quoted_name("caf\u{e9}".as_bytes()), r#""caf\303\251""#);
-            assert_eq!(quoted_name(b"\xfe"), r#""\376""#);
         }
 
-        #[test]
-        fn shell_arguments() {
-            assert_eq!(quoted_arg("-u"), "-u");
-            assert_eq!(quoted_arg("a,b:c@d%e+f{g}h]/i.j"), "a,b:c@d%e+f{g}h]/i.j");
-            assert_eq!(quoted_arg("x~#"), "x~#");
-            assert_eq!(quoted_arg("~x"), "'~x'");
-            assert_eq!(quoted_arg("#x"), "'#x'");
-            assert_eq!(quoted_arg("^fn (main|init)"), "'^fn (main|init)'");
-            assert_eq!(quoted_arg("--width=9"), "'--width=9'");
-            assert_eq!(quoted_arg(""), "''");
-            assert_eq!(quoted_arg("don't"), "\"don't\"");
-            assert_eq!(quoted_arg("don't $pay"), "'don'\\''t $pay'");
+        fn quoted_name(name: &[u8]) -> String {
+            String::from_utf8(quote_file_name(name).into_owned()).unwrap()
         }
 
-        #[test]
-        fn single_quotes() {
-            assert_eq!(single_quote(b"plain"), b"'plain'");
-            assert_eq!(single_quote(b"it's"), br"'it'\''s'");
-            assert_eq!(single_quote(b""), b"''");
+        #[rstest]
+        #[case::option("-u", "-u")]
+        #[case::safe_punctuation("a,b:c@d%e+f{g}h]/i.j", "a,b:c@d%e+f{g}h]/i.j")]
+        #[case::tilde_and_hash_inside("x~#", "x~#")]
+        #[case::leading_tilde("~x", "'~x'")]
+        #[case::leading_hash("#x", "'#x'")]
+        #[case::regex("^fn (main|init)", "'^fn (main|init)'")]
+        #[case::equals_sign("--width=9", "'--width=9'")]
+        #[case::empty("", "''")]
+        #[case::single_quote("don't", "\"don't\"")]
+        #[case::single_quote_and_dollar("don't $pay", "'don'\\''t $pay'")]
+        fn shell_arguments(#[case] arg: &str, #[case] expected: &str) {
+            let quoted = String::from_utf8(quote_shell_argument(arg.as_bytes()).into_owned());
+            assert_eq!(quoted.unwrap(), expected);
+        }
+
+        #[rstest]
+        #[case::plain(b"plain", b"'plain'")]
+        #[case::single_quote(b"it's", br"'it'\''s'")]
+        #[case::empty(b"", b"''")]
+        fn single_quotes(#[case] text: &[u8], #[case] expected: &[u8]) {
+            assert_eq!(single_quote(text), expected);
         }
     }
 
     mod write_line {
         use super::*;
         use pretty_assertions::assert_eq;
+        use rstest::rstest;
 
-        fn assert_line_written(line: &str, expand_tabs: bool, tabsize: usize, expected: &str) {
+        #[rstest]
+        #[case::no_tabs("foo bar baz", false, "foo bar baz")]
+        #[case::tab_kept("foo bar\tbaz", false, "foo bar\tbaz")]
+        #[case::tab_expanded("foo bar\tbaz", true, "foo bar baz")]
+        fn basics(#[case] line: &str, #[case] expand_tabs: bool, #[case] expected: &str) {
             let mut output: Vec<u8> = Vec::new();
-            assert!(do_write_line(&mut output, line.as_bytes(), expand_tabs, tabsize).is_ok());
+            assert!(do_write_line(&mut output, line.as_bytes(), expand_tabs, 8, b"").is_ok());
             assert_eq!(output, expected.as_bytes());
-        }
-
-        #[test]
-        fn basics() {
-            assert_line_written("foo bar baz", false, 8, "foo bar baz");
-            assert_line_written("foo bar\tbaz", false, 8, "foo bar\tbaz");
-            assert_line_written("foo bar\tbaz", true, 8, "foo bar baz");
         }
     }
 
@@ -591,7 +712,6 @@ mod tests {
 
         #[test]
         fn set_time() {
-            use chrono::{DateTime, Local};
             use std::time::SystemTime;
             use tempfile::NamedTempFile;
 
@@ -601,8 +721,8 @@ mod tests {
             let _ = temp.as_file().set_modified(current);
 
             // format current time
-            let current: DateTime<Local> = current.into();
-            let current: String = current.format("%Y-%m-%d %H:%M:%S%.9f %z").to_string();
+            let zoned = jiff::ZonedDateTime::try_from(current).unwrap();
+            let current: String = zoned.strftime("%Y-%m-%d %H:%M:%S.%9f %z").to_string();
 
             // verify
             assert_eq!(
@@ -613,7 +733,6 @@ mod tests {
 
         #[test]
         fn invalid_file() {
-            use chrono::{DateTime, Local};
             use std::time::SystemTime;
 
             let invalid_file = "target/utils/invalid-file";
@@ -621,11 +740,13 @@ mod tests {
             // store current time before calling `get_modification_time`
             // Because the file is invalid, it will return SystemTime::now()
             // which will be greater than previously saved time
-            let current_time: DateTime<Local> = SystemTime::now().into();
-            let m_time: DateTime<Local> =
-                get_modification_time(invalid_file, TimestampStyle::Iso, false)
-                    .parse()
-                    .unwrap();
+            let current_time = jiff::Timestamp::try_from(SystemTime::now()).unwrap();
+            let m_time: jiff::Timestamp = jiff::ZonedDateTime::strptime(
+                "%Y-%m-%d %H:%M:%S.%9f %z",
+                get_modification_time(invalid_file, TimestampStyle::Iso, false),
+            )
+            .unwrap()
+            .timestamp();
 
             assert!(m_time > current_time);
         }
