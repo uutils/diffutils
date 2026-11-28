@@ -48,6 +48,7 @@ pub struct Params {
     pub brief: bool,
     pub expand_tabs: bool,
     pub ignore_tab_expansion: bool,
+    pub ignore_case: bool,
     pub suppress_blank_empty: bool,
     pub tabsize: usize,
     pub width: usize,
@@ -100,6 +101,7 @@ impl Default for Params {
             brief: false,
             expand_tabs: false,
             ignore_tab_expansion: false,
+            ignore_case: false,
             suppress_blank_empty: false,
             tabsize: 8,
             width: 130,
@@ -279,6 +281,10 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
         }
         if param == "-E" || param == "--ignore-tab-expansion" {
             params.ignore_tab_expansion = true;
+            continue;
+        }
+        if param == "-i" || param == "--ignore-case" {
+            params.ignore_case = true;
             continue;
         }
         if param == "--suppress-blank-empty" {

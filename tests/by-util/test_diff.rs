@@ -1370,3 +1370,76 @@ fn unified_missing_newline_deletions_first() {
             s.ends_with("@@ -1 +1,2 @@\n-1\n\\ No newline at end of file\n+0\n+1\n")
         });
 }
+
+#[rstest]
+fn ignore_case(
+    #[values(&[][..], &["-u"], &["-c"], &["-e"], &["-q"])] format: &[&str],
+    #[values("-i", "--ignore-case")] option: &str,
+) {
+    let (at, ts) = at_and_ts!();
+    at.write("i1", "Funky Stuff\n");
+    at.write("i2", "fUNKy stuFf\n");
+    ts.ucmd()
+        .args(format)
+        .args(&[option, "i1", "i2"])
+        .succeeds()
+        .no_stdout();
+    // Without -i the files differ.
+    ts.ucmd()
+        .args(format)
+        .args(&["i1", "i2"])
+        .fails_with_code(1);
+}
+
+#[test]
+fn ignore_case_side_by_side() {
+    // Side by side output prints common lines too: with -i the two lines are
+    // one common line, without a change marker.
+    let (at, ts) = at_and_ts!();
+    at.write("i1", "Funky Stuff\n");
+    at.write("i2", "fUNKy stuFf\n");
+    ts.ucmd()
+        .args(&["-y", "-i", "i1", "i2"])
+        .succeeds()
+        .stdout_str_check(|s| {
+            s.lines().count() == 1 && !s.contains('|') && !s.contains('<') && !s.contains('>')
+        });
+}
+
+#[test]
+fn ignore_case_reports_other_differences() {
+    let (at, ts) = at_and_ts!();
+    at.write("a", "Foo\nbar\nBaz\n");
+    at.write("b", "foo\nBAR\nqux\n");
+    ts.ucmd()
+        .args(&["-i", "a", "b"])
+        .fails_with_code(1)
+        .stdout_is("3c3\n< Baz\n---\n> qux\n");
+}
+
+#[test]
+fn ignore_case_folds_non_ascii_only_in_a_utf8_locale() {
+    let (at, ts) = at_and_ts!();
+    at.write("a", "A\u{100}\u{391}-\u{394}\n");
+    at.write("b", "a\u{101}\u{3b1}-\u{3b4}\n");
+    ts.ucmd()
+        .env("LC_ALL", "C.UTF-8")
+        .args(&["-i", "a", "b"])
+        .succeeds()
+        .no_stdout();
+    ts.ucmd()
+        .env("LC_ALL", "C")
+        .args(&["-i", "a", "b"])
+        .fails_with_code(1);
+}
+
+#[test]
+fn ignore_case_with_ignore_tab_expansion() {
+    let (at, ts) = at_and_ts!();
+    at.write("a", "Foo\tBar\n");
+    at.write("b", "fOO     bAR\n");
+    ts.ucmd()
+        .args(&["-i", "-E", "a", "b"])
+        .succeeds()
+        .no_stdout();
+}
