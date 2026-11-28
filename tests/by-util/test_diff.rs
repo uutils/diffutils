@@ -36,6 +36,18 @@ fn no_differences_report_identical_files(
         .stdout_is(format!("Files file1 and {second} are identical\n"));
 }
 
+// Side by side output still shows the lines of two identical files.
+#[test]
+fn no_differences_side_by_side() {
+    let (at, ts) = at_and_ts!();
+    at.write("file1", "foo\nbar\n");
+    at.write("file2", "foo\nbar\n");
+    ts.ucmd()
+        .args(&["-y", "--width=40", "file1", "file2"])
+        .succeeds()
+        .stdout_is("foo\t\t   foo\nbar\t\t   bar\n");
+}
+
 #[rstest]
 fn differences(#[values(&[][..], &["-u"], &["-c"], &["-e"])] format: &[&str]) {
     let (at, ts) = at_and_ts!();
