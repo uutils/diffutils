@@ -8,7 +8,7 @@ use std::io::Write;
 
 use crate::diff_engine::{diff_slices, Change};
 use crate::params::Params;
-use crate::utils::{do_write_line, line_prefix};
+use crate::utils::{comparison_lines, do_write_line, line_prefix};
 use crate::utils::{
     get_modification_time, is_posix_locale, write_file_header, FunctionLineFinder, TimestampStyle,
 };
@@ -96,12 +96,9 @@ impl ChangeBlock {
 }
 
 // Produces a diff between the expected output and actual output.
-fn make_diff(
-    expected: &[u8],
-    actual: &[u8],
-    context_size: usize,
-    stop_early: bool,
-) -> Vec<Mismatch> {
+fn make_diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<Mismatch> {
+    let context_size = params.context_count;
+    let stop_early = params.brief;
     let mut line_number_expected = 1;
     let mut line_number_actual = 1;
     let mut context_queue: VecDeque<&[u8]> = VecDeque::with_capacity(context_size);
@@ -112,19 +109,19 @@ fn make_diff(
     let mut results = Vec::new();
     let mut mismatch = Mismatch::new(0, 0);
 
-    let mut expected_lines: Vec<&[u8]> = expected.split(|&c| c == b'\n').collect();
-    let mut actual_lines: Vec<&[u8]> = actual.split(|&c| c == b'\n').collect();
+    let mut expected_lines = comparison_lines(expected, params);
+    let mut actual_lines = comparison_lines(actual, params);
 
     debug_assert_eq!(b"".split(|&c| c == b'\n').count(), 1);
     // ^ means that underflow here is impossible
     let expected_lines_count = expected_lines.len() - 1;
     let actual_lines_count = actual_lines.len() - 1;
 
-    if expected_lines.last() == Some(&&b""[..]) {
+    if expected_lines.last().is_some_and(|l| l.raw.is_empty()) {
         expected_lines.pop();
     }
 
-    if actual_lines.last() == Some(&&b""[..]) {
+    if actual_lines.last().is_some_and(|l| l.raw.is_empty()) {
         actual_lines.pop();
     }
 
@@ -234,7 +231,7 @@ fn make_diff(
                         mismatch.expected.push(DiffLine::Context(str.to_vec()));
                         mismatch.actual.push(DiffLine::Context(str.to_vec()));
                     } else if context_size > 0 {
-                        context_queue.push_back(str);
+                        context_queue.push_back(str.raw);
                     }
                     lines_since_mismatch += 1;
                 }
@@ -338,7 +335,7 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
         params.to_label.as_deref(),
         &to_modified_time,
     );
-    let diff_results = make_diff(expected, actual, params.context_count, params.brief);
+    let diff_results = make_diff(expected, actual, params);
     if diff_results.is_empty() {
         return Vec::new();
     }
@@ -477,6 +474,7 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+    use rstest::rstest;
 
     use crate::utils::testcmds::PATCH_CMD;
 
@@ -823,26 +821,11 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_stop_early() {
-        use crate::assert_diff_eq;
-
-        let from_filename = "foo";
-        let from = ["a", "b", "c", ""].join("\n");
-        let to_filename = "bar";
-        let to = ["a", "d", "c", ""].join("\n");
-
-        let diff_full = diff(
-            from.as_bytes(),
-            to.as_bytes(),
-            &Params {
-                from: from_filename.into(),
-                to: to_filename.into(),
-                ..Default::default()
-            },
-        );
-
-        let expected_full = [
+    #[rstest]
+    #[case::full(
+        false,
+        "a\nd\nc\n",
+        &[
             "*** foo\tTIMESTAMP",
             "--- bar\tTIMESTAMP",
             "***************",
@@ -856,64 +839,30 @@ mod tests {
             "  c",
             "",
         ]
-        .join("\n");
-        assert_diff_eq!(diff_full, expected_full);
-
-        let diff_brief = diff(
-            from.as_bytes(),
-            to.as_bytes(),
-            &Params {
-                from: from_filename.into(),
-                to: to_filename.into(),
-                brief: true,
-                ..Default::default()
-            },
-        );
-
-        let expected_brief = ["*** foo\tTIMESTAMP", "--- bar\tTIMESTAMP", ""].join("\n");
-        assert_diff_eq!(diff_brief, expected_brief);
-
-        let nodiff_full = diff(
-            from.as_bytes(),
-            from.as_bytes(),
-            &Params {
-                from: from_filename.into(),
-                to: to_filename.into(),
-                ..Default::default()
-            },
-        );
-        assert!(nodiff_full.is_empty());
-
-        let nodiff_brief = diff(
-            from.as_bytes(),
-            from.as_bytes(),
-            &Params {
-                from: from_filename.into(),
-                to: to_filename.into(),
-                brief: true,
-                ..Default::default()
-            },
-        );
-        assert!(nodiff_brief.is_empty());
-    }
-
-    #[test]
-    fn test_change_block_lines_all_changed() {
+    )]
+    #[case::brief(true, "a\nd\nc\n", &["*** foo\tTIMESTAMP", "--- bar\tTIMESTAMP", ""])]
+    #[case::full_identical(false, "a\nb\nc\n", &[])]
+    #[case::brief_identical(true, "a\nb\nc\n", &[])]
+    fn test_stop_early(#[case] brief: bool, #[case] to: &str, #[case] expected: &[&str]) {
         use crate::assert_diff_eq;
 
         let params = Params {
             from: "foo".into(),
             to: "bar".into(),
+            brief,
             ..Default::default()
         };
+        let output = diff(b"a\nb\nc\n", to.as_bytes(), &params);
+        assert_diff_eq!(output, expected.join("\n"));
+    }
 
-        // Two lines replaced by one: both old lines are changed, not one deleted.
-        let from = ["a", "b", "c", "d", ""].join("\n");
-        let to = ["a", "x", "d", ""].join("\n");
-        let expected = [
-            "*** foo\tTIMESTAMP",
-            "--- bar\tTIMESTAMP",
-            "***************",
+    #[rstest]
+    // Two lines replaced by one: both old lines are changed, not one deleted.
+    #[case::two_lines_replaced_by_one(
+        "a\nb\nc\nd\n",
+        "a\nx\nd\n",
+        3,
+        &[
             "*** 1,4 ****",
             "  a",
             "! b",
@@ -923,52 +872,21 @@ mod tests {
             "  a",
             "! x",
             "  d",
-            "",
         ]
-        .join("\n");
-        let output = diff(from.as_bytes(), to.as_bytes(), &params);
-        assert_diff_eq!(output, expected);
-
-        // One line replaced by three: all three new lines are changed.
-        let from = ["a", "b", ""].join("\n");
-        let to = ["a", "x", "y", "z", ""].join("\n");
-        let expected = [
-            "*** foo\tTIMESTAMP",
-            "--- bar\tTIMESTAMP",
-            "***************",
-            "*** 1,2 ****",
-            "  a",
-            "! b",
-            "--- 1,4 ----",
-            "  a",
-            "! x",
-            "! y",
-            "! z",
-            "",
-        ]
-        .join("\n");
-        let output = diff(from.as_bytes(), to.as_bytes(), &params);
-        assert_diff_eq!(output, expected);
-    }
-
-    #[test]
-    fn test_hunk_merging() {
-        use crate::assert_diff_eq;
-
-        let params = Params {
-            from: "foo".into(),
-            to: "bar".into(),
-            context_count: 1,
-            ..Default::default()
-        };
-
-        // Changes separated by up to twice the context size share one hunk.
-        let from = ["a", "b", "c", "d", "e", "f", ""].join("\n");
-        let to = ["a", "B", "c", "d", "E", "f", ""].join("\n");
-        let expected = [
-            "*** foo\tTIMESTAMP",
-            "--- bar\tTIMESTAMP",
-            "***************",
+    )]
+    // One line replaced by three: all three new lines are changed.
+    #[case::one_line_replaced_by_three(
+        "a\nb\n",
+        "a\nx\ny\nz\n",
+        3,
+        &["*** 1,2 ****", "  a", "! b", "--- 1,4 ----", "  a", "! x", "! y", "! z"]
+    )]
+    // Changes separated by up to twice the context size share one hunk.
+    #[case::changes_share_hunk(
+        "a\nb\nc\nd\ne\nf\n",
+        "a\nB\nc\nd\nE\nf\n",
+        1,
+        &[
             "*** 1,6 ****",
             "  a",
             "! b",
@@ -983,19 +901,14 @@ mod tests {
             "  d",
             "! E",
             "  f",
-            "",
         ]
-        .join("\n");
-        let output = diff(from.as_bytes(), to.as_bytes(), &params);
-        assert_diff_eq!(output, expected);
-
-        // One more unchanged line between them splits the hunk.
-        let from = ["a", "b", "c", "d", "e", "f", "g", ""].join("\n");
-        let to = ["a", "B", "c", "d", "e", "F", "g", ""].join("\n");
-        let expected = [
-            "*** foo\tTIMESTAMP",
-            "--- bar\tTIMESTAMP",
-            "***************",
+    )]
+    // One more unchanged line between them splits the hunk.
+    #[case::changes_split_hunks(
+        "a\nb\nc\nd\ne\nf\ng\n",
+        "a\nB\nc\nd\ne\nF\ng\n",
+        1,
+        &[
             "*** 1,3 ****",
             "  a",
             "! b",
@@ -1013,20 +926,15 @@ mod tests {
             "  e",
             "! F",
             "  g",
-            "",
         ]
-        .join("\n");
-        let output = diff(from.as_bytes(), to.as_bytes(), &params);
-        assert_diff_eq!(output, expected);
-
-        // An insertion before a nearby change gives the two sides different
-        // line counts; the hunks must still be merged (issue #268).
-        let from = ["milk", "eggs", "bread", "butter", "apples", ""].join("\n");
-        let to = ["milk", "eggs", "yogurt", "bread", "honey", "apples", ""].join("\n");
-        let expected = [
-            "*** foo\tTIMESTAMP",
-            "--- bar\tTIMESTAMP",
-            "***************",
+    )]
+    // An insertion before a nearby change gives the two sides different
+    // line counts; the hunks must still be merged (issue #268).
+    #[case::insertion_before_change(
+        "milk\neggs\nbread\nbutter\napples\n",
+        "milk\neggs\nyogurt\nbread\nhoney\napples\n",
+        1,
+        &[
             "*** 2,5 ****",
             "  eggs",
             "  bread",
@@ -1038,9 +946,26 @@ mod tests {
             "  bread",
             "! honey",
             "  apples",
-            "",
         ]
-        .join("\n");
+    )]
+    fn test_hunks(
+        #[case] from: &str,
+        #[case] to: &str,
+        #[case] context_count: usize,
+        #[case] hunks: &[&str],
+    ) {
+        use crate::assert_diff_eq;
+
+        let params = Params {
+            from: "foo".into(),
+            to: "bar".into(),
+            context_count,
+            ..Default::default()
+        };
+        let expected = format!(
+            "*** foo\tTIMESTAMP\n--- bar\tTIMESTAMP\n***************\n{}\n",
+            hunks.join("\n")
+        );
         let output = diff(from.as_bytes(), to.as_bytes(), &params);
         assert_diff_eq!(output, expected);
     }

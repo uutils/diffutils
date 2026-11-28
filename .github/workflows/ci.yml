@@ -95,24 +95,10 @@ jobs:
         RUSTFLAGS: "-Cinstrument-coverage -Zcoverage-options=branch -Ccodegen-units=1 -Copt-level=0 -Coverflow-checks=off -Zpanic_abort_tests -Cpanic=abort"
         RUSTDOCFLAGS: "-Cpanic=abort"
         LLVM_PROFILE_FILE: "diffutils-%p-%m.profraw"
-    - name: "`grcov` ~ install"
-      id: build_grcov
-      shell: bash
-      run: |
-        git clone --depth=1 https://github.com/mozilla/grcov.git ~/grcov/
-        cd ~/grcov
-        # Hardcode the version of crossbeam-epoch. See
-        # https://github.com/uutils/coreutils/issues/3680
-        sed -i -e "s|tempfile =|crossbeam-epoch = \"=0.9.8\"\ntempfile =|" Cargo.toml
-        cargo install --path .
-        cd -
-# Uncomment when the upstream issue
-# https://github.com/mozilla/grcov/issues/849 is fixed
-#      uses: actions-rs/install@v0.1
-#      with:
-#        crate: grcov
-#        version: latest
-#        use-tool-cache: false
+    - name: Install grcov
+      uses: taiki-e/install-action@v2
+      with:
+        tool: grcov
     - name: Generate coverage data (via `grcov`)
       id: coverage
       shell: bash

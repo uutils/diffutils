@@ -17,8 +17,8 @@ name = "diffutils"
 path = "src/main.rs"
 
 [dependencies]
-chrono = "0.4.38"
 itoa = "1.0.11"
+jiff = "1.0.2"
 regex = "1.10.4"
 same-file = "1.0.6"
 similar = { version = "3.2.1", default-features = false }
@@ -29,9 +29,9 @@ ctor = "1.0"
 divan = { version = "6.0.0", package = "codspeed-divan-compat" }
 pretty_assertions = "1.4.0"
 rand = "0.10.0"
-rstest = "0.28.0"
+rstest = "0.29.0"
 tempfile = "3.26.0"
-uutests = "0.12.0"
+uutests = "0.13.0"
 
 [profile.release]
 lto = "thin"
@@ -57,3 +57,6 @@ harness = false
 feat_bench_not_cmp = []
 # Turn bench for diffutils diff off
 feat_bench_not_diff = []
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(codspeed)'] }

@@ -132,6 +132,13 @@ pub fn compare_files(params: &Params, header: Option<&[u8]>) -> Outcome {
         return Outcome::Trouble;
     }
 
+    // identical contents need no diff, unless side by side output shows their
+    // lines or an ed script warns about a missing newline
+    if from_content == to_content && !matches!(params.format, Format::SideBySide | Format::Ed) {
+        maybe_report_identical_files();
+        return Outcome::Identical;
+    }
+
     if !params.text && (is_binary(&from_content) || is_binary(&to_content)) {
         if from_content == to_content {
             maybe_report_identical_files();
@@ -159,13 +166,7 @@ pub fn compare_files(params: &Params, header: Option<&[u8]>) -> Outcome {
         Format::Normal => normal_diff::diff(&from_content, &to_content, params),
         Format::Unified => unified_diff::diff(&from_content, &to_content, params),
         Format::Context => context_diff::diff(&from_content, &to_content, params),
-        Format::Ed => match ed_diff::diff(&from_content, &to_content, params) {
-            Ok(result) => result,
-            Err(error) => {
-                eprintln!("{error}");
-                return Outcome::Trouble;
-            }
-        },
+        Format::Ed => ed_diff::diff(&from_content, &to_content, params),
         // Side by side output is streamed, unless a header may have to come
         // first.
         Format::SideBySide => match header {
@@ -207,6 +208,25 @@ pub fn compare_files(params: &Params, header: Option<&[u8]>) -> Outcome {
                     &error,
                 );
             }
+            return Outcome::Trouble;
+        }
+    }
+    // An ed script cannot say that a file's last line lacks its newline, so,
+    // like GNU diff, write the script anyway, then warn about each such file
+    // and report trouble.
+    if params.format == Format::Ed {
+        let mut missing_newline = false;
+        for (name, content) in [(&params.from, &from_content), (&params.to, &to_content)] {
+            if content.last().is_some_and(|&byte| byte != b'\n') {
+                eprintln!(
+                    "{}: {}: No newline at end of file\n",
+                    params.executable.to_string_lossy(),
+                    name.to_string_lossy()
+                );
+                missing_newline = true;
+            }
+        }
+        if missing_newline {
             return Outcome::Trouble;
         }
     }

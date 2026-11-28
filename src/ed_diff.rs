@@ -7,7 +7,7 @@ use std::io::Write;
 
 use crate::diff_engine::{diff_slices, Change};
 use crate::params::Params;
-use crate::utils::do_write_line;
+use crate::utils::{comparison_lines, do_write_line};
 
 #[derive(Debug, PartialEq)]
 struct Mismatch {
@@ -15,23 +15,6 @@ struct Mismatch {
     pub line_number_actual: usize,
     pub expected: Vec<Vec<u8>>,
     pub actual: Vec<Vec<u8>>,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum DiffError {
-    MissingNL,
-}
-
-impl std::fmt::Display for DiffError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        std::fmt::Display::fmt("No newline at end of file", f)
-    }
-}
-
-impl From<DiffError> for String {
-    fn from(_: DiffError) -> String {
-        "No newline at end of file".into()
-    }
 }
 
 impl Mismatch {
@@ -46,30 +29,29 @@ impl Mismatch {
 }
 
 // Produces a diff between the expected output and actual output.
-fn make_diff(expected: &[u8], actual: &[u8], stop_early: bool) -> Result<Vec<Mismatch>, DiffError> {
+fn make_diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<Mismatch> {
+    let stop_early = params.brief;
     let mut line_number_expected = 1;
     let mut line_number_actual = 1;
     let mut results = Vec::new();
     let mut mismatch = Mismatch::new(line_number_expected, line_number_actual);
 
-    let mut expected_lines: Vec<&[u8]> = expected.split(|&c| c == b'\n').collect();
-    let mut actual_lines: Vec<&[u8]> = actual.split(|&c| c == b'\n').collect();
+    let mut expected_lines = comparison_lines(expected, params);
+    let mut actual_lines = comparison_lines(actual, params);
 
     debug_assert_eq!(b"".split(|&c| c == b'\n').count(), 1);
     // ^ means that underflow here is impossible
     let _expected_lines_count = expected_lines.len() - 1;
     let _actual_lines_count = actual_lines.len() - 1;
 
-    if expected_lines.last() == Some(&&b""[..]) {
+    // Like GNU diff, a last line without its newline compares equal to the
+    // same line with one: an ed script cannot say that a newline is missing,
+    // so the caller warns about the file instead.
+    if expected_lines.last().is_some_and(|l| l.raw.is_empty()) {
         expected_lines.pop();
-    } else {
-        return Err(DiffError::MissingNL);
     }
-
-    if actual_lines.last() == Some(&&b""[..]) {
+    if actual_lines.last().is_some_and(|l| l.raw.is_empty()) {
         actual_lines.pop();
-    } else {
-        return Err(DiffError::MissingNL);
     }
 
     for result in diff_slices(&expected_lines, &actual_lines) {
@@ -100,7 +82,7 @@ fn make_diff(expected: &[u8], actual: &[u8], stop_early: bool) -> Result<Vec<Mis
         }
         if stop_early && !results.is_empty() {
             // Optimization: stop analyzing the files as soon as there are any differences
-            return Ok(results);
+            return results;
         }
     }
 
@@ -108,15 +90,15 @@ fn make_diff(expected: &[u8], actual: &[u8], stop_early: bool) -> Result<Vec<Mis
         results.push(mismatch);
     }
 
-    Ok(results)
+    results
 }
 
-pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Result<Vec<u8>, DiffError> {
+pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<u8> {
     let mut output = Vec::new();
-    let diff_results = make_diff(expected, actual, params.brief)?;
+    let diff_results = make_diff(expected, actual, params);
     if params.brief && !diff_results.is_empty() {
         write!(&mut output, "\0").unwrap();
-        return Ok(output);
+        return output;
     }
     // Like GNU diff, write the hunks last to first. Each command then refers
     // to the original line numbers, since editing later lines first leaves
@@ -169,35 +151,28 @@ pub fn diff(expected: &[u8], actual: &[u8], params: &Params) -> Result<Vec<u8>, 
             }
         }
     }
-    Ok(output)
+    output
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+    use rstest::rstest;
 
     use crate::utils::testcmds::ED_CMD;
 
-    pub fn diff_w(expected: &[u8], actual: &[u8], filename: &str) -> Result<Vec<u8>, DiffError> {
-        let mut output = diff(expected, actual, &Params::default())?;
+    pub fn diff_w(expected: &[u8], actual: &[u8], filename: &str) -> Vec<u8> {
+        let mut output = diff(expected, actual, &Params::default());
         writeln!(&mut output, "w {filename}").unwrap();
-        Ok(output)
+        output
     }
 
-    #[test]
-    fn test_basic() {
-        let from = b"a\n";
-        let to = b"b\n";
-        let diff = diff(from, to, &Params::default()).unwrap();
-        let expected = ["1c", "b", ".", ""].join("\n");
-        assert_eq!(diff, expected.as_bytes());
-    }
-
-    #[test]
-    fn test_single_line_deleted() {
-        let diff = diff(b"a\nb\n", b"a\n", &Params::default()).unwrap();
-        assert_eq!(diff, b"2d\n");
+    #[rstest]
+    #[case::changed_line(b"a\n", b"b\n", b"1c\nb\n.\n")]
+    #[case::single_line_deleted(b"a\nb\n", b"a\n", b"2d\n")]
+    fn test_basic(#[case] from: &[u8], #[case] to: &[u8], #[case] expected: &[u8]) {
+        assert_eq!(diff(from, to, &Params::default()), expected);
     }
 
     #[test]
@@ -247,7 +222,7 @@ mod tests {
                                 }
                                 // This test diff is intentionally reversed.
                                 // We want it to turn the alef into bet.
-                                let diff = diff_w(&alef, &bet, &format!("{target}/alef")).unwrap();
+                                let diff = diff_w(&alef, &bet, &format!("{target}/alef"));
                                 File::create(format!("{target}/ab.ed"))
                                     .unwrap()
                                     .write_all(&diff)
@@ -321,7 +296,7 @@ mod tests {
                                 }
                                 // This test diff is intentionally reversed.
                                 // We want it to turn the alef into bet.
-                                let diff = diff_w(&alef, &bet, &format!("{target}/alef_")).unwrap();
+                                let diff = diff_w(&alef, &bet, &format!("{target}/alef_"));
                                 File::create(format!("{target}/ab_.ed"))
                                     .unwrap()
                                     .write_all(&diff)
@@ -401,7 +376,7 @@ mod tests {
                                 }
                                 // This test diff is intentionally reversed.
                                 // We want it to turn the alef into bet.
-                                let diff = diff_w(&alef, &bet, &format!("{target}/alefr")).unwrap();
+                                let diff = diff_w(&alef, &bet, &format!("{target}/alefr"));
                                 File::create(format!("{target}/abr.ed"))
                                     .unwrap()
                                     .write_all(&diff)
@@ -434,39 +409,19 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_stop_early() {
-        let from = ["a", "b", "c", ""].join("\n");
-        let to = ["a", "d", "c", ""].join("\n");
-
-        let diff_full = diff(from.as_bytes(), to.as_bytes(), &Params::default()).unwrap();
-        let expected_full = ["2c", "d", ".", ""].join("\n");
-        assert_eq!(diff_full, expected_full.as_bytes());
-
-        let diff_brief = diff(
-            from.as_bytes(),
-            to.as_bytes(),
-            &Params {
-                brief: true,
-                ..Default::default()
-            },
-        )
-        .unwrap();
-        let expected_brief = "\0".as_bytes();
-        assert_eq!(diff_brief, expected_brief);
-
-        let nodiff_full = diff(from.as_bytes(), from.as_bytes(), &Params::default()).unwrap();
-        assert!(nodiff_full.is_empty());
-
-        let nodiff_brief = diff(
-            from.as_bytes(),
-            from.as_bytes(),
-            &Params {
-                brief: true,
-                ..Default::default()
-            },
-        )
-        .unwrap();
-        assert!(nodiff_brief.is_empty());
+    #[rstest]
+    #[case::full(false, "a\nd\nc\n", "2c\nd\n.\n")]
+    #[case::brief(true, "a\nd\nc\n", "\0")]
+    #[case::full_identical(false, "a\nb\nc\n", "")]
+    #[case::brief_identical(true, "a\nb\nc\n", "")]
+    fn test_stop_early(#[case] brief: bool, #[case] to: &str, #[case] expected: &str) {
+        let params = Params {
+            brief,
+            ..Default::default()
+        };
+        assert_eq!(
+            diff(b"a\nb\nc\n", to.as_bytes(), &params),
+            expected.as_bytes()
+        );
     }
 }
