@@ -1201,6 +1201,77 @@ fn label_errors(#[case] args: &[&str], #[case] error: &str) {
 }
 
 #[test]
+fn ignore_case() {
+    let (at, ts) = at_and_ts!();
+    at.write("i1", "Funky Stuff\n");
+    at.write("i2", "fUNKy stuFf\n");
+    for option in ["-i", "--ignore-case"] {
+        ts.ucmd()
+            .args(&[option, "i1", "i2"])
+            .succeeds()
+            .stdout_is("");
+    }
+    // Without -i the files still differ.
+    ts.ucmd().args(&["i1", "i2"]).fails_with_code(1);
+
+    // Overriding with --no-ignore-case
+    ts.ucmd()
+        .args(&["-i", "--no-ignore-case", "i1", "i2"])
+        .fails_with_code(1);
+
+    // Formats: unified, context, ed, side-by-side
+    ts.ucmd()
+        .args(&["-i", "-u", "i1", "i2"])
+        .succeeds()
+        .stdout_is("");
+    ts.ucmd()
+        .args(&["-i", "-c", "i1", "i2"])
+        .succeeds()
+        .stdout_is("");
+    ts.ucmd()
+        .args(&["-i", "-e", "i1", "i2"])
+        .succeeds()
+        .stdout_is("");
+    ts.ucmd().args(&["-i", "-y", "i1", "i2"]).succeeds();
+
+    // Unicode case folding: in UTF-8 locale, Unicode characters are folded
+    let (at, ts) = at_and_ts!();
+    at.write("u1", "AĀȀΆΑАӐḀἈＡ𐐀-Δ\n");
+    at.write("u2", "aāȁάαаӑḁἀａ𐐨-δ\n");
+    ts.ucmd()
+        .env("LC_ALL", "en_US.UTF-8")
+        .args(&["-i", "u1", "u2"])
+        .succeeds()
+        .stdout_is("");
+
+    // In POSIX locale (LC_ALL=C), GNU diff only folds ASCII, so Unicode characters differ
+    ts.ucmd()
+        .env("LC_ALL", "C")
+        .args(&["-i", "u1", "u2"])
+        .fails_with_code(1);
+    ts.ucmd().args(&["u1", "u2"]).fails_with_code(1);
+}
+
+#[test]
+fn ignore_case_context_lines() {
+    let (at, ts) = at_and_ts!();
+    at.write("c1", "COMMON LINE\ndiff1\n");
+    at.write("c2", "common line\ndiff2\n");
+
+    // Unified diff: common line differing only in case is emitted as context from from-file
+    ts.ucmd()
+        .args(&["-i", "-u", "c1", "c2"])
+        .fails_with_code(1)
+        .stdout_contains(" COMMON LINE\n-diff1\n+diff2\n");
+
+    // Context diff: from-file hunk shows COMMON LINE, to-file hunk shows common line
+    ts.ucmd()
+        .args(&["-i", "-c", "c1", "c2"])
+        .fails_with_code(1)
+        .stdout_contains("  COMMON LINE\n! diff1\n--- 1,2 ----\n  common line\n! diff2\n");
+}
+
+#[test]
 fn width_option_forms() {
     let (at, ts) = at_and_ts!();
     at.write("w1", "x\n");
@@ -1335,6 +1406,23 @@ fn ignore_tab_expansion_with_differing_files() {
         .args(&["-E", "-u", "d1", "d2"])
         .fails_with_code(1)
         .stdout_contains(" header\t1\n-old line\n+new line\n footer\t2\n");
+}
+
+#[test]
+fn ignore_case_with_ignore_tab_expansion() {
+    let (at, ts) = at_and_ts!();
+    at.write("a", "Hello\tWorld\n");
+    at.write("b", "hello   world\n");
+    ts.ucmd().args(&["-i", "a", "b"]).fails_with_code(1);
+    ts.ucmd().args(&["-E", "a", "b"]).fails_with_code(1);
+    ts.ucmd()
+        .args(&["-i", "-E", "a", "b"])
+        .succeeds()
+        .no_stdout();
+    ts.ucmd()
+        .args(&["-i", "-E", "-u", "a", "b"])
+        .succeeds()
+        .no_stdout();
 }
 
 #[test]

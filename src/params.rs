@@ -64,6 +64,7 @@ pub struct Params {
     /// The name from which to start comparing the top-level directories
     /// (`-S`).
     pub starting_file: Option<OsString>,
+    pub ignore_case: bool,
     pub ignore_file_name_case: bool,
     pub no_dereference: bool,
     /// Set when `from` did not exist and was compared as an empty file.
@@ -111,6 +112,7 @@ impl Default for Params {
             function_line_patterns: Vec::new(),
             recursive: false,
             starting_file: None,
+            ignore_case: false,
             ignore_file_name_case: false,
             no_dereference: false,
             from_missing: false,
@@ -251,6 +253,14 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
         }
         if param == "--no-dereference" {
             params.no_dereference = true;
+            continue;
+        }
+        if param == "-i" || param == "--ignore-case" {
+            params.ignore_case = true;
+            continue;
+        }
+        if param == "--no-ignore-case" {
+            params.ignore_case = false;
             continue;
         }
         if param == "--ignore-file-name-case" {
@@ -948,6 +958,23 @@ mod tests {
             options,
             expected.iter().copied().map(os).collect::<Vec<_>>()
         );
+    }
+    #[test]
+    fn ignore_case() {
+        for (args, expected) in [
+            (&[][..], false),
+            (&["-i"], true),
+            (&["--ignore-case"], true),
+            (&["--no-ignore-case"], false),
+            (&["-i", "--no-ignore-case"], false),
+            (&["--no-ignore-case", "-i"], true),
+        ] {
+            let args = std::iter::once("diff")
+                .chain(args.iter().copied())
+                .chain(["foo", "bar"]);
+            let params = parse_params(args.map(os).peekable()).unwrap();
+            assert_eq!(params.ignore_case, expected);
+        }
     }
 
     #[rstest]

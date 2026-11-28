@@ -71,7 +71,7 @@ fn make_diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<Mismatch> {
                 mismatch.actual_missing_nl = line_number_actual > actual_lines_count;
                 line_number_actual += 1;
             }
-            diff::Result::Both(str, _) => {
+            diff::Result::Both(str1, str2) => {
                 match (
                     line_number_expected > expected_lines_count,
                     line_number_actual > actual_lines_count,
@@ -79,16 +79,16 @@ fn make_diff(expected: &[u8], actual: &[u8], params: &Params) -> Vec<Mismatch> {
                     (true, false) => {
                         line_number_expected += 1;
                         line_number_actual += 1;
-                        mismatch.expected.push(str.to_vec());
+                        mismatch.expected.push(str1.to_vec());
                         mismatch.expected_missing_nl = true;
-                        mismatch.actual.push(str.to_vec());
+                        mismatch.actual.push(str2.to_vec());
                     }
                     (false, true) => {
                         line_number_expected += 1;
                         line_number_actual += 1;
-                        mismatch.actual.push(str.to_vec());
+                        mismatch.actual.push(str2.to_vec());
                         mismatch.actual_missing_nl = true;
-                        mismatch.expected.push(str.to_vec());
+                        mismatch.expected.push(str1.to_vec());
                     }
                     (true, true) | (false, false) => {
                         line_number_expected += 1;
@@ -590,5 +590,23 @@ mod tests {
             diff(b"a\nb\nc", to.as_bytes(), &params),
             expected.as_bytes()
         );
+    }
+
+    #[test]
+    fn test_ignore_case() {
+        let from = b"Hello World\nLine 2\n";
+        let to = b"hello world\nline 2\n";
+        let res = diff(
+            from,
+            to,
+            &Params {
+                ignore_case: true,
+                ..Default::default()
+            },
+        );
+        assert!(res.is_empty());
+
+        let res_diff = diff(from, to, &Params::default());
+        assert!(!res_diff.is_empty());
     }
 }
