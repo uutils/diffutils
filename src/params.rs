@@ -72,6 +72,10 @@ pub struct Params {
     pub to_missing: bool,
     pub from_label: Option<OsString>,
     pub to_label: Option<OsString>,
+    /// Print only the left column of two common lines.
+    pub left_column: bool,
+    /// Do not print common lines
+    pub suppress_common_lines: bool,
 }
 
 impl Params {
@@ -117,6 +121,8 @@ impl Default for Params {
             to_missing: false,
             from_label: None,
             to_label: None,
+            left_column: false,
+            suppress_common_lines: false,
         }
     }
 }
@@ -301,7 +307,7 @@ pub fn parse_params<I: Iterator<Item = OsString>>(
         }
         if param == "-y" || param == "--side-by-side" {
             if format.is_some() && format != Some(Format::SideBySide) {
-                return Err("Conflicting output style option".to_string());
+                return Err("Conflicting output style options".to_string());
             }
             format = Some(Format::SideBySide);
             continue;

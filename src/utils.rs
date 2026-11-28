@@ -9,9 +9,35 @@ use regex::Regex;
 use std::{
     borrow::Cow,
     ffi::{OsStr, OsString},
-    io::Write,
+    fs,
+    io::{Read, Write},
+    process::ExitCode,
 };
 use unicode_width::UnicodeWidthStr;
+
+/// The result of a comparison, from best to worst, so that the outcome of
+/// several comparisons is their maximum.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum Outcome {
+    Identical,
+    Different,
+    Trouble,
+}
+
+// Exit codes are documented at
+// https://www.gnu.org/software/diffutils/manual/html_node/Invoking-diff.html.
+//     An exit status of 0 means no differences were found,
+//     1 means some differences were found,
+//     and 2 means trouble.
+impl From<Outcome> for ExitCode {
+    fn from(outcome: Outcome) -> Self {
+        match outcome {
+            Outcome::Identical => Self::SUCCESS,
+            Outcome::Different => Self::from(1),
+            Outcome::Trouble => Self::from(2),
+        }
+    }
+}
 
 /// Write the input line to an output stream, replacing tabs by spaces.
 /// Correctly handle multi-bytes characters.
@@ -425,6 +451,24 @@ pub fn report_failure_to_read_input_file(
         "{}",
         format_failure_to_read_input_file(executable, filepath, error)
     );
+}
+
+/// Number of leading bytes inspected when deciding whether an input is binary.
+pub const BINARY_PROBE_LEN: usize = 16 * 1024;
+
+/// An input is treated as binary when a NUL byte occurs near its start.
+pub fn is_binary(content: &[u8]) -> bool {
+    content[..content.len().min(BINARY_PROBE_LEN)].contains(&0)
+}
+
+/// Reads the entire contents of a file, or standard input if `filepath` is `"-"`.
+pub fn read_file_contents(filepath: &OsStr) -> std::io::Result<Vec<u8>> {
+    if filepath == "-" {
+        let mut content = Vec::new();
+        std::io::stdin().read_to_end(&mut content).and(Ok(content))
+    } else {
+        fs::read(filepath)
+    }
 }
 
 #[cfg(test)]

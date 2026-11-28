@@ -5,39 +5,17 @@
 
 use crate::color::{colorize, ColorWhen, Palette, PaletteError};
 use crate::params::{parse_params, Format, MissingFile, Params};
-use crate::utils::report_failure_to_read_input_file;
+pub use crate::utils::Outcome;
+use crate::utils::{is_binary, read_file_contents, report_failure_to_read_input_file};
 use crate::{context_diff, dir_diff, ed_diff, normal_diff, side_diff, unified_diff};
 use std::env::ArgsOs;
 use std::ffi::OsString;
+#[cfg(any(target_os = "linux", target_os = "android"))]
 use std::fs;
-use std::io::{self, stdout, IsTerminal, Read, Write};
+use std::io::{self, stdout, IsTerminal, Write};
 use std::iter::Peekable;
 use std::path::Path;
 use std::process::ExitCode;
-
-/// The result of a comparison, from best to worst, so that the outcome of
-/// several comparisons is their maximum.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub enum Outcome {
-    Identical,
-    Different,
-    Trouble,
-}
-
-// Exit codes are documented at
-// https://www.gnu.org/software/diffutils/manual/html_node/Invoking-diff.html.
-//     An exit status of 0 means no differences were found,
-//     1 means some differences were found,
-//     and 2 means trouble.
-impl From<Outcome> for ExitCode {
-    fn from(outcome: Outcome) -> Self {
-        match outcome {
-            Outcome::Identical => Self::SUCCESS,
-            Outcome::Different => Self::from(1),
-            Outcome::Trouble => Self::from(2),
-        }
-    }
-}
 
 pub fn main(opts: Peekable<ArgsOs>) -> ExitCode {
     let (mut params, option_args) = match parse_params(opts) {
@@ -88,15 +66,6 @@ pub fn compare_files(params: &Params, header: Option<&[u8]>) -> Outcome {
         return Outcome::Identical;
     }
 
-    // read files
-    fn read_file_contents(filepath: &OsString) -> io::Result<Vec<u8>> {
-        if filepath == "-" {
-            let mut content = Vec::new();
-            io::stdin().read_to_end(&mut content).and(Ok(content))
-        } else {
-            fs::read(filepath)
-        }
-    }
     let mut io_error = false;
     let mut from_missing = false;
     let mut to_missing = false;
@@ -162,35 +131,63 @@ pub fn compare_files(params: &Params, header: Option<&[u8]>) -> Outcome {
     };
 
     // run diff
-    let result: Vec<u8> = match params.format {
-        Format::Normal => normal_diff::diff(&from_content, &to_content, params),
-        Format::Unified => unified_diff::diff(&from_content, &to_content, params),
-        Format::Context => context_diff::diff(&from_content, &to_content, params),
-        Format::Ed => ed_diff::diff(&from_content, &to_content, params),
+    let (result, has_diff): (Vec<u8>, bool) = match params.format {
+        Format::Normal => {
+            let result = normal_diff::diff(&from_content, &to_content, params);
+            let has_diff = !result.is_empty();
+            (result, has_diff)
+        }
+        Format::Unified => {
+            let result = unified_diff::diff(&from_content, &to_content, params);
+            let has_diff = !result.is_empty();
+            (result, has_diff)
+        }
+        Format::Context => {
+            let result = context_diff::diff(&from_content, &to_content, params);
+            let has_diff = !result.is_empty();
+            (result, has_diff)
+        }
+        Format::Ed => {
+            let result = ed_diff::diff(&from_content, &to_content, params);
+            let has_diff = !result.is_empty();
+            (result, has_diff)
+        }
         // Side by side output is streamed, unless a header may have to come
-        // first.
-        Format::SideBySide => match header {
-            None => side_diff::diff(&from_content, &to_content, &mut stdout().lock(), params),
-            Some(header) => {
-                let mut output = Vec::new();
-                let result = side_diff::diff(&from_content, &to_content, &mut output, params);
-                if !result.is_empty() {
-                    output.splice(0..0, header.iter().copied());
+        // first (or `-q` suppresses the diff output).
+        Format::SideBySide if params.brief => {
+            let has_diff = side_diff::diff(&from_content, &to_content, &mut io::sink(), params);
+            (Vec::new(), has_diff)
+        }
+        Format::SideBySide => {
+            let has_diff = match header {
+                None => {
+                    let mut out = stdout().lock();
+                    let has_diff = side_diff::diff(&from_content, &to_content, &mut out, params);
+                    let _ = out.flush();
+                    has_diff
                 }
-                if stdout().write_all(&output).is_err() {
-                    return Outcome::Trouble;
+                Some(header) => {
+                    let mut output = Vec::new();
+                    let has_diff = side_diff::diff(&from_content, &to_content, &mut output, params);
+                    if has_diff {
+                        output.splice(0..0, header.iter().copied());
+                    }
+                    if stdout().write_all(&output).is_err() {
+                        return Outcome::Trouble;
+                    }
+                    has_diff
                 }
-                result
-            }
-        },
+            };
+            (Vec::new(), has_diff)
+        }
     };
-    if params.brief && !result.is_empty() {
+    if params.brief && has_diff {
         print_files_differ("Files", params);
     } else if params.format != Format::SideBySide {
-        let header = if result.is_empty() {
-            &[][..]
-        } else {
+        let header = if has_diff {
             header.unwrap_or_default()
+        } else {
+            &[][..]
         };
         let colored =
             output_palette(params).map(|palette| colorize(&result, params.format, &palette));
@@ -230,7 +227,7 @@ pub fn compare_files(params: &Params, header: Option<&[u8]>) -> Outcome {
             return Outcome::Trouble;
         }
     }
-    if result.is_empty() {
+    if !has_diff {
         maybe_report_identical_files();
         Outcome::Identical
     } else {
@@ -267,14 +264,6 @@ fn output_palette(params: &Params) -> Option<Palette> {
             None
         }
     }
-}
-
-/// Number of leading bytes inspected when deciding whether an input is binary.
-const BINARY_PROBE_LEN: usize = 16 * 1024;
-
-/// An input is treated as binary when a NUL byte occurs near its start.
-fn is_binary(content: &[u8]) -> bool {
-    content[..content.len().min(BINARY_PROBE_LEN)].contains(&0)
 }
 
 /// Print the one-line summary used instead of the differences, `kind` naming
